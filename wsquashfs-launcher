@@ -1,0 +1,134 @@
+#!/bin/bash
+
+# Fonction pour récupérer une variable depuis le fichier autorun.cmd
+getWine_var() {
+    WINEPOINT=$1
+    WINEVAR=$2
+    WINEVALUE=$3
+
+    if [[ -e "${WINEPOINT}/autorun.cmd" ]]; then
+        VAL=$(grep "^${WINEVAR}=" "${WINEPOINT}/autorun.cmd" | sed -e "s/^${WINEVAR}=//" | head -1 | dos2unix)
+        if [[ -n "${VAL}" ]]; then
+            echo "${VAL}"
+        else
+            echo "${WINEVALUE}"
+        fi
+    else
+        echo "${WINEVALUE}"
+    fi
+}
+
+# Vérification des arguments
+if [[ $# -ne 1 ]]; then
+    echo "Usage: $0 <fichier_wsquashfs>"
+    exit 1
+fi
+
+# Variables
+WSQUASHFS_FILE=$1
+if [[ "${WSQUASHFS_FILE##*.}" != "wsquashfs" ]]; then
+    echo "Erreur : Le fichier spécifié n'a pas l'extension .wsquashfs"
+    exit 1
+fi
+
+BASE_NAME=$(basename "$WSQUASHFS_FILE" .wsquashfs)
+MOUNT_POINT="$HOME/.squashfs/$BASE_NAME"
+AUTORUN_FILE="$MOUNT_POINT/autorun.cmd"
+BOTTLE_NAME="Soda" # Nom de la bouteille existante
+
+# Vérification du fichier wsquashfs
+if [[ ! -f "$WSQUASHFS_FILE" ]]; then
+    echo "Erreur : Le fichier wsquashfs spécifié n'existe pas : $WSQUASHFS_FILE"
+    exit 1
+fi
+
+# Contrôle si le point de montage existe déjà
+if mountpoint -q "$MOUNT_POINT"; then
+    echo "Le point de montage $MOUNT_POINT est déjà utilisé. Démontage..."
+    if ! umount "$MOUNT_POINT"; then
+        echo "Erreur : Impossible de démonter $MOUNT_POINT. Veuillez vérifier."
+        exit 1
+    fi
+    echo "Démontage réussi."
+fi
+
+# Création du point de montage si nécessaire
+if [[ ! -d "$MOUNT_POINT" ]]; then
+    echo "Création du point de montage : $MOUNT_POINT"
+    mkdir -p "$MOUNT_POINT" || { echo "Erreur : Impossible de créer le point de montage"; exit 1; }
+fi
+
+# Montage
+echo "Montage de $WSQUASHFS_FILE sur $MOUNT_POINT"
+if ! squashfuse "$WSQUASHFS_FILE" "$MOUNT_POINT"; then
+    echo "Erreur : Échec du montage wsquashfs"
+    exit 1
+fi
+
+# Vérification de l'existence de autorun.cmd
+if [[ ! -f "$AUTORUN_FILE" ]]; then
+    echo "Erreur : Le fichier autorun.cmd n'existe pas dans $MOUNT_POINT"
+    umount "$MOUNT_POINT"
+    rmdir "$MOUNT_POINT"
+    exit 1
+fi
+
+# Utilisation de getWine_var pour récupérer DIR et CMD
+DIR=$(getWine_var "$MOUNT_POINT" "DIR" "")
+CMD=$(getWine_var "$MOUNT_POINT" "CMD" "")
+
+# Vérification des variables extraites
+if [[ -z "$CMD" ]]; then
+    echo "Erreur : CMD n'est pas défini dans $AUTORUN_FILE"
+    umount "$MOUNT_POINT"
+    rmdir "$MOUNT_POINT"
+    exit 1
+fi
+
+# Gestion du chemin complet
+if [[ -z "$DIR" ]]; then
+    # Si DIR n'est pas défini, suppose que le fichier est à la racine
+    EXEC_PATH="$MOUNT_POINT/$(echo "$CMD" | awk '{print $1}' | sed 's/^"//;s/"$//')"
+    EXEC_ARGS=$(echo "$CMD" | cut -d' ' -f2-)
+else
+    EXEC_PATH="$MOUNT_POINT/$DIR/$(echo "$CMD" | awk '{print $1}' | sed 's/^"//;s/"$//')"
+    EXEC_ARGS=$(echo "$CMD" | cut -d' ' -f2-)
+fi
+
+if [[ ! -f "$EXEC_PATH" ]]; then
+    echo "Erreur : Le fichier exécutable spécifié n'existe pas : $EXEC_PATH"
+    umount "$MOUNT_POINT"
+    rmdir "$MOUNT_POINT"
+    exit 1
+fi
+
+# Détection du type de fichier exécuté
+EXT="${EXEC_PATH##*.}"
+if [[ "$EXT" == "bat" ]]; then
+    RUN_CMD="wine cmd /c \"$EXEC_PATH\" $EXEC_ARGS"
+else
+    # Gestion des arguments pour Bottles
+    if [[ -n "$EXEC_ARGS" ]]; then
+        RUN_CMD="flatpak run --command=bottles-cli com.usebottles.bottles run -b \"$BOTTLE_NAME\" -e \"$EXEC_PATH\" -a \"$EXEC_ARGS\""
+    else
+        RUN_CMD="flatpak run --command=bottles-cli com.usebottles.bottles run -b \"$BOTTLE_NAME\" -e \"$EXEC_PATH\""
+    fi
+fi
+
+# Affichage des informations
+echo "Chemin complet de l'exécutable : $EXEC_PATH"
+echo "Arguments d'exécution : $EXEC_ARGS"
+echo "Commande exécutée : $RUN_CMD"
+
+# Exécution de la commande
+eval $RUN_CMD
+
+# Nettoyage
+echo "Démontage de $MOUNT_POINT..."
+umount "$MOUNT_POINT"
+
+# Suppression du répertoire de montage
+echo "Suppression du répertoire de montage : $MOUNT_POINT"
+rmdir "$MOUNT_POINT" || echo "Attention : Impossible de supprimer le répertoire $MOUNT_POINT. Veuillez vérifier."
+
+echo "Terminé."
