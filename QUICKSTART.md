@@ -17,12 +17,20 @@ sudo dnf install squashfuse wine dos2unix
 
 ### 2. Installer wsquashfs-run
 
+**Méthode automatique (recommandée)** :
+
+```bash
+./install.sh
+```
+
+**Méthode manuelle** :
+
 ```bash
 sudo cp wsquashfs-run /usr/local/bin/
 sudo chmod +x /usr/local/bin/wsquashfs-run
 ```
 
-Ou utilisez le Makefile :
+**Avec Make** :
 
 ```bash
 make install

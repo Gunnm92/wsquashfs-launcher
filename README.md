@@ -45,22 +45,48 @@ sudo dnf install squashfuse wine dos2unix
 
 ### Installation du script
 
+#### Installation automatique (recommandé)
+
 ```bash
 git clone https://github.com/votre-repo/wsquashfs-launcher.git
 cd wsquashfs-launcher
+./install.sh
+```
+
+Le script d'installation :
+- ✅ Vérifie les dépendances
+- ✅ Installe `wsquashfs-run` dans `/usr/local/bin` (avec sudo) ou `~/.local/bin`
+- ✅ Propose de créer une entrée desktop pour les GUI
+- ✅ Propose d'associer les fichiers `.wsquashfs`
+- ✅ Configure le PATH automatiquement
+
+#### Installation manuelle
+
+```bash
 chmod +x wsquashfs-run
 sudo cp wsquashfs-run /usr/local/bin/
 ```
 
-Ou avec le Makefile :
+#### Avec Make
+
 ```bash
-make install-desktop
+make install
+```
+
+#### Désinstallation
+
+```bash
+./install.sh --uninstall
+# ou
+make uninstall
 ```
 
 ### Vérifier l'installation
 
 ```bash
 ./test-setup.sh
+# ou après installation
+wsquashfs-run --help
 ```
 
 ## 📖 Utilisation

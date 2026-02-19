@@ -1,6 +1,6 @@
 # Makefile pour WSquashFS Launcher
 
-.PHONY: help install install-desktop build-docker test clean
+.PHONY: help install uninstall test clean build-docker
 
 help:
 	@echo "WSquashFS Launcher - Makefile"
@@ -8,7 +8,8 @@ help:
 	@echo ""
 	@echo "Commandes disponibles :"
 	@echo ""
-	@echo "  make install          - Installer wsquashfs-run dans /usr/local/bin"
+	@echo "  make install          - Installer wsquashfs-run (lance install.sh)"
+	@echo "  make uninstall        - Désinstaller wsquashfs-run"
 	@echo "  make test             - Vérifier les dépendances"
 	@echo "  make clean            - Nettoyer les fichiers temporaires"
 	@echo "  make build-docker     - Construire l'image Docker (optionnel)"
@@ -16,17 +17,12 @@ help:
 	@echo ""
 
 install:
-	@echo "Installation de wsquashfs-run..."
-	@chmod +x wsquashfs-run
-	@sudo cp wsquashfs-run /usr/local/bin/
-	@echo "✅ Installation terminée !"
-	@echo ""
-	@echo "Utilisation :"
-	@echo "  wsquashfs-run <fichier.wsquashfs>"
-	@echo ""
-	@echo "Pour Pegasus Frontend, voir : pegasus-example/README.md"
+	@chmod +x install.sh
+	@./install.sh
 
-install-desktop: install
+uninstall:
+	@chmod +x install.sh
+	@./install.sh --uninstall
 
 build-docker:
 	@echo "Construction de l'image Docker..."
