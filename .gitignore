@@ -3,6 +3,7 @@
 games/
 *.iso
 batocera.linux/
+*.wsquashfs.keys
 
 # Répertoires de montage
 .squashfs/
