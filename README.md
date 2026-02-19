@@ -99,6 +99,12 @@ wsquashfs-run /path/to/game.wsquashfs
 
 # Exemple avec un chemin complet
 wsquashfs-run ~/Games/Batocera/MyGame.wsquashfs
+
+# Nettoyer les fichiers temporaires (depuis n'importe où)
+wsquashfs-run --clean
+
+# Afficher l'aide
+wsquashfs-run --help
 ```
 
 ### Variables d'environnement

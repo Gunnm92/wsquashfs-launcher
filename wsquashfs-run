@@ -77,18 +77,48 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 # ============================================
-# VÉRIFICATIONS
+# VÉRIFICATIONS ET COMMANDES
 # ============================================
 
+# Gestion des commandes spéciales
+case "${1:-}" in
+    --clean)
+        echo "Nettoyage des fichiers temporaires wsquashfs..."
+        rm -rf "${CACHE_DIR}/mnt"/* 2>/dev/null || true
+        rm -rf "${CACHE_DIR}/wine"/* 2>/dev/null || true
+        rm -rf "${CACHE_DIR}/work"/* 2>/dev/null || true
+        echo "✓ Fichiers temporaires supprimés"
+        echo ""
+        echo "Note: Les sauvegardes sont préservées dans: ${SAVES_DIR}"
+        exit 0
+        ;;
+    --help|-h)
+        echo "Usage: $0 <fichier.wsquashfs>"
+        echo "       $0 --clean"
+        echo ""
+        echo "Lance un jeu Windows empaqueté au format WSquashFS (Batocera)"
+        echo ""
+        echo "Options:"
+        echo "  --clean               Nettoyer les fichiers temporaires"
+        echo "  --help, -h            Afficher cette aide"
+        echo ""
+        echo "Variables d'environnement:"
+        echo "  WSQUASHFS_SAVES_DIR   - Répertoire des sauvegardes (défaut: ~/.local/share/wsquashfs/saves)"
+        echo "  WSQUASHFS_WINEPREFIX  - Répertoire des préfixes Wine (défaut: ~/.local/share/wsquashfs/prefix)"
+        echo "  WSQUASHFS_CACHE       - Répertoire de cache (défaut: ~/.cache/wsquashfs)"
+        echo "  WSQUASHFS_MOUNT_MODE  - Mode de montage: auto, squashfuse, unsquashfs (défaut: auto)"
+        echo ""
+        echo "Exemples:"
+        echo "  wsquashfs-run game.wsquashfs"
+        echo "  wsquashfs-run --clean"
+        exit 0
+        ;;
+esac
+
 if [[ $# -ne 1 ]]; then
+    echo "Erreur: Fichier .wsquashfs requis"
     echo "Usage: $0 <fichier.wsquashfs>"
-    echo ""
-    echo "Lance un jeu Windows empaqueté au format WSquashFS (Batocera)"
-    echo ""
-    echo "Variables d'environnement:"
-    echo "  WSQUASHFS_SAVES_DIR   - Répertoire des sauvegardes (défaut: ~/.local/share/wsquashfs/saves)"
-    echo "  WSQUASHFS_WINEPREFIX  - Répertoire des préfixes Wine (défaut: ~/.local/share/wsquashfs/prefix)"
-    echo "  WSQUASHFS_CACHE       - Répertoire de cache (défaut: ~/.cache/wsquashfs)"
+    echo "       $0 --help pour plus d'informations"
     exit 1
 fi
 
