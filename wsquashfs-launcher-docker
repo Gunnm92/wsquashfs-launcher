@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Version Docker du launcher WSquashFS
+# Cette version utilise uniquement Wine (pas de Bottles/Flatpak)
+
 # Fonction pour récupérer une variable depuis le fichier autorun.cmd
 getWine_var() {
     WINEPOINT=$1
@@ -32,9 +35,8 @@ if [[ "${WSQUASHFS_FILE##*.}" != "wsquashfs" ]]; then
 fi
 
 BASE_NAME=$(basename "$WSQUASHFS_FILE" .wsquashfs)
-MOUNT_POINT="$HOME/.squashfs/$BASE_NAME"
+MOUNT_POINT="/tmp/.squashfs/$BASE_NAME"
 AUTORUN_FILE="$MOUNT_POINT/autorun.cmd"
-BOTTLE_NAME="Soda" # Nom de la bouteille existante
 
 # Vérification du fichier wsquashfs
 if [[ ! -f "$WSQUASHFS_FILE" ]]; then
@@ -43,7 +45,7 @@ if [[ ! -f "$WSQUASHFS_FILE" ]]; then
 fi
 
 # Contrôle si le point de montage existe déjà
-if mountpoint -q "$MOUNT_POINT"; then
+if mountpoint -q "$MOUNT_POINT" 2>/dev/null; then
     echo "Le point de montage $MOUNT_POINT est déjà utilisé. Démontage..."
     if ! umount "$MOUNT_POINT"; then
         echo "Erreur : Impossible de démonter $MOUNT_POINT. Veuillez vérifier."
@@ -129,67 +131,57 @@ if [[ "$FSYNC" == "1" ]]; then
     echo "FSYNC activé"
 fi
 
-# Déterminer si on utilise Wine ou Bottles
-USE_BOTTLES=false
-WINE_BINARY="wine"
-
-# Support version Wine personnalisée
-if [[ -n "$WINE_VERSION" ]]; then
-    echo "Version Wine demandée : $WINE_VERSION"
-    if [[ -x "/opt/wine-$WINE_VERSION/bin/wine" ]]; then
-        WINE_BINARY="/opt/wine-$WINE_VERSION/bin/wine"
-    else
-        echo "Attention : Wine $WINE_VERSION non disponible, utilisation de Wine/Bottles par défaut"
-    fi
+if [[ "$DXVK" == "1" ]]; then
+    echo "DXVK demandé (nécessite installation dans le préfixe Wine)"
 fi
+
+if [[ "$VKD3D" == "1" ]]; then
+    echo "VKD3D demandé (nécessite installation dans le préfixe Wine)"
+fi
+
+# Détermination de la commande Wine à utiliser
+WINE_BINARY="wine"
 
 # Support Proton si spécifié
 if [[ -n "$PROTON_VERSION" ]]; then
     echo "Version Proton demandée : $PROTON_VERSION"
+    # Note : Dans un environnement Docker, Proton doit être installé séparément
+    # Pour l'instant, on utilise Wine standard
     if [[ -x "/usr/local/bin/proton" ]]; then
         WINE_BINARY="proton"
     else
-        echo "Attention : Proton non disponible"
+        echo "Attention : Proton non disponible, utilisation de Wine standard"
     fi
 fi
 
-# Support runner personnalisé
+# Support version Wine personnalisée
+if [[ -n "$WINE_VERSION" ]]; then
+    echo "Version Wine demandée : $WINE_VERSION"
+    # Vérifier si une version spécifique de Wine existe
+    if [[ -x "/opt/wine-$WINE_VERSION/bin/wine" ]]; then
+        WINE_BINARY="/opt/wine-$WINE_VERSION/bin/wine"
+    else
+        echo "Attention : Wine $WINE_VERSION non disponible, utilisation de Wine système"
+    fi
+fi
+
+# Support runner personnalisé (comme Lutris, etc.)
 if [[ -n "$RUNNER" ]]; then
     echo "Runner personnalisé : $RUNNER"
+    # Le runner pourrait pointer vers un exécutable spécifique
     if [[ -x "$RUNNER" ]]; then
         WINE_BINARY="$RUNNER"
     fi
 fi
 
-# Vérifier si Bottles est disponible et préféré (si aucune version Wine spécifique n'est demandée)
-if [[ -z "$WINE_VERSION" ]] && [[ -z "$PROTON_VERSION" ]] && [[ -z "$RUNNER" ]]; then
-    if command -v flatpak &> /dev/null && flatpak list | grep -q com.usebottles.bottles; then
-        USE_BOTTLES=true
-    fi
-fi
-
-# Construction de la commande
-if [[ "$USE_BOTTLES" == true ]]; then
-    # Utilisation de Bottles
-    if [[ "$EXT" == "bat" ]]; then
-        RUN_CMD="flatpak run --command=bottles-cli com.usebottles.bottles run -b \"$BOTTLE_NAME\" -e cmd -a \"/c \\\"$EXEC_PATH\\\" $EXEC_ARGS\""
-    else
-        if [[ -n "$EXEC_ARGS" ]]; then
-            RUN_CMD="flatpak run --command=bottles-cli com.usebottles.bottles run -b \"$BOTTLE_NAME\" -e \"$EXEC_PATH\" -a \"$EXEC_ARGS\""
-        else
-            RUN_CMD="flatpak run --command=bottles-cli com.usebottles.bottles run -b \"$BOTTLE_NAME\" -e \"$EXEC_PATH\""
-        fi
-    fi
+# Construction de la commande Wine
+if [[ "$EXT" == "bat" ]]; then
+    RUN_CMD="$WINE_BINARY cmd /c \"$EXEC_PATH\" $EXEC_ARGS"
 else
-    # Utilisation de Wine standard
-    if [[ "$EXT" == "bat" ]]; then
-        RUN_CMD="$WINE_BINARY cmd /c \"$EXEC_PATH\" $EXEC_ARGS"
+    if [[ -n "$EXEC_ARGS" ]]; then
+        RUN_CMD="$WINE_BINARY \"$EXEC_PATH\" $EXEC_ARGS"
     else
-        if [[ -n "$EXEC_ARGS" ]]; then
-            RUN_CMD="$WINE_BINARY \"$EXEC_PATH\" $EXEC_ARGS"
-        else
-            RUN_CMD="$WINE_BINARY \"$EXEC_PATH\""
-        fi
+        RUN_CMD="$WINE_BINARY \"$EXEC_PATH\""
     fi
 fi
 
@@ -202,13 +194,8 @@ echo "Point de montage  : $MOUNT_POINT"
 echo "Chemin exécutable : $EXEC_PATH"
 echo "Arguments         : $EXEC_ARGS"
 echo ""
-echo "Configuration :"
-if [[ "$USE_BOTTLES" == true ]]; then
-    echo "  Runtime         : Bottles ($BOTTLE_NAME)"
-else
-    echo "  Runtime         : Wine"
-    echo "  Binary Wine     : $WINE_BINARY"
-fi
+echo "Configuration Wine/Proton :"
+echo "  Binary Wine     : $WINE_BINARY"
 echo "  Architecture    : $WINE_ARCH"
 [[ -n "$WINE_VERSION" ]] && echo "  Version Wine    : $WINE_VERSION"
 [[ -n "$PROTON_VERSION" ]] && echo "  Version Proton  : $PROTON_VERSION"
@@ -221,8 +208,32 @@ echo ""
 echo "Commande          : $RUN_CMD"
 echo "========================================="
 
+# Changement du répertoire de travail
+WORK_DIR="$MOUNT_POINT"
+if [[ -n "$DIR" ]]; then
+    WORK_DIR="$MOUNT_POINT/$DIR"
+fi
+
+cd "$WORK_DIR" || {
+    echo "Erreur : Impossible de changer vers le répertoire $WORK_DIR"
+    umount "$MOUNT_POINT"
+    rmdir "$MOUNT_POINT"
+    exit 1
+}
+
+echo "Répertoire de travail : $(pwd)"
+echo "========================================="
+echo "Lancement de l'application..."
+echo ""
+
 # Exécution de la commande
 eval $RUN_CMD
+EXIT_CODE=$?
+
+echo ""
+echo "========================================="
+echo "Application terminée (code: $EXIT_CODE)"
+echo "========================================="
 
 # Nettoyage
 echo "Démontage de $MOUNT_POINT..."
@@ -233,3 +244,4 @@ echo "Suppression du répertoire de montage : $MOUNT_POINT"
 rmdir "$MOUNT_POINT" || echo "Attention : Impossible de supprimer le répertoire $MOUNT_POINT. Veuillez vérifier."
 
 echo "Terminé."
+exit $EXIT_CODE

@@ -1,0 +1,69 @@
+{
+    "actions_player1": [
+        {
+            "trigger": [
+                "hotkey",
+                "start"
+            ],
+            "type": "key",
+            "target": [
+                "KEY_LEFTALT",
+                "KEY_F4"
+            ]
+        },
+        {
+            "trigger": "up",
+            "type": "key",
+            "target": "KEY_U"
+        },
+        {
+            "trigger": "down",
+            "type": "key",
+            "target": "KEY_D"
+        },
+        {
+            "trigger": "left",
+            "type": "key",
+            "target": "KEY_L"
+        },
+        {
+            "trigger": "right",
+            "type": "key",
+            "target": "KEY_R"
+        },
+        {
+            "trigger": "start",
+            "type": "key",
+            "target": "KEY_ENTER"
+        },
+        {
+            "trigger": "select",
+            "type": "key",
+            "target": "KEY_SPACE"
+        },
+        {
+            "trigger": "joystick1",
+            "type": "mouse"
+        },
+        {
+            "trigger": "r2",
+            "type": "key",
+            "target": "BTN_LEFT"
+        },
+        {
+            "trigger": "pagedown",
+            "type": "key",
+            "target": "BTN_RIGHT"
+        },
+        {
+            "trigger": "pageup",
+            "type": "key",
+            "target": "BTN_MIDDLE"
+        },
+        {
+            "trigger": "l2",
+            "type": "key",
+            "target": "BTN_RIGHT"
+        }
+    ]
+}

@@ -1,0 +1,37 @@
+# Fichiers de jeux
+*.wsquashfs
+games/
+*.iso
+batocera.linux/
+
+# Répertoires de montage
+.squashfs/
+
+# Préfixes Wine
+.wine/
+
+# Logs
+*.log
+
+# Fichiers temporaires
+tmp/
+temp/
+*.tmp
+*~
+
+# IDE et éditeurs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Fichiers système
+.DS_Store
+Thumbs.db
+
+# Variables d'environnement
+.env
+.env.local
+
+# Docker
+docker-compose.override.yml

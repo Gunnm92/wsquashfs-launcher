@@ -1,0 +1,36 @@
+# Configuration Pegasus Frontend pour WSquashFS Launcher
+# Placez ce fichier dans votre dossier de jeux WSquashFS
+
+collection: Windows Games (WSquashFS)
+shortname: wsquashfs
+extensions: wsquashfs
+launch: wsquashfs-run "{file.path}"
+
+# Vous pouvez aussi spécifier des variables d'environnement :
+# launch: WSQUASHFS_SAVES_DIR="$HOME/saves" wsquashfs-run "{file.path}"
+
+# ============================================
+# Exemples de jeux
+# ============================================
+
+game: Example Game 1
+file: game1.wsquashfs
+developer: Game Developer
+publisher: Game Publisher
+genre: Action
+players: 1-2
+description: Description de votre jeu ici.
+  Vous pouvez avoir plusieurs lignes.
+rating: 85%
+release: 2020-01-15
+assets.boxFront: media/game1-box.png
+assets.screenshot: media/game1-screen1.png
+
+game: Example Game 2
+file: game2.wsquashfs
+developer: Another Developer
+genre: RPG
+players: 1
+description: Un autre jeu exemple.
+rating: 90%
+release: 2021-06-20

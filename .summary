@@ -1,0 +1,41 @@
+# WSquashFS Launcher - Résumé du Projet
+
+## 🎯 Objectif
+Lancer des fichiers .wsquashfs de Batocera sur n'importe quel Linux (Arch, Debian, etc.)
+Compatible avec les launchers frontend comme Pegasus, EmulationStation, etc.
+
+## ⭐ Fichier Principal
+wsquashfs-run - Script standalone basé sur le code de Batocera
+
+## 🔑 Caractéristiques Clés
+- Utilise OverlayFS comme Batocera (lowerdir + upperdir + workdir)
+- Sauvegardes persistantes séparées du fichier .wsquashfs
+- 100% compatible avec le format autorun.cmd de Batocera
+- Support WINE, DXVK, VKD3D, ESYNC, FSYNC
+- Pas besoin de Docker
+
+## 📂 Architecture Données
+~/.local/share/wsquashfs/saves/  - Sauvegardes (upperdir)
+~/.local/share/wsquashfs/prefix/ - Préfixes Wine
+~/.cache/wsquashfs/              - Montages temporaires
+
+## 🚀 Installation Rapide
+make install
+# ou
+sudo cp wsquashfs-run /usr/local/bin/
+
+## 💡 Utilisation
+wsquashfs-run game.wsquashfs
+
+## 🎮 Intégration Pegasus
+Voir: pegasus-example/README.md
+Commande: wsquashfs-run "{file.path}"
+
+## 📖 Documentation
+- QUICKSTART.md       - Démarrage rapide
+- README.md           - Documentation complète
+- pegasus-example/    - Config Pegasus
+- autorun.cmd.example - Exemples config
+
+## ✅ Basé sur
+Code source officiel de Batocera (batocera-wine script)

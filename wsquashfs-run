@@ -1,0 +1,491 @@
+#!/bin/bash
+
+# wsquashfs-run - Launcher pour fichiers WSquashFS (Batocera compatible)
+# Basé sur le code de batocera-wine
+# Usage: wsquashfs-run <fichier.wsquashfs>
+
+set -e
+
+# ============================================
+# CONFIGURATION
+# ============================================
+
+# Répertoires de base (modifiable via variables d'environnement)
+SAVES_DIR="${WSQUASHFS_SAVES_DIR:-$HOME/.local/share/wsquashfs/saves}"
+WINEPREFIX_BASE="${WSQUASHFS_WINEPREFIX:-$HOME/.local/share/wsquashfs/prefix}"
+CACHE_DIR="${WSQUASHFS_CACHE:-$HOME/.cache/wsquashfs}"
+
+# Mode de montage: auto, squashfuse, unsquashfs
+MOUNT_MODE="${WSQUASHFS_MOUNT_MODE:-auto}"
+
+# ============================================
+# FONCTIONS UTILITAIRES
+# ============================================
+
+# Fonction pour récupérer une variable depuis autorun.cmd
+getWine_var() {
+    local WINEPOINT=$1
+    local WINEVAR=$2
+    local WINEVALUE=$3
+
+    if [[ -e "${WINEPOINT}/autorun.cmd" ]]; then
+        local VAL=$(grep "^${WINEVAR}=" "${WINEPOINT}/autorun.cmd" 2>/dev/null | sed -e "s/^${WINEVAR}=//" | head -1)
+        # Nettoyer les retours chariot Windows si dos2unix est disponible
+        if command -v dos2unix &> /dev/null; then
+            VAL=$(echo "$VAL" | dos2unix 2>/dev/null)
+        else
+            # Sinon, supprimer manuellement les \r
+            VAL=$(echo "$VAL" | tr -d '\r')
+        fi
+
+        if [[ -n "${VAL}" ]]; then
+            echo "${VAL}"
+        else
+            echo "${WINEVALUE}"
+        fi
+    else
+        echo "${WINEVALUE}"
+    fi
+}
+
+# Nettoyage en cas d'erreur
+cleanup() {
+    local EXIT_CODE=$?
+
+    if [[ -n "${WINEPOINT}" ]] && mountpoint -q "${WINEPOINT}" 2>/dev/null; then
+        echo "Démontage de ${WINEPOINT}..."
+        umount "${WINEPOINT}" 2>/dev/null || true
+    fi
+
+    if [[ -n "${SQUASHFSPOINT}" ]] && mountpoint -q "${SQUASHFSPOINT}" 2>/dev/null; then
+        echo "Démontage de ${SQUASHFSPOINT}..."
+        umount "${SQUASHFSPOINT}" 2>/dev/null || true
+    fi
+
+    # Supprimer les répertoires temporaires
+    [[ -n "${WORKPOINT}" && -d "${WORKPOINT}" ]] && rm -rf "${WORKPOINT}" 2>/dev/null || true
+
+    # Si on a utilisé unsquashfs, nettoyer le répertoire d'extraction
+    if [[ "${USING_UNSQUASHFS}" == "true" ]] && [[ -n "${SQUASHFSPOINT}" ]] && [[ -d "${SQUASHFSPOINT}" ]]; then
+        echo "Nettoyage de l'extraction unsquashfs..."
+        rm -rf "${SQUASHFSPOINT}" 2>/dev/null || true
+    fi
+
+    exit $EXIT_CODE
+}
+
+trap cleanup EXIT INT TERM
+
+# ============================================
+# VÉRIFICATIONS
+# ============================================
+
+if [[ $# -ne 1 ]]; then
+    echo "Usage: $0 <fichier.wsquashfs>"
+    echo ""
+    echo "Lance un jeu Windows empaqueté au format WSquashFS (Batocera)"
+    echo ""
+    echo "Variables d'environnement:"
+    echo "  WSQUASHFS_SAVES_DIR   - Répertoire des sauvegardes (défaut: ~/.local/share/wsquashfs/saves)"
+    echo "  WSQUASHFS_WINEPREFIX  - Répertoire des préfixes Wine (défaut: ~/.local/share/wsquashfs/prefix)"
+    echo "  WSQUASHFS_CACHE       - Répertoire de cache (défaut: ~/.cache/wsquashfs)"
+    exit 1
+fi
+
+# Vérifier les dépendances de base
+if ! command -v wine &> /dev/null; then
+    echo "Erreur: wine n'est pas installé"
+    exit 1
+fi
+
+# Déterminer la méthode de montage
+if [[ "$MOUNT_MODE" == "auto" ]]; then
+    # Vérifier si FUSE est disponible
+    if [[ -e /dev/fuse ]] && command -v squashfuse &> /dev/null; then
+        MOUNT_MODE="squashfuse"
+    elif command -v unsquashfs &> /dev/null; then
+        MOUNT_MODE="unsquashfs"
+    else
+        echo "Erreur: Ni squashfuse (avec FUSE) ni unsquashfs n'est disponible"
+        echo "Installation:"
+        echo "  - Pour squashfuse: apt install squashfuse"
+        echo "  - Pour unsquashfs: apt install squashfs-tools"
+        exit 1
+    fi
+fi
+
+# Vérifier que l'outil choisi est disponible
+if [[ "$MOUNT_MODE" == "squashfuse" ]]; then
+    if ! command -v squashfuse &> /dev/null; then
+        echo "Erreur: squashfuse n'est pas installé"
+        exit 1
+    fi
+    if [[ ! -e /dev/fuse ]]; then
+        echo "Erreur: /dev/fuse n'existe pas. FUSE n'est pas disponible."
+        echo "Essayez: WSQUASHFS_MOUNT_MODE=unsquashfs $0 $1"
+        exit 1
+    fi
+    USING_UNSQUASHFS="false"
+elif [[ "$MOUNT_MODE" == "unsquashfs" ]]; then
+    if ! command -v unsquashfs &> /dev/null; then
+        echo "Erreur: unsquashfs n'est pas installé"
+        echo "Installation: apt install squashfs-tools"
+        exit 1
+    fi
+    USING_UNSQUASHFS="true"
+fi
+
+echo "Mode de montage: $MOUNT_MODE"
+
+WSQUASHFS_FILE="$1"
+
+# Vérification du fichier
+if [[ ! -f "$WSQUASHFS_FILE" ]]; then
+    echo "Erreur: Le fichier '$WSQUASHFS_FILE' n'existe pas"
+    exit 1
+fi
+
+if [[ "${WSQUASHFS_FILE##*.}" != "wsquashfs" ]]; then
+    echo "Attention: Le fichier ne semble pas avoir l'extension .wsquashfs"
+fi
+
+# Chemin absolu
+WSQUASHFS_FILE=$(realpath "$WSQUASHFS_FILE")
+GAME_NAME=$(basename "$WSQUASHFS_FILE" .wsquashfs)
+
+echo "========================================="
+echo "WSquashFS Launcher"
+echo "========================================="
+echo "Jeu: $GAME_NAME"
+echo "Fichier: $WSQUASHFS_FILE"
+echo "========================================="
+echo ""
+
+# ============================================
+# PRÉPARATION DES RÉPERTOIRES
+# ============================================
+
+# Point de montage du squashfs (lecture seule)
+SQUASHFSPOINT="${CACHE_DIR}/mnt/${GAME_NAME}"
+
+# Point de montage overlay (lecture/écriture)
+WINEPOINT="${CACHE_DIR}/wine/${GAME_NAME}"
+
+# Répertoire de sauvegarde (upperdir pour overlay)
+SAVEPOINT="${SAVES_DIR}/${GAME_NAME}"
+
+# Répertoire de travail pour overlay
+WORKPOINT="${CACHE_DIR}/work/${GAME_NAME}"
+
+# Créer les répertoires nécessaires
+mkdir -p "$SQUASHFSPOINT"
+mkdir -p "$WINEPOINT"
+mkdir -p "$SAVEPOINT"
+mkdir -p "$WORKPOINT"
+
+# ============================================
+# DÉMONTAGE DES MONTAGES EXISTANTS
+# ============================================
+
+if mountpoint -q "$WINEPOINT" 2>/dev/null; then
+    echo "Démontage du point overlay existant..."
+    umount "$WINEPOINT" || {
+        echo "Erreur: Impossible de démonter $WINEPOINT"
+        exit 1
+    }
+fi
+
+if mountpoint -q "$SQUASHFSPOINT" 2>/dev/null; then
+    echo "Démontage du squashfs existant..."
+    umount "$SQUASHFSPOINT" || {
+        echo "Erreur: Impossible de démonter $SQUASHFSPOINT"
+        exit 1
+    }
+fi
+
+# Nettoyer les anciens répertoires unsquashfs
+if [[ -d "$SQUASHFSPOINT" ]] && [[ ! "$(ls -A $SQUASHFSPOINT 2>/dev/null)" ]]; then
+    rm -rf "$SQUASHFSPOINT"
+    mkdir -p "$SQUASHFSPOINT"
+fi
+
+# ============================================
+# EXTRACTION/MONTAGE DU SQUASHFS
+# ============================================
+
+if [[ "$MOUNT_MODE" == "squashfuse" ]]; then
+    echo "Montage du fichier squashfs avec squashfuse..."
+    if ! squashfuse "$WSQUASHFS_FILE" "$SQUASHFSPOINT"; then
+        echo "Erreur: Échec du montage du fichier squashfs"
+        exit 1
+    fi
+    echo "✓ Squashfs monté sur: $SQUASHFSPOINT"
+
+elif [[ "$MOUNT_MODE" == "unsquashfs" ]]; then
+    echo "Extraction du fichier squashfs avec unsquashfs..."
+    echo "Note: Cette opération peut prendre du temps..."
+
+    # Nettoyer le répertoire cible
+    rm -rf "$SQUASHFSPOINT"
+
+    # Extraire avec unsquashfs
+    # -f = forcer l'extraction
+    # -d = répertoire de destination
+    # -no-progress = pas de barre de progression (plus propre dans les logs)
+    if ! unsquashfs -f -d "$SQUASHFSPOINT" "$WSQUASHFS_FILE" > /dev/null 2>&1; then
+        echo "Erreur: Échec de l'extraction du fichier squashfs"
+        exit 1
+    fi
+    echo "✓ Squashfs extrait dans: $SQUASHFSPOINT"
+fi
+
+# ============================================
+# MONTAGE OVERLAY (mode squashfuse uniquement)
+# ============================================
+
+if [[ "$MOUNT_MODE" == "squashfuse" ]]; then
+    echo "Création du montage overlay..."
+
+    # Overlay mount comme dans Batocera
+    # lowerdir = lecture seule (squashfs)
+    # upperdir = modifications (savepoint)
+    # workdir = travail pour overlay
+    if ! mount -t overlay overlay \
+        -o lowerdir="${SQUASHFSPOINT}",upperdir="${SAVEPOINT}",workdir="${WORKPOINT}",redirect_dir=on \
+        "${WINEPOINT}"; then
+        echo "Erreur: Échec de la création de l'overlay"
+        umount "$SQUASHFSPOINT" 2>/dev/null || true
+        exit 1
+    fi
+
+    echo "✓ Overlay monté sur: $WINEPOINT"
+    echo "✓ Sauvegardes dans: $SAVEPOINT"
+else
+    # Mode unsquashfs: on copie directement dans WINEPOINT et on merge avec SAVEPOINT
+    echo "Copie du contenu extrait..."
+
+    # Copier le contenu extrait vers WINEPOINT
+    rm -rf "$WINEPOINT"
+    cp -a "$SQUASHFSPOINT" "$WINEPOINT"
+
+    # Copier les sauvegardes par-dessus (si elles existent)
+    if [[ -d "$SAVEPOINT" ]] && [[ "$(ls -A $SAVEPOINT 2>/dev/null)" ]]; then
+        echo "Restauration des sauvegardes..."
+        cp -a "$SAVEPOINT"/. "$WINEPOINT/"
+    fi
+
+    echo "✓ Jeu prêt dans: $WINEPOINT"
+    echo "✓ Sauvegardes dans: $SAVEPOINT"
+fi
+
+echo ""
+
+# ============================================
+# LECTURE DU FICHIER AUTORUN.CMD
+# ============================================
+
+if [[ ! -f "${WINEPOINT}/autorun.cmd" ]]; then
+    echo "Erreur: Fichier autorun.cmd introuvable dans le squashfs"
+    exit 1
+fi
+
+echo "Lecture de la configuration..."
+
+# Variables de base
+DIR=$(getWine_var "$WINEPOINT" "DIR" "")
+CMD=$(getWine_var "$WINEPOINT" "CMD" "")
+
+# Variables Wine/Proton
+WINE_VERSION=$(getWine_var "$WINEPOINT" "WINE" "")
+PROTON_VERSION=$(getWine_var "$WINEPOINT" "PROTON" "")
+RUNNER=$(getWine_var "$WINEPOINT" "RUNNER" "")
+WINE_ARCH=$(getWine_var "$WINEPOINT" "ARCH" "win64")
+
+# Optimisations
+DXVK=$(getWine_var "$WINEPOINT" "DXVK" "0")
+VKD3D=$(getWine_var "$WINEPOINT" "VKD3D" "0")
+ESYNC=$(getWine_var "$WINEPOINT" "ESYNC" "0")
+FSYNC=$(getWine_var "$WINEPOINT" "FSYNC" "0")
+
+# Variables additionnelles Batocera
+WINE_LANG=$(getWine_var "$WINEPOINT" "LANG" "")
+WINE_ENV=$(getWine_var "$WINEPOINT" "ENV" "")
+SAVEDIR=$(getWine_var "$WINEPOINT" "SAVEDIR" "")
+SAVEFILES=$(getWine_var "$WINEPOINT" "SAVEFILES" "")
+
+# Vérification
+if [[ -z "$CMD" ]]; then
+    echo "Erreur: Variable CMD non définie dans autorun.cmd"
+    exit 1
+fi
+
+# ============================================
+# DÉTERMINATION DU CHEMIN EXÉCUTABLE
+# ============================================
+
+# Parser la commande en gérant les guillemets
+# Format possible : "executable.exe" args
+#                   executable.exe args
+#                   "executable with spaces.exe" args
+
+if [[ "$CMD" =~ ^\"([^\"]+)\"(.*)$ ]]; then
+    # Commande entre guillemets
+    EXEC_NAME="${BASH_REMATCH[1]}"
+    EXEC_ARGS="${BASH_REMATCH[2]}"
+    EXEC_ARGS="${EXEC_ARGS# }" # Enlever l'espace de début
+else
+    # Pas de guillemets, prendre le premier mot
+    EXEC_NAME=$(echo "$CMD" | awk '{print $1}')
+    EXEC_ARGS=$(echo "$CMD" | cut -d' ' -f2- -s)
+fi
+
+# Construire le chemin complet
+if [[ -z "$DIR" ]]; then
+    EXEC_PATH="${WINEPOINT}/${EXEC_NAME}"
+else
+    EXEC_PATH="${WINEPOINT}/${DIR}/${EXEC_NAME}"
+fi
+
+if [[ ! -f "$EXEC_PATH" ]]; then
+    echo "Erreur: Exécutable introuvable: $EXEC_PATH"
+    echo "Chemin cherché: $EXEC_PATH"
+    echo "CMD original: $CMD"
+    echo "EXEC_NAME extrait: $EXEC_NAME"
+    echo "DIR: ${DIR:-<vide>}"
+    exit 1
+fi
+
+# ============================================
+# CONFIGURATION DE WINE
+# ============================================
+
+# Le préfixe Wine est dans WINEPOINT (le squashfs contient déjà un préfixe configuré)
+export WINEPREFIX="${WINEPOINT}"
+export WINEARCH="$WINE_ARCH"
+
+# Vérifier si le squashfs contient déjà un préfixe Wine
+if [[ -f "${WINEPOINT}/system.reg" ]]; then
+    echo "✓ Préfixe Wine existant détecté dans le squashfs"
+else
+    # Si pas de préfixe dans le squashfs, en créer un
+    echo "Création d'un nouveau préfixe Wine ($WINE_ARCH)..."
+    WINEDLLOVERRIDES="mscoree,mshtml=" wineboot -u 2>&1 | grep -v "fixme:" || true
+    wineserver -w 2>/dev/null || true
+fi
+
+# Optimisations
+[[ "$ESYNC" == "1" ]] && export WINEESYNC=1
+[[ "$FSYNC" == "1" ]] && export WINEFSYNC=1
+
+# ============================================
+# IMPORT DES FICHIERS .REG (comme Batocera)
+# ============================================
+
+# Chercher et importer les fichiers .reg dans /regs
+if [[ -d "${WINEPOINT}/regs" ]]; then
+    echo "Import des fichiers de registre..."
+    while IFS= read -r -d '' regfile; do
+        echo "  Importing: $(basename "$regfile")"
+        wine regedit "//?/unix${regfile}" 2>/dev/null || true
+    done < <(find "${WINEPOINT}/regs" -maxdepth 1 -type f -iname "*.reg" -print0)
+fi
+
+# ============================================
+# DÉTERMINATION DU BINAIRE WINE
+# ============================================
+
+# Déterminer le binaire Wine
+WINE_BINARY="wine"
+
+if [[ -n "$WINE_VERSION" ]] && [[ -x "/opt/wine-${WINE_VERSION}/bin/wine" ]]; then
+    WINE_BINARY="/opt/wine-${WINE_VERSION}/bin/wine"
+fi
+
+if [[ -n "$PROTON_VERSION" ]] && [[ -x "/usr/local/bin/proton" ]]; then
+    WINE_BINARY="proton"
+fi
+
+if [[ -n "$RUNNER" ]] && [[ -x "$RUNNER" ]]; then
+    WINE_BINARY="$RUNNER"
+fi
+
+# ============================================
+# AFFICHAGE DES INFORMATIONS
+# ============================================
+
+echo "Configuration:"
+echo "  Exécutable    : $EXEC_PATH"
+echo "  Arguments     : ${EXEC_ARGS:-<aucun>}"
+echo "  Wine          : $WINE_BINARY"
+echo "  Architecture  : $WINE_ARCH"
+echo "  Préfixe       : $WINEPREFIX"
+[[ "$DXVK" == "1" ]] && echo "  DXVK          : Activé"
+[[ "$VKD3D" == "1" ]] && echo "  VKD3D         : Activé"
+[[ "$ESYNC" == "1" ]] && echo "  ESYNC         : Activé"
+[[ "$FSYNC" == "1" ]] && echo "  FSYNC         : Activé"
+echo ""
+echo "========================================="
+echo "Lancement du jeu..."
+echo "========================================="
+echo ""
+
+# ============================================
+# EXÉCUTION DU JEU
+# ============================================
+
+# Changer vers le répertoire de travail
+WORKDIR="$WINEPOINT"
+[[ -n "$DIR" ]] && WORKDIR="${WINEPOINT}/${DIR}"
+
+cd "$WORKDIR" || exit 1
+
+# Lancer le jeu
+EXT="${EXEC_PATH##*.}"
+
+# Construire la commande avec WINE_LANG et WINE_ENV (comme Batocera)
+if [[ -n "$WINE_LANG" ]]; then
+    export LC_ALL="$WINE_LANG"
+    echo "Langue configurée : $WINE_LANG"
+fi
+
+# Exécuter avec les variables d'environnement personnalisées
+if [[ "$EXT" == "bat" ]]; then
+    if [[ -n "$WINE_ENV" ]]; then
+        eval "$WINE_ENV" "$WINE_BINARY" cmd /c "$EXEC_PATH" $EXEC_ARGS
+    else
+        "$WINE_BINARY" cmd /c "$EXEC_PATH" $EXEC_ARGS
+    fi
+else
+    if [[ -n "$WINE_ENV" ]]; then
+        eval "$WINE_ENV" "$WINE_BINARY" "$EXEC_PATH" $EXEC_ARGS
+    else
+        "$WINE_BINARY" "$EXEC_PATH" $EXEC_ARGS
+    fi
+fi
+
+EXIT_CODE=$?
+
+echo ""
+echo "========================================="
+echo "Jeu terminé (code: $EXIT_CODE)"
+echo "========================================="
+
+# ============================================
+# SAUVEGARDE DES MODIFICATIONS (mode unsquashfs)
+# ============================================
+
+if [[ "$MOUNT_MODE" == "unsquashfs" ]]; then
+    echo ""
+    echo "Sauvegarde des modifications..."
+
+    # Synchroniser les modifications vers SAVEPOINT
+    rsync -a --delete "$WINEPOINT/" "$SAVEPOINT/" 2>/dev/null || {
+        # Si rsync n'est pas disponible, utiliser cp
+        rm -rf "$SAVEPOINT"
+        cp -a "$WINEPOINT" "$SAVEPOINT"
+    }
+
+    echo "✓ Modifications sauvegardées dans: $SAVEPOINT"
+fi
+
+exit $EXIT_CODE

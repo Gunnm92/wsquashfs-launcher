@@ -1,0 +1,59 @@
+version: '3.8'
+
+services:
+  wsquashfs-launcher:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: wsquashfs-launcher:latest
+    container_name: wsquashfs-launcher
+
+    # Privilèges nécessaires pour FUSE (montage squashfs)
+    privileged: true
+
+    # Capacités Linux nécessaires
+    cap_add:
+      - SYS_ADMIN
+
+    # Devices FUSE
+    devices:
+      - /dev/fuse:/dev/fuse
+
+    # Variables d'environnement
+    environment:
+      - DISPLAY=${DISPLAY:-:0}
+      - PULSE_SERVER=unix:/run/user/1000/pulse/native
+      - WINEDEBUG=-all
+
+    # Volumes
+    volumes:
+      # Affichage X11
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+
+      # Audio PulseAudio (optionnel, adapter selon votre UID)
+      # - /run/user/1000/pulse:/run/user/1000/pulse:ro
+
+      # Préfixe Wine persistant (optionnel, pour garder la config Wine)
+      - wine-prefix:/home/wineuser/.wine
+
+      # Montez vos fichiers .wsquashfs en les spécifiant à l'exécution
+      # Exemple avec docker-compose run :
+      #   docker-compose run --rm -v /chemin/vers/jeux:/data:ro wsquashfs-launcher /data/jeu.wsquashfs
+
+    # Réseau
+    network_mode: host
+
+    # Redémarrage
+    restart: "no"
+
+    # IPC pour le partage mémoire X11
+    ipc: host
+
+    # Commande par défaut (à modifier selon vos besoins)
+    # Exemple : command: /games/mon-jeu.wsquashfs
+    # Ou utilisez : docker-compose run --rm wsquashfs-launcher /games/votre-jeu.wsquashfs
+
+# Volumes nommés
+volumes:
+  wine-prefix:
+    driver: local

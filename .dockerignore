@@ -1,0 +1,39 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Documentation
+*.md
+!README.md
+
+# Fichiers de jeux (ne pas les inclure dans l'image)
+*.wsquashfs
+games/
+*.iso
+
+# IDE et éditeurs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Fichiers système
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Fichiers temporaires
+tmp/
+temp/
+*.tmp
+
+# Fichiers de configuration locale
+.env
+.env.local
+
+# Docker
+docker-compose.override.yml

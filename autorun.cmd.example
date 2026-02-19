@@ -1,0 +1,97 @@
+REM ============================================
+REM Exemple de fichier autorun.cmd pour WSquashFS
+REM Ce fichier doit être à la racine du fichier .wsquashfs
+REM Compatible avec Batocera et wsquashfs-launcher
+REM ============================================
+
+REM === CONFIGURATION DE BASE (OBLIGATOIRE) ===
+
+REM Répertoire où se trouve l'exécutable (relatif à la racine du wsquashfs)
+REM Laisser vide si l'exécutable est à la racine
+DIR=Game
+
+REM Commande à exécuter avec ses arguments
+REM Exemples :
+REM   CMD=game.exe
+REM   CMD=game.exe -fullscreen
+REM   CMD=launcher.exe --windowed --language=fr
+CMD=game.exe -fullscreen
+
+
+REM === CONFIGURATION WINE/PROTON (OPTIONNEL) ===
+
+REM Version de Wine à utiliser (si disponible)
+REM Exemples : 8.0, 9.0, lutris-7.2, etc.
+REM WINE=9.0
+
+REM Version de Proton à utiliser (Steam Proton)
+REM Exemples : 8.0, 9.0, GE-Proton8-25, etc.
+REM PROTON=9.0
+
+REM Runner personnalisé (chemin complet vers un binaire Wine/Proton)
+REM RUNNER=/opt/wine-custom/bin/wine
+
+REM Architecture Wine (win32 ou win64)
+REM Par défaut : win64
+ARCH=win64
+
+
+REM === OPTIMISATIONS (OPTIONNEL) ===
+
+REM DXVK - DirectX vers Vulkan (améliore les performances 3D)
+REM Valeurs : 0 (désactivé) ou 1 (activé)
+REM DXVK=1
+
+REM VKD3D - DirectX 12 vers Vulkan
+REM Valeurs : 0 (désactivé) ou 1 (activé)
+REM VKD3D=1
+
+REM ESYNC - Event synchronization (améliore les performances)
+REM Valeurs : 0 (désactivé) ou 1 (activé)
+REM ESYNC=1
+
+REM FSYNC - Futex synchronization (meilleur que ESYNC si supporté)
+REM Valeurs : 0 (désactivé) ou 1 (activé)
+REM Nécessite un noyau Linux avec support fsync
+REM FSYNC=1
+
+
+REM ============================================
+REM EXEMPLES DE CONFIGURATIONS COMPLÈTES
+REM ============================================
+
+REM --- Jeu léger sans optimisations ---
+REM DIR=
+REM CMD=game.exe
+
+REM --- Jeu 3D moderne avec DXVK et optimisations ---
+REM DIR=Game
+REM CMD=game.exe -fullscreen
+REM WINE=9.0
+REM ARCH=win64
+REM DXVK=1
+REM ESYNC=1
+
+REM --- Jeu DirectX 12 avec VKD3D ---
+REM DIR=bin
+REM CMD=launcher.exe
+REM WINE=9.0
+REM VKD3D=1
+REM FSYNC=1
+
+REM --- Utilisation de Proton (Steam) ---
+REM DIR=Game
+REM CMD=game.exe
+REM PROTON=GE-Proton8-25
+REM DXVK=1
+REM ESYNC=1
+
+REM --- Jeu 32-bit ancien ---
+REM DIR=
+REM CMD=oldgame.exe
+REM ARCH=win32
+
+REM --- Fichier batch de lancement ---
+REM DIR=
+REM CMD=start.bat
+REM WINE=8.0
