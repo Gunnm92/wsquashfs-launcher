@@ -389,14 +389,18 @@ fi
 # CONFIGURATION DE WINE
 # ============================================
 
-# Le préfixe Wine est dans WINEPOINT (le squashfs contient déjà un préfixe configuré)
+# IMPORTANT: Dans Batocera, le wsquashfs contient TOUT le prefix Wine (system.reg, user.reg, drive_c/, etc.)
+# Le WINEPREFIX doit pointer vers le point de montage overlay (WINEPOINT), pas vers un sous-répertoire
 export WINEPREFIX="${WINEPOINT}"
 export WINEARCH="$WINE_ARCH"
 
-# Vérifier si le squashfs contient déjà un préfixe Wine
-if [[ -f "${WINEPOINT}/system.reg" ]]; then
-    echo "✓ Préfixe Wine existant détecté dans le squashfs"
+# Vérifier si le squashfs contient déjà un préfixe Wine complet à la racine
+if [[ -f "${WINEPOINT}/system.reg" ]] && [[ -d "${WINEPOINT}/drive_c" ]]; then
+    echo "✓ Préfixe Wine complet détecté dans le wsquashfs (structure Batocera)"
 else
+    echo "Attention: Le wsquashfs ne contient pas un préfixe Wine complet à la racine"
+    echo "Structure attendue: system.reg, user.reg, drive_c/, etc. à la racine du wsquashfs"
+
     # Si pas de préfixe dans le squashfs, en créer un
     echo "Création d'un nouveau préfixe Wine ($WINE_ARCH)..."
     WINEDLLOVERRIDES="mscoree,mshtml=" wineboot -u 2>&1 | grep -v "fixme:" || true

@@ -96,11 +96,14 @@ if [[ -z "$CMD" ]]; then
 fi
 
 # Gestion du chemin complet
+# Dans Batocera, DIR est relatif à la racine du prefix Wine (qui est le point de montage)
+# Exemple: DIR=drive_c/Program Files/MyGame
 if [[ -z "$DIR" ]]; then
-    # Si DIR n'est pas défini, suppose que le fichier est à la racine
+    # Si DIR n'est pas défini, suppose que le fichier est à la racine du prefix
     EXEC_PATH="$MOUNT_POINT/$(echo "$CMD" | awk '{print $1}' | sed 's/^"//;s/"$//')"
     EXEC_ARGS=$(echo "$CMD" | cut -d' ' -f2-)
 else
+    # DIR est relatif au prefix Wine (MOUNT_POINT)
     EXEC_PATH="$MOUNT_POINT/$DIR/$(echo "$CMD" | awk '{print $1}' | sed 's/^"//;s/"$//')"
     EXEC_ARGS=$(echo "$CMD" | cut -d' ' -f2-)
 fi
@@ -115,8 +118,19 @@ fi
 # Détection du type de fichier exécuté
 EXT="${EXEC_PATH##*.}"
 
-# Configuration de l'architecture Wine
+# Configuration du préfixe Wine
+# IMPORTANT: Dans Batocera, le wsquashfs contient TOUT le prefix Wine (system.reg, user.reg, drive_c/, etc.)
+# Le WINEPREFIX doit pointer vers le point de montage (MOUNT_POINT), pas vers un sous-répertoire
+export WINEPREFIX="$MOUNT_POINT"
 export WINEARCH="$WINE_ARCH"
+
+# Vérifier la structure du prefix Wine
+if [[ -f "$MOUNT_POINT/system.reg" ]] && [[ -d "$MOUNT_POINT/drive_c" ]]; then
+    echo "✓ Préfixe Wine complet détecté dans le wsquashfs (structure Batocera)"
+else
+    echo "Attention: Le wsquashfs ne contient pas un préfixe Wine complet à la racine"
+    echo "Structure attendue: system.reg, user.reg, drive_c/, etc. à la racine du wsquashfs"
+fi
 
 # Configuration des optimisations Wine/Proton
 if [[ "$ESYNC" == "1" ]]; then
@@ -181,14 +195,15 @@ if [[ "$USE_BOTTLES" == true ]]; then
         fi
     fi
 else
-    # Utilisation de Wine standard
+    # Utilisation de Wine standard avec WINEPREFIX
+    # WINEPREFIX est déjà exporté, mais on le met aussi dans la commande pour être explicite
     if [[ "$EXT" == "bat" ]]; then
-        RUN_CMD="$WINE_BINARY cmd /c \"$EXEC_PATH\" $EXEC_ARGS"
+        RUN_CMD="WINEPREFIX=\"$WINEPREFIX\" $WINE_BINARY cmd /c \"$EXEC_PATH\" $EXEC_ARGS"
     else
         if [[ -n "$EXEC_ARGS" ]]; then
-            RUN_CMD="$WINE_BINARY \"$EXEC_PATH\" $EXEC_ARGS"
+            RUN_CMD="WINEPREFIX=\"$WINEPREFIX\" $WINE_BINARY \"$EXEC_PATH\" $EXEC_ARGS"
         else
-            RUN_CMD="$WINE_BINARY \"$EXEC_PATH\""
+            RUN_CMD="WINEPREFIX=\"$WINEPREFIX\" $WINE_BINARY \"$EXEC_PATH\""
         fi
     fi
 fi
@@ -199,6 +214,7 @@ echo "Informations d'exécution :"
 echo "========================================="
 echo "Fichier WSquashFS : $WSQUASHFS_FILE"
 echo "Point de montage  : $MOUNT_POINT"
+echo "Préfixe Wine      : $WINEPREFIX"
 echo "Chemin exécutable : $EXEC_PATH"
 echo "Arguments         : $EXEC_ARGS"
 echo ""
