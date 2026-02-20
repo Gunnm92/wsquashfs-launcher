@@ -295,8 +295,12 @@ else
     echo "Copie du contenu extrait..."
 
     # Copier le contenu extrait vers WINEPOINT
+    # IMPORTANT: Utiliser -L pour déréférencer les liens symboliques
+    # Les wsquashfs Batocera contiennent des symlinks vers /userdata/system/wine/
+    # qui n'existent pas sur des systèmes non-Batocera
     rm -rf "$WINEPOINT"
-    cp -a "$SQUASHFSPOINT" "$WINEPOINT"
+    echo "Déréférencement des liens symboliques (cela peut prendre du temps)..."
+    cp -rL "$SQUASHFSPOINT" "$WINEPOINT"
 
     # IMPORTANT: Les fichiers extraits par unsquashfs sont en lecture seule par défaut
     # Il faut les rendre modifiables pour que Wine puisse créer/modifier des fichiers
