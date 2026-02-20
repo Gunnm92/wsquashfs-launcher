@@ -298,10 +298,17 @@ else
     rm -rf "$WINEPOINT"
     cp -a "$SQUASHFSPOINT" "$WINEPOINT"
 
+    # IMPORTANT: Les fichiers extraits par unsquashfs sont en lecture seule par défaut
+    # Il faut les rendre modifiables pour que Wine puisse créer/modifier des fichiers
+    echo "Correction des permissions pour permettre l'écriture..."
+    chmod -R u+w "$WINEPOINT"
+
     # Copier les sauvegardes par-dessus (si elles existent)
     if [[ -d "$SAVEPOINT" ]] && [[ "$(ls -A $SAVEPOINT 2>/dev/null)" ]]; then
         echo "Restauration des sauvegardes..."
         cp -a "$SAVEPOINT"/. "$WINEPOINT/"
+        # Corriger les permissions des sauvegardes aussi
+        chmod -R u+w "$WINEPOINT"
     fi
 
     echo "✓ Jeu prêt dans: $WINEPOINT"
