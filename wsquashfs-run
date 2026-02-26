@@ -15,17 +15,9 @@ SAVES_DIR="${WSQUASHFS_SAVES_DIR:-$HOME/.local/share/wsquashfs/saves}"
 WINEPREFIX_BASE="${WSQUASHFS_WINEPREFIX:-$HOME/.local/share/wsquashfs/prefix}"
 CACHE_DIR="${WSQUASHFS_CACHE:-$HOME/.cache/wsquashfs}"
 
-# Mode de montage: auto, squashfuse, unsquashfs
-MOUNT_MODE="${WSQUASHFS_MOUNT_MODE:-auto}"
-
 # ============================================
 # FONCTIONS UTILITAIRES
 # ============================================
-
-# Détecter si on est dans un conteneur Docker/LXC
-is_docker() {
-    [[ -f "/.dockerenv" ]] || grep -qE 'docker|lxc|containerd' /proc/1/cgroup 2>/dev/null
-}
 
 # Fonction pour récupérer une variable depuis autorun.cmd
 getWine_var() {
@@ -105,7 +97,6 @@ case "${1:-}" in
         echo "  WSQUASHFS_SAVES_DIR   - Répertoire des sauvegardes (défaut: ~/.local/share/wsquashfs/saves)"
         echo "  WSQUASHFS_WINEPREFIX  - Répertoire des préfixes Wine (défaut: ~/.local/share/wsquashfs/prefix)"
         echo "  WSQUASHFS_CACHE       - Répertoire de cache (défaut: ~/.cache/wsquashfs)"
-        echo "  WSQUASHFS_MOUNT_MODE  - Mode de montage: auto, squashfuse, unsquashfs (défaut: auto)"
         echo ""
         echo "Exemples:"
         echo "  wsquashfs-run game.wsquashfs"
@@ -127,38 +118,18 @@ if ! command -v wine &> /dev/null; then
     exit 1
 fi
 
-# Déterminer la méthode de montage
-if [[ "$MOUNT_MODE" == "auto" ]]; then
-    if ! command -v squashfuse &> /dev/null; then
-        echo "Erreur: squashfuse n'est pas installé"
-        echo "Installation: apt install squashfuse"
-        exit 1
-    fi
-    if is_docker; then
-        # Docker : overlay userspace via fuse-overlayfs
-        MOUNT_MODE="squashfuse+fuse-overlayfs"
-    else
-        # Machine physique : overlay kernel via mount -t overlay (sudo)
-        MOUNT_MODE="squashfuse+overlay"
-    fi
-fi
-
 # Vérifier que les outils requis sont disponibles
 if ! command -v squashfuse &> /dev/null; then
     echo "Erreur: squashfuse n'est pas installé"
-    echo "Installation: apt install squashfuse"
+    echo "Installation: apt install squashfuse fuse-overlayfs"
     exit 1
 fi
 
-if [[ "$MOUNT_MODE" == "squashfuse+fuse-overlayfs" ]]; then
-    if ! command -v fuse-overlayfs &> /dev/null; then
-        echo "Erreur: fuse-overlayfs n'est pas installé"
-        echo "Installation: apt install fuse-overlayfs"
-        exit 1
-    fi
+if ! command -v fuse-overlayfs &> /dev/null; then
+    echo "Erreur: fuse-overlayfs n'est pas installé"
+    echo "Installation: apt install squashfuse fuse-overlayfs"
+    exit 1
 fi
-
-echo "Mode de montage: $MOUNT_MODE"
 
 WSQUASHFS_FILE="$1"
 
@@ -249,25 +220,12 @@ echo "✓ Squashfs monté sur: $SQUASHFSPOINT"
 
 echo "Création du montage overlay..."
 
-if [[ "$MOUNT_MODE" == "squashfuse+fuse-overlayfs" ]]; then
-    # Docker : overlay userspace via fuse-overlayfs (sans root)
-    if ! fuse-overlayfs \
-        -o lowerdir="${SQUASHFSPOINT}",upperdir="${SAVEPOINT}",workdir="${WORKPOINT}" \
-        "${WINEPOINT}"; then
-        echo "Erreur: Échec de la création de l'overlay (fuse-overlayfs)"
-        umount "$SQUASHFSPOINT" 2>/dev/null || true
-        exit 1
-    fi
-else
-    # Machine physique : overlay kernel via mount -t overlay (sudo)
-    if ! mount -t overlay overlay \
-        -o lowerdir="${SQUASHFSPOINT}",upperdir="${SAVEPOINT}",workdir="${WORKPOINT}" \
-        "${WINEPOINT}"; then
-        echo "Erreur: Échec de la création de l'overlay (mount -t overlay)"
-        echo "Note: Cette opération nécessite sudo sur machine physique"
-        umount "$SQUASHFSPOINT" 2>/dev/null || true
-        exit 1
-    fi
+if ! fuse-overlayfs \
+    -o lowerdir="${SQUASHFSPOINT}",upperdir="${SAVEPOINT}",workdir="${WORKPOINT}" \
+    "${WINEPOINT}"; then
+    echo "Erreur: Échec de la création de l'overlay"
+    umount "$SQUASHFSPOINT" 2>/dev/null || true
+    exit 1
 fi
 
 echo "✓ Overlay monté sur: $WINEPOINT"

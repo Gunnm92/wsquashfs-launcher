@@ -52,17 +52,6 @@ check_dependencies() {
     echo ""
     print_info "Vérification des dépendances..."
 
-    # Détecter l'environnement
-    if is_docker; then
-        print_info "Environnement : Docker / conteneur"
-        local ENV_TYPE="docker"
-    else
-        print_info "Environnement : Machine physique"
-        local ENV_TYPE="physical"
-    fi
-
-    echo ""
-
     local missing_wine=false
     local has_error=false
 
@@ -71,88 +60,47 @@ check_dependencies() {
     fi
 
     # -------------------------------------------------------
-    # Machine physique : squashfuse + overlay kernel (sudo)
+    # squashfuse + fuse-overlayfs (machine physique et Docker)
+    # montage sans extraction, overlay userspace sans root
     # -------------------------------------------------------
-    if [[ "$ENV_TYPE" == "physical" ]]; then
-        local missing_squashfuse=false
-        command -v squashfuse &> /dev/null || missing_squashfuse=true
+    local missing_squashfuse=false
+    local missing_fuse_overlayfs=false
 
-        if [[ "$missing_squashfuse" == "true" ]]; then
-            echo "  Mode pour machine physique : squashfuse + overlay kernel"
-            echo "  (montage sans extraction, overlay via mount -t overlay avec sudo)"
-            echo ""
-            print_error "squashfuse manquant"
-            echo ""
+    command -v squashfuse &> /dev/null || missing_squashfuse=true
+    command -v fuse-overlayfs &> /dev/null || missing_fuse_overlayfs=true
 
-            if command -v apt-get &>/dev/null; then
-                read -p "  Installer squashfuse automatiquement ? [o/N] " -n 1 -r
-                echo ""
-                if [[ $REPLY =~ ^[OoYy]$ ]]; then
-                    $USE_SUDO apt-get update -qq
-                    $USE_SUDO apt-get install -y squashfuse
-                    print_success "squashfuse installé"
-                    missing_squashfuse=false
-                fi
-            else
-                echo "  Installation manuelle :"
-                echo "    Debian/Ubuntu : sudo apt install squashfuse"
-                echo "    Arch Linux    : sudo pacman -S squashfuse"
-                echo "    Fedora        : sudo dnf install squashfuse"
-                echo ""
+    if [[ "$missing_squashfuse" == "true" ]] || [[ "$missing_fuse_overlayfs" == "true" ]]; then
+        [[ "$missing_squashfuse" == "true" ]]     && print_error "squashfuse manquant"
+        [[ "$missing_fuse_overlayfs" == "true" ]] && print_error "fuse-overlayfs manquant"
+        echo ""
+
+        if command -v apt-get &>/dev/null; then
+            local pkgs=""
+            [[ "$missing_squashfuse" == "true" ]]     && pkgs="$pkgs squashfuse"
+            [[ "$missing_fuse_overlayfs" == "true" ]] && pkgs="$pkgs fuse-overlayfs"
+            read -p "  Installer${pkgs} automatiquement ? [o/N] " -n 1 -r
+            echo ""
+            if [[ $REPLY =~ ^[OoYy]$ ]]; then
+                $USE_SUDO apt-get update -qq
+                $USE_SUDO apt-get install -y $pkgs
+                print_success "Paquets installés :$pkgs"
+                missing_squashfuse=false
+                missing_fuse_overlayfs=false
             fi
-        fi
-
-        if [[ "$missing_squashfuse" == "true" ]]; then
-            print_error "squashfuse requis sur machine physique"
-            has_error=true
         else
-            print_success "Mode actif : squashfuse + overlay kernel (sudo requis au lancement)"
+            echo "  Installation manuelle :"
+            echo "    Debian/Ubuntu : sudo apt install squashfuse fuse-overlayfs"
+            echo "    Arch Linux    : sudo pacman -S squashfuse fuse-overlayfs"
+            echo "    Fedora        : sudo dnf install squashfuse fuse-overlayfs"
+            echo ""
         fi
+    fi
 
-    # -------------------------------------------------------
-    # Docker : squashfuse + fuse-overlayfs (overlay userspace)
-    # -------------------------------------------------------
+    if [[ "$missing_squashfuse" == "true" ]] || [[ "$missing_fuse_overlayfs" == "true" ]]; then
+        print_error "squashfuse et fuse-overlayfs sont requis"
+        has_error=true
     else
-        local missing_squashfuse=false
-        local missing_fuse_overlayfs=false
-
-        command -v squashfuse &> /dev/null || missing_squashfuse=true
-        command -v fuse-overlayfs &> /dev/null || missing_fuse_overlayfs=true
-
-        if [[ "$missing_squashfuse" == "true" ]] || [[ "$missing_fuse_overlayfs" == "true" ]]; then
-            echo "  Mode pour Docker : squashfuse + fuse-overlayfs"
-            echo "  (montage sans extraction, overlay userspace)"
-            echo ""
-            [[ "$missing_squashfuse" == "true" ]]     && print_error "squashfuse manquant"
-            [[ "$missing_fuse_overlayfs" == "true" ]] && print_error "fuse-overlayfs manquant"
-            echo ""
-
-            if command -v apt-get &>/dev/null; then
-                local pkgs=""
-                [[ "$missing_squashfuse" == "true" ]]     && pkgs="$pkgs squashfuse"
-                [[ "$missing_fuse_overlayfs" == "true" ]] && pkgs="$pkgs fuse-overlayfs"
-                read -p "  Installer${pkgs} automatiquement ? [o/N] " -n 1 -r
-                echo ""
-                if [[ $REPLY =~ ^[OoYy]$ ]]; then
-                    $USE_SUDO apt-get update -qq
-                    $USE_SUDO apt-get install -y $pkgs
-                    print_success "Paquets installés :$pkgs"
-                    missing_squashfuse=false
-                    missing_fuse_overlayfs=false
-                fi
-            else
-                echo "  Installation manuelle :"
-                echo "    apt-get install squashfuse fuse-overlayfs"
-                echo ""
-            fi
-        fi
-
-        if [[ "$missing_squashfuse" == "true" ]] || [[ "$missing_fuse_overlayfs" == "true" ]]; then
-            print_error "squashfuse et fuse-overlayfs requis en environnement Docker"
-            has_error=true
-        else
-            print_success "Mode actif : squashfuse + fuse-overlayfs"
-        fi
+        print_success "Mode actif : squashfuse + fuse-overlayfs (sans root)"
     fi
 
     # -------------------------------------------------------
@@ -337,7 +285,6 @@ show_usage() {
     echo "Variables d'environnement :"
     echo "  WSQUASHFS_SAVES_DIR   - Répertoire des sauvegardes"
     echo "  WSQUASHFS_WINEPREFIX  - Répertoire des préfixes Wine"
-    echo "  WSQUASHFS_MOUNT_MODE  - Mode de montage (auto/squashfuse/unsquashfs)"
     echo ""
 }
 
