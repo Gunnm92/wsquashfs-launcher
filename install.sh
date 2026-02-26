@@ -158,41 +158,6 @@ install_script() {
     print_success "Script installé dans : $INSTALL_DIR/wsquashfs-run"
 }
 
-# Créer un lanceur desktop (optionnel)
-create_desktop_entry() {
-    echo ""
-    read -p "Voulez-vous créer une entrée desktop (pour les GUI) ? [o/N] " -n 1 -r
-    echo ""
-
-    if [[ ! $REPLY =~ ^[OoYy]$ ]]; then
-        return 0
-    fi
-
-    local desktop_dir="$HOME/.local/share/applications"
-    mkdir -p "$desktop_dir"
-
-    cat > "$desktop_dir/wsquashfs-launcher.desktop" << 'EOF'
-[Desktop Entry]
-Version=1.0
-Type=Application
-Name=WSquashFS Launcher
-Comment=Lance des jeux Windows depuis des fichiers .wsquashfs (Batocera)
-Exec=wsquashfs-run %f
-Icon=wine
-Terminal=true
-Categories=Game;Emulator;
-MimeType=application/x-squashfs;
-Keywords=wine;windows;batocera;squashfs;
-EOF
-
-    # Mettre à jour la base de données MIME
-    if command -v update-desktop-database &> /dev/null; then
-        update-desktop-database "$desktop_dir" 2>/dev/null || true
-    fi
-
-    print_success "Entrée desktop créée : $desktop_dir/wsquashfs-launcher.desktop"
-}
-
 # Créer l'association de fichier pour .wsquashfs
 create_mime_type() {
     echo ""
@@ -305,12 +270,6 @@ uninstall() {
         print_info "Script non trouvé dans $INSTALL_DIR"
     fi
 
-    # Supprimer l'entrée desktop
-    if [[ -f "$HOME/.local/share/applications/wsquashfs-launcher.desktop" ]]; then
-        rm "$HOME/.local/share/applications/wsquashfs-launcher.desktop"
-        print_success "Entrée desktop supprimée"
-    fi
-
     # Supprimer le type MIME
     if [[ -f "$HOME/.local/share/mime/packages/wsquashfs.xml" ]]; then
         rm "$HOME/.local/share/mime/packages/wsquashfs.xml"
@@ -349,8 +308,7 @@ main() {
         exit 1
     fi
 
-    # Créer les entrées desktop et MIME
-    create_desktop_entry
+    # Créer l'association MIME pour .wsquashfs
     create_mime_type
 
     # Vérifier PATH
