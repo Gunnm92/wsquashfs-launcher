@@ -22,6 +22,11 @@ MOUNT_MODE="${WSQUASHFS_MOUNT_MODE:-auto}"
 # FONCTIONS UTILITAIRES
 # ============================================
 
+# Détecter si on est dans un conteneur Docker/LXC
+is_docker() {
+    [[ -f "/.dockerenv" ]] || grep -qE 'docker|lxc|containerd' /proc/1/cgroup 2>/dev/null
+}
+
 # Fonction pour récupérer une variable depuis autorun.cmd
 getWine_var() {
     local WINEPOINT=$1
@@ -62,14 +67,8 @@ cleanup() {
         umount "${SQUASHFSPOINT}" 2>/dev/null || true
     fi
 
-    # Supprimer les répertoires temporaires
+    # Supprimer le répertoire de travail overlay
     [[ -n "${WORKPOINT}" && -d "${WORKPOINT}" ]] && rm -rf "${WORKPOINT}" 2>/dev/null || true
-
-    # Si on a utilisé unsquashfs, nettoyer le répertoire d'extraction
-    if [[ "${USING_UNSQUASHFS}" == "true" ]] && [[ -n "${SQUASHFSPOINT}" ]] && [[ -d "${SQUASHFSPOINT}" ]]; then
-        echo "Nettoyage de l'extraction unsquashfs..."
-        rm -rf "${SQUASHFSPOINT}" 2>/dev/null || true
-    fi
 
     exit $EXIT_CODE
 }
@@ -130,39 +129,33 @@ fi
 
 # Déterminer la méthode de montage
 if [[ "$MOUNT_MODE" == "auto" ]]; then
-    # Vérifier si FUSE est disponible
-    if [[ -e /dev/fuse ]] && command -v squashfuse &> /dev/null; then
-        MOUNT_MODE="squashfuse"
-    elif command -v unsquashfs &> /dev/null; then
-        MOUNT_MODE="unsquashfs"
-    else
-        echo "Erreur: Ni squashfuse (avec FUSE) ni unsquashfs n'est disponible"
-        echo "Installation:"
-        echo "  - Pour squashfuse: apt install squashfuse"
-        echo "  - Pour unsquashfs: apt install squashfs-tools"
+    if ! command -v squashfuse &> /dev/null; then
+        echo "Erreur: squashfuse n'est pas installé"
+        echo "Installation: apt install squashfuse"
         exit 1
+    fi
+    if is_docker; then
+        # Docker : overlay userspace via fuse-overlayfs
+        MOUNT_MODE="squashfuse+fuse-overlayfs"
+    else
+        # Machine physique : overlay kernel via mount -t overlay (sudo)
+        MOUNT_MODE="squashfuse+overlay"
     fi
 fi
 
-# Vérifier que l'outil choisi est disponible
-if [[ "$MOUNT_MODE" == "squashfuse" ]]; then
-    if ! command -v squashfuse &> /dev/null; then
-        echo "Erreur: squashfuse n'est pas installé"
+# Vérifier que les outils requis sont disponibles
+if ! command -v squashfuse &> /dev/null; then
+    echo "Erreur: squashfuse n'est pas installé"
+    echo "Installation: apt install squashfuse"
+    exit 1
+fi
+
+if [[ "$MOUNT_MODE" == "squashfuse+fuse-overlayfs" ]]; then
+    if ! command -v fuse-overlayfs &> /dev/null; then
+        echo "Erreur: fuse-overlayfs n'est pas installé"
+        echo "Installation: apt install fuse-overlayfs"
         exit 1
     fi
-    if [[ ! -e /dev/fuse ]]; then
-        echo "Erreur: /dev/fuse n'existe pas. FUSE n'est pas disponible."
-        echo "Essayez: WSQUASHFS_MOUNT_MODE=unsquashfs $0 $1"
-        exit 1
-    fi
-    USING_UNSQUASHFS="false"
-elif [[ "$MOUNT_MODE" == "unsquashfs" ]]; then
-    if ! command -v unsquashfs &> /dev/null; then
-        echo "Erreur: unsquashfs n'est pas installé"
-        echo "Installation: apt install squashfs-tools"
-        exit 1
-    fi
-    USING_UNSQUASHFS="true"
 fi
 
 echo "Mode de montage: $MOUNT_MODE"
@@ -240,92 +233,45 @@ if [[ -d "$SQUASHFSPOINT" ]] && [[ ! "$(ls -A $SQUASHFSPOINT 2>/dev/null)" ]]; t
 fi
 
 # ============================================
-# EXTRACTION/MONTAGE DU SQUASHFS
+# MONTAGE DU SQUASHFS (squashfuse)
 # ============================================
 
-if [[ "$MOUNT_MODE" == "squashfuse" ]]; then
-    echo "Montage du fichier squashfs avec squashfuse..."
-    if ! squashfuse "$WSQUASHFS_FILE" "$SQUASHFSPOINT"; then
-        echo "Erreur: Échec du montage du fichier squashfs"
-        exit 1
-    fi
-    echo "✓ Squashfs monté sur: $SQUASHFSPOINT"
-
-elif [[ "$MOUNT_MODE" == "unsquashfs" ]]; then
-    echo "Extraction du fichier squashfs avec unsquashfs..."
-    echo "Note: Cette opération peut prendre du temps..."
-
-    # Nettoyer le répertoire cible
-    rm -rf "$SQUASHFSPOINT"
-
-    # Extraire avec unsquashfs
-    # -f = forcer l'extraction
-    # -d = répertoire de destination
-    # -no-progress = pas de barre de progression (plus propre dans les logs)
-    if ! unsquashfs -f -d "$SQUASHFSPOINT" "$WSQUASHFS_FILE" > /dev/null 2>&1; then
-        echo "Erreur: Échec de l'extraction du fichier squashfs"
-        exit 1
-    fi
-    echo "✓ Squashfs extrait dans: $SQUASHFSPOINT"
+echo "Montage du fichier squashfs avec squashfuse..."
+if ! squashfuse "$WSQUASHFS_FILE" "$SQUASHFSPOINT"; then
+    echo "Erreur: Échec du montage du fichier squashfs"
+    exit 1
 fi
+echo "✓ Squashfs monté sur: $SQUASHFSPOINT"
 
 # ============================================
-# MONTAGE OVERLAY (mode squashfuse uniquement)
+# MONTAGE OVERLAY
 # ============================================
 
-if [[ "$MOUNT_MODE" == "squashfuse" ]]; then
-    echo "Création du montage overlay..."
+echo "Création du montage overlay..."
 
-    # Overlay mount comme dans Batocera
-    # lowerdir = lecture seule (squashfs)
-    # upperdir = modifications (savepoint)
-    # workdir = travail pour overlay
-    if ! mount -t overlay overlay \
-        -o lowerdir="${SQUASHFSPOINT}",upperdir="${SAVEPOINT}",workdir="${WORKPOINT}",redirect_dir=on \
+if [[ "$MOUNT_MODE" == "squashfuse+fuse-overlayfs" ]]; then
+    # Docker : overlay userspace via fuse-overlayfs (sans root)
+    if ! fuse-overlayfs \
+        -o lowerdir="${SQUASHFSPOINT}",upperdir="${SAVEPOINT}",workdir="${WORKPOINT}" \
         "${WINEPOINT}"; then
-        echo "Erreur: Échec de la création de l'overlay"
+        echo "Erreur: Échec de la création de l'overlay (fuse-overlayfs)"
         umount "$SQUASHFSPOINT" 2>/dev/null || true
         exit 1
     fi
-
-    echo "✓ Overlay monté sur: $WINEPOINT"
-    echo "✓ Sauvegardes dans: $SAVEPOINT"
 else
-    # Mode unsquashfs: on copie directement dans WINEPOINT et on merge avec SAVEPOINT
-    echo "Copie du contenu extrait..."
-
-    # Copier le contenu extrait vers WINEPOINT
-    # On utilise rsync avec --copy-unsafe-links pour déréférencer uniquement les symlinks
-    # absolus (ex: /userdata/system/wine/ sur Batocera) sans échouer sur les symlinks cassés.
-    # --no-devices --no-specials ignore les fichiers de périphérique (com1, lpt1, etc.)
-    # qui ne peuvent pas être créés par un utilisateur non-root.
-    rm -rf "$WINEPOINT"
-    mkdir -p "$WINEPOINT"
-    echo "Copie du contenu extrait (symlinks absolus déréférencés, fichiers spéciaux ignorés)..."
-    if command -v rsync &>/dev/null; then
-        rsync -a --copy-unsafe-links --no-devices --no-specials --ignore-errors \
-            "$SQUASHFSPOINT/" "$WINEPOINT/" 2>/dev/null || true
-    else
-        # Fallback sans rsync : ignorer les erreurs sur symlinks cassés et fichiers spéciaux
-        cp -r "$SQUASHFSPOINT/." "$WINEPOINT/" 2>/dev/null || true
+    # Machine physique : overlay kernel via mount -t overlay (sudo)
+    if ! mount -t overlay overlay \
+        -o lowerdir="${SQUASHFSPOINT}",upperdir="${SAVEPOINT}",workdir="${WORKPOINT}" \
+        "${WINEPOINT}"; then
+        echo "Erreur: Échec de la création de l'overlay (mount -t overlay)"
+        echo "Note: Cette opération nécessite sudo sur machine physique"
+        umount "$SQUASHFSPOINT" 2>/dev/null || true
+        exit 1
     fi
-
-    # IMPORTANT: Les fichiers extraits par unsquashfs sont en lecture seule par défaut
-    # Il faut les rendre modifiables pour que Wine puisse créer/modifier des fichiers
-    echo "Correction des permissions pour permettre l'écriture..."
-    chmod -R u+w "$WINEPOINT"
-
-    # Copier les sauvegardes par-dessus (si elles existent)
-    if [[ -d "$SAVEPOINT" ]] && [[ "$(ls -A $SAVEPOINT 2>/dev/null)" ]]; then
-        echo "Restauration des sauvegardes..."
-        cp -a "$SAVEPOINT"/. "$WINEPOINT/"
-        # Corriger les permissions des sauvegardes aussi
-        chmod -R u+w "$WINEPOINT"
-    fi
-
-    echo "✓ Jeu prêt dans: $WINEPOINT"
-    echo "✓ Sauvegardes dans: $SAVEPOINT"
 fi
+
+echo "✓ Overlay monté sur: $WINEPOINT"
+echo "✓ Sauvegardes dans: $SAVEPOINT"
 
 echo ""
 
@@ -522,23 +468,5 @@ echo ""
 echo "========================================="
 echo "Jeu terminé (code: $EXIT_CODE)"
 echo "========================================="
-
-# ============================================
-# SAUVEGARDE DES MODIFICATIONS (mode unsquashfs)
-# ============================================
-
-if [[ "$MOUNT_MODE" == "unsquashfs" ]]; then
-    echo ""
-    echo "Sauvegarde des modifications..."
-
-    # Synchroniser les modifications vers SAVEPOINT
-    rsync -a --delete "$WINEPOINT/" "$SAVEPOINT/" 2>/dev/null || {
-        # Si rsync n'est pas disponible, utiliser cp
-        rm -rf "$SAVEPOINT"
-        cp -a "$WINEPOINT" "$SAVEPOINT"
-    }
-
-    echo "✓ Modifications sauvegardées dans: $SAVEPOINT"
-fi
 
 exit $EXIT_CODE
