@@ -28,6 +28,7 @@ RUN dpkg --add-architecture i386 && \
     # Outils nécessaires pour le script
     squashfuse \
     fuse \
+    fuse-overlayfs \
     dos2unix \
     # Wine et dépendances
     wine \
@@ -52,8 +53,8 @@ RUN useradd -m -s /bin/bash wineuser && \
     echo "wineuser ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
 
 # Copier le script launcher
-COPY wsquashfs-launcher-docker /usr/local/bin/wsquashfs-launcher
-RUN chmod +x /usr/local/bin/wsquashfs-launcher
+COPY wsquashfs-run /usr/local/bin/wsquashfs-run
+RUN chmod +x /usr/local/bin/wsquashfs-run
 
 # Passer à l'utilisateur wineuser
 USER wineuser
@@ -68,7 +69,7 @@ RUN wine wineboot --init && \
 # RUN winetricks -q vcrun2019 d3dx9 dotnet48
 
 # Script d'entrée
-ENTRYPOINT ["/usr/local/bin/wsquashfs-launcher"]
+ENTRYPOINT ["/usr/local/bin/wsquashfs-run"]
 
 # Aide par défaut si aucun argument
 CMD ["--help"]

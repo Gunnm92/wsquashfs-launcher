@@ -20,19 +20,18 @@ CACHE_DIR="${WSQUASHFS_CACHE:-$HOME/.cache/wsquashfs}"
 # ============================================
 
 # Fonction pour récupérer une variable depuis autorun.cmd
+# Implémentation identique à batocera-wine (dos2unix avant grep)
 getWine_var() {
     local WINEPOINT=$1
     local WINEVAR=$2
     local WINEVALUE=$3
 
     if [[ -e "${WINEPOINT}/autorun.cmd" ]]; then
-        local VAL=$(grep "^${WINEVAR}=" "${WINEPOINT}/autorun.cmd" 2>/dev/null | sed -e "s/^${WINEVAR}=//" | head -1)
-        # Nettoyer les retours chariot Windows si dos2unix est disponible
+        local VAL
         if command -v dos2unix &> /dev/null; then
-            VAL=$(echo "$VAL" | dos2unix 2>/dev/null)
+            VAL=$(cat "${WINEPOINT}/autorun.cmd" | dos2unix | grep "^${WINEVAR}=" | sed -e "s+^${WINEVAR}=++" | head -1)
         else
-            # Sinon, supprimer manuellement les \r
-            VAL=$(echo "$VAL" | tr -d '\r')
+            VAL=$(cat "${WINEPOINT}/autorun.cmd" | tr -d '\r' | grep "^${WINEVAR}=" | sed -e "s+^${WINEVAR}=++" | head -1)
         fi
 
         if [[ -n "${VAL}" ]]; then
