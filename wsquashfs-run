@@ -207,7 +207,7 @@ fi
 # ============================================
 
 echo "Montage du fichier squashfs avec squashfuse..."
-if ! squashfuse "$WSQUASHFS_FILE" "$SQUASHFSPOINT"; then
+if ! squashfuse -o uid=$(id -u),gid=$(id -g) "$WSQUASHFS_FILE" "$SQUASHFSPOINT"; then
     echo "Erreur: Échec du montage du fichier squashfs"
     exit 1
 fi
