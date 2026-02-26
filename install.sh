@@ -34,13 +34,17 @@ print_info() {
 
 # Vérifier si on est root
 check_root() {
+    INSTALL_DIR="/usr/bin"
     if [[ $EUID -eq 0 ]]; then
-        INSTALL_DIR="/usr/local/bin"
         USE_SUDO=""
     else
-        INSTALL_DIR="$HOME/.local/bin"
         USE_SUDO="sudo"
     fi
+}
+
+# Détecter si on est dans un conteneur Docker/LXC
+is_docker() {
+    [[ -f "/.dockerenv" ]] || grep -qE 'docker|lxc|containerd' /proc/1/cgroup 2>/dev/null
 }
 
 # Vérifier les dépendances
@@ -48,31 +52,60 @@ check_dependencies() {
     echo ""
     print_info "Vérification des dépendances..."
 
-    local missing=()
+    local missing_wine=false
+    local missing_squash=false
 
-    # Dépendances obligatoires
     if ! command -v wine &> /dev/null; then
-        missing+=("wine")
+        missing_wine=true
     fi
 
-    # Au moins un outil de montage squashfs
     if ! command -v squashfuse &> /dev/null && ! command -v unsquashfs &> /dev/null; then
-        missing+=("squashfs-tools OU squashfuse")
+        missing_squash=true
     fi
 
-    if [[ ${#missing[@]} -gt 0 ]]; then
-        print_error "Dépendances manquantes : ${missing[*]}"
+    # Proposer l'installation automatique des outils squashfs si manquants
+    if [[ "$missing_squash" == "true" ]] && command -v apt-get &>/dev/null; then
         echo ""
-        echo "Installation des dépendances :"
+        if is_docker; then
+            print_info "Environnement Docker/conteneur détecté."
+        fi
+        print_error "squashfs-tools et squashfuse sont manquants"
+        echo ""
+        read -p "  Installer squashfs-tools et squashfuse automatiquement ? [o/N] " -n 1 -r
+        echo ""
+        if [[ $REPLY =~ ^[OoYy]$ ]]; then
+            $USE_SUDO apt-get update -qq
+            $USE_SUDO apt-get install -y squashfs-tools squashfuse
+            missing_squash=false
+            print_success "squashfs-tools et squashfuse installés"
+        fi
+    fi
+
+    # Afficher les erreurs restantes
+    local has_error=false
+
+    if [[ "$missing_wine" == "true" ]]; then
+        print_error "wine est manquant"
+        has_error=true
+    fi
+
+    if [[ "$missing_squash" == "true" ]]; then
+        print_error "squashfs-tools ou squashfuse est manquant"
+        has_error=true
+    fi
+
+    if [[ "$has_error" == "true" ]]; then
+        echo ""
+        echo "Installation manuelle :"
         echo ""
         echo "  Debian/Ubuntu :"
-        echo "    sudo apt install wine squashfs-tools"
+        echo "    sudo apt install wine squashfs-tools squashfuse"
         echo ""
         echo "  Arch Linux :"
-        echo "    sudo pacman -S wine squashfs-tools"
+        echo "    sudo pacman -S wine squashfs-tools squashfuse"
         echo ""
         echo "  Fedora :"
-        echo "    sudo dnf install wine squashfs-tools"
+        echo "    sudo dnf install wine squashfs-tools squashfuse"
         echo ""
         return 1
     fi

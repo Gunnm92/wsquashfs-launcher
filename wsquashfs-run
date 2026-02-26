@@ -295,12 +295,20 @@ else
     echo "Copie du contenu extrait..."
 
     # Copier le contenu extrait vers WINEPOINT
-    # IMPORTANT: Utiliser -L pour déréférencer les liens symboliques
-    # Les wsquashfs Batocera contiennent des symlinks vers /userdata/system/wine/
-    # qui n'existent pas sur des systèmes non-Batocera
+    # On utilise rsync avec --copy-unsafe-links pour déréférencer uniquement les symlinks
+    # absolus (ex: /userdata/system/wine/ sur Batocera) sans échouer sur les symlinks cassés.
+    # --no-devices --no-specials ignore les fichiers de périphérique (com1, lpt1, etc.)
+    # qui ne peuvent pas être créés par un utilisateur non-root.
     rm -rf "$WINEPOINT"
-    echo "Déréférencement des liens symboliques (cela peut prendre du temps)..."
-    cp -rL "$SQUASHFSPOINT" "$WINEPOINT"
+    mkdir -p "$WINEPOINT"
+    echo "Copie du contenu extrait (symlinks absolus déréférencés, fichiers spéciaux ignorés)..."
+    if command -v rsync &>/dev/null; then
+        rsync -a --copy-unsafe-links --no-devices --no-specials --ignore-errors \
+            "$SQUASHFSPOINT/" "$WINEPOINT/" 2>/dev/null || true
+    else
+        # Fallback sans rsync : ignorer les erreurs sur symlinks cassés et fichiers spéciaux
+        cp -r "$SQUASHFSPOINT/." "$WINEPOINT/" 2>/dev/null || true
+    fi
 
     # IMPORTANT: Les fichiers extraits par unsquashfs sont en lecture seule par défaut
     # Il faut les rendre modifiables pour que Wine puisse créer/modifier des fichiers
