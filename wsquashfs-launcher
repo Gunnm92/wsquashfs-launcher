@@ -25,6 +25,42 @@ detect_env() {
     fi
 }
 
+# Détecte le GPU et configure OpenGL/Vulkan pour éviter le rendu logiciel
+setup_gpu() {
+    local gpu_info=""
+
+    # NVIDIA
+    if [[ -f /proc/driver/nvidia/version ]] || command -v nvidia-smi &>/dev/null; then
+        # Forcer le driver NVIDIA pour OpenGL (évite Mesa/llvmpipe)
+        export __GLX_VENDOR_LIBRARY_NAME=nvidia
+        export __NV_PRIME_RENDER_OFFLOAD=1
+        # Pointer Vulkan uniquement sur l'ICD NVIDIA
+        local nvidia_icd
+        nvidia_icd=$(find /etc/vulkan/icd.d /usr/share/vulkan/icd.d \
+                          -name "nvidia_icd*.json" 2>/dev/null | head -1)
+        [[ -n "$nvidia_icd" ]] && export VK_ICD_FILENAMES="$nvidia_icd"
+        gpu_info="NVIDIA"
+
+    # AMD (ROCm/RADV)
+    elif [[ -d /dev/dri ]] && command -v vulkaninfo &>/dev/null 2>&1; then
+        local amd_icd
+        amd_icd=$(find /etc/vulkan/icd.d /usr/share/vulkan/icd.d \
+                       -name "radeon_icd*.json" 2>/dev/null | head -1)
+        [[ -n "$amd_icd" ]] && export VK_ICD_FILENAMES="$amd_icd"
+        gpu_info="AMD"
+
+    # Intel
+    elif [[ -d /dev/dri ]]; then
+        gpu_info="Intel/Generic"
+    fi
+
+    # Désactiver explicitement le rendu logiciel
+    export LIBGL_ALWAYS_SOFTWARE=0
+    export GALLIUM_DRIVER=""
+
+    echo "$gpu_info"
+}
+
 getWine_var() {
     local winepoint="$1" winevar="$2" default="$3"
     if [[ -e "${winepoint}/autorun.cmd" ]]; then
@@ -181,6 +217,7 @@ fi
 
 GAME_NAME=$(basename "$WSQUASHFS_FILE" .wsquashfs)
 ENV_TYPE=$(detect_env)
+GPU_TYPE=$(setup_gpu)
 
 SQUASHFSPOINT="${CACHE_DIR}/mnt/${GAME_NAME}"
 WINEPOINT="${CACHE_DIR}/wine/${GAME_NAME}"
@@ -191,6 +228,7 @@ echo "========================================="
 echo "WSquashFS Launcher"
 echo "========================================="
 echo "Environnement : $ENV_TYPE"
+echo "GPU           : ${GPU_TYPE:-Non détecté}"
 echo "Jeu           : $GAME_NAME"
 echo "Fichier       : $WSQUASHFS_FILE"
 
@@ -365,6 +403,7 @@ echo "Exécutable    : $EXEC_PATH"
 echo "Arguments     : ${EXEC_ARGS:-<aucun>}"
 echo "Wine          : $WINE_BINARY ($WINE_ARCH)"
 echo "Préfixe       : $WINEPREFIX"
+echo "GPU           : ${GPU_TYPE:-Non détecté}${__GLX_VENDOR_LIBRARY_NAME:+ (__GLX=$__GLX_VENDOR_LIBRARY_NAME)}"
 [[ "$MOUNT_MODE" == "overlay" ]] && echo "Sauvegardes   : $SAVEPOINT"
 [[ "$DXVK"  == "1" ]] && echo "DXVK          : activé"
 [[ "$VKD3D" == "1" ]] && echo "VKD3D         : activé"
