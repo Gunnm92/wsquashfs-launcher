@@ -2,13 +2,12 @@
 
 Ce dossier contient un exemple de configuration pour utiliser WSquashFS Launcher avec Pegasus Frontend.
 
-## 🚀 Installation
+## Installation
 
-### 1. Installer wsquashfs-run
+### 1. Installer wsquashfs-launcher
 
 ```bash
-sudo cp ../wsquashfs-run /usr/local/bin/
-sudo chmod +x /usr/local/bin/wsquashfs-run
+sudo cp ../wsquashfs-launcher /usr/local/bin/
 ```
 
 ### 2. Créer votre dossier de jeux
@@ -19,50 +18,40 @@ mkdir -p ~/Games/wsquashfs
 
 ### 3. Copier vos fichiers .wsquashfs
 
-Placez vos fichiers `.wsquashfs` dans le dossier :
-
 ```bash
 cp /path/to/your/*.wsquashfs ~/Games/wsquashfs/
 ```
 
 ### 4. Créer le fichier metadata
 
-Copiez le fichier d'exemple et adaptez-le :
-
 ```bash
 cp metadata.pegasus.txt ~/Games/wsquashfs/
-cd ~/Games/wsquashfs/
-nano metadata.pegasus.txt
+nano ~/Games/wsquashfs/metadata.pegasus.txt
 ```
 
 ### 5. Configurer Pegasus
 
-Dans Pegasus Frontend, ajoutez le chemin de votre dossier de jeux :
-- Ouvrez **Settings** → **Game directories**
-- Ajoutez `~/Games/wsquashfs`
-- Redémarrez Pegasus
+Dans Pegasus Frontend : **Settings → Game directories** → ajouter `~/Games/wsquashfs`.
 
-## 📁 Structure du dossier
+## Structure du dossier
 
 ```
 ~/Games/wsquashfs/
-├── metadata.pegasus.txt        # Configuration Pegasus
-├── game1.wsquashfs             # Vos jeux
+├── metadata.pegasus.txt
+├── game1.wsquashfs
 ├── game2.wsquashfs
-└── media/                      # Images et médias (optionnel)
+└── media/
     ├── game1-box.png
-    ├── game1-screen1.png
-    ├── game2-box.png
-    └── game2-screen1.png
+    └── game1-screen.png
 ```
 
-## 🎮 Format du fichier metadata
+## Format du fichier metadata
 
 ```
 collection: Windows Games (WSquashFS)
 shortname: wsquashfs
 extensions: wsquashfs
-launch: wsquashfs-run "{file.path}"
+launch: wsquashfs-launcher "{file.path}"
 
 game: Nom du Jeu
 file: nomdujeu.wsquashfs
@@ -77,124 +66,73 @@ assets.boxFront: media/jeu-box.png
 assets.screenshot: media/jeu-screen.png
 ```
 
-## 🎨 Assets (médias)
-
-Pegasus supporte plusieurs types d'assets :
-
-### Types d'assets disponibles
+## Assets disponibles
 
 | Asset | Description | Taille recommandée |
-|-------|-------------|-------------------|
-| `assets.boxFront` | Jaquette avant | 300x400 px |
-| `assets.boxBack` | Jaquette arrière | 300x400 px |
-| `assets.boxSpine` | Tranche de la boîte | 50x400 px |
-| `assets.cartridge` | Cartouche/Disque | 400x400 px |
-| `assets.logo` | Logo du jeu | 400x150 px |
-| `assets.marquee` | Marquee/Banner | 800x300 px |
-| `assets.screenshot` | Capture d'écran | 1280x720 px |
+|---|---|---|
+| `assets.boxFront` | Jaquette avant | 300×400 px |
+| `assets.boxBack` | Jaquette arrière | 300×400 px |
+| `assets.logo` | Logo du jeu | 400×150 px |
+| `assets.marquee` | Banner | 800×300 px |
+| `assets.screenshot` | Capture d'écran | 1280×720 px |
 | `assets.video` | Vidéo de gameplay | MP4, WebM |
-| `assets.background` | Image de fond | 1920x1080 px |
+| `assets.background` | Image de fond | 1920×1080 px |
 
-### Exemple avec tous les assets
-
-```
-game: Super Game
-file: supergame.wsquashfs
-developer: Studio XYZ
-genre: Action
-description: Un jeu génial
-assets.boxFront: media/supergame/box-front.png
-assets.boxBack: media/supergame/box-back.png
-assets.logo: media/supergame/logo.png
-assets.screenshot: media/supergame/screen1.png
-assets.screenshot: media/supergame/screen2.png
-assets.video: media/supergame/gameplay.mp4
-assets.background: media/supergame/background.jpg
-```
-
-## ⚙️ Configuration avancée
+## Configuration avancée
 
 ### Variables d'environnement
 
-Vous pouvez personnaliser le lancement avec des variables :
-
 ```
-launch: WSQUASHFS_SAVES_DIR="$HOME/saves" WSQUASHFS_WINEPREFIX="$HOME/.wine-games" wsquashfs-run "{file.path}"
+launch: WSQUASHFS_SAVES_DIR="$HOME/saves" wsquashfs-launcher "{file.path}"
 ```
 
 ### Organiser par genre
-
-Créez plusieurs collections :
 
 ```
 collection: Action Games (WSquashFS)
 shortname: wsquashfs-action
 extensions: wsquashfs
-launch: wsquashfs-run "{file.path}"
+launch: wsquashfs-launcher "{file.path}"
 directory: action/
 
 collection: RPG Games (WSquashFS)
 shortname: wsquashfs-rpg
 extensions: wsquashfs
-launch: wsquashfs-run "{file.path}"
+launch: wsquashfs-launcher "{file.path}"
 directory: rpg/
 ```
 
-## 🔧 Dépannage
+## Dépannage
 
 ### Les jeux n'apparaissent pas
 
-1. Vérifiez que le fichier `metadata.pegasus.txt` est dans le bon dossier
-2. Vérifiez que l'extension est bien `.wsquashfs`
+1. Vérifiez que `metadata.pegasus.txt` est dans le bon dossier
+2. Vérifiez l'extension `.wsquashfs`
 3. Vérifiez que le dossier est ajouté dans Pegasus Settings
-4. Redémarrez Pegasus
 
 ### Le jeu ne se lance pas
 
-1. Testez en ligne de commande :
-   ```bash
-   wsquashfs-run ~/Games/wsquashfs/game.wsquashfs
-   ```
+Testez en ligne de commande :
 
-2. Vérifiez les logs de Pegasus
-
-3. Vérifiez que les dépendances sont installées :
-   ```bash
-   ./test-setup.sh
-   ```
+```bash
+wsquashfs-launcher ~/Games/wsquashfs/game.wsquashfs
+```
 
 ### Sauvegardes
 
-Les sauvegardes sont dans :
-```
-~/.local/share/wsquashfs/saves/<nom-du-jeu>/
-```
+Les sauvegardes sont dans `~/.local/share/wsquashfs/saves/<nom-du-jeu>/` (mode overlay) ou dans `~/.cache/wsquashfs/wine/<nom-du-jeu>/` (mode copy).
 
-Pour les sauvegarder :
 ```bash
+# Sauvegarder
 tar -czf saves-backup.tar.gz ~/.local/share/wsquashfs/saves/
+
+# Libérer de l'espace (copies de travail)
+wsquashfs-launcher --clean
 ```
 
-## 📚 Ressources
+## Ressources
 
 - [Documentation Pegasus](https://pegasus-frontend.org/)
 - [Format metadata.txt](https://pegasus-frontend.org/docs/user-guide/meta-files/)
 - [Assets Pegasus](https://pegasus-frontend.org/docs/user-guide/meta-assets/)
-
-## 💡 Astuces
-
-### Scraper automatique
-
-Utilisez [Skraper](https://www.skraper.net/) pour récupérer automatiquement les images et métadonnées de vos jeux.
-
-### Thèmes Pegasus
-
-Téléchargez des thèmes sur [le site officiel](https://pegasus-frontend.org/tools/themes/) pour personnaliser l'apparence.
-
-### Performance
-
-Pour de meilleures performances, activez DXVK dans vos fichiers `autorun.cmd` :
-```cmd
-DXVK=1
-ESYNC=1
-```
+- [Skraper](https://www.skraper.net/) — récupération automatique des médias

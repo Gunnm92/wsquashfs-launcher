@@ -4,10 +4,10 @@
 collection: Windows Games (WSquashFS)
 shortname: wsquashfs
 extensions: wsquashfs
-launch: wsquashfs-run "{file.path}"
+launch: wsquashfs-launcher "{file.path}"
 
 # Vous pouvez aussi spécifier des variables d'environnement :
-# launch: WSQUASHFS_SAVES_DIR="$HOME/saves" wsquashfs-run "{file.path}"
+# launch: WSQUASHFS_SAVES_DIR="$HOME/saves" wsquashfs-launcher "{file.path}"
 
 # ============================================
 # Exemples de jeux
