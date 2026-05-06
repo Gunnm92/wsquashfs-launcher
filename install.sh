@@ -1,8 +1,12 @@
 #!/bin/bash
 
 # Script d'installation pour WSquashFS Launcher
+# Usage local  : bash install.sh
+# Usage distant: curl -fsSL https://raw.githubusercontent.com/Gunnm92/wsquashfs-launcher/main/install.sh | bash
 
 set -e
+
+REPO_RAW="https://raw.githubusercontent.com/Gunnm92/wsquashfs-launcher/main"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -98,16 +102,29 @@ install_script() {
     echo ""
     print_info "Installation de wsquashfs-launcher..."
 
-    if [[ ! -f "wsquashfs-launcher" ]]; then
-        print_error "Fichier wsquashfs-launcher introuvable"
-        echo "Exécutez ce script depuis le répertoire wsquashfs-launcher"
-        return 1
+    local src="wsquashfs-launcher"
+
+    # Si le script n'est pas dispo localement, le télécharger
+    if [[ ! -f "$src" ]]; then
+        print_info "Téléchargement depuis GitHub..."
+        local tmp
+        tmp=$(mktemp)
+        if command -v curl &>/dev/null; then
+            curl -fsSL "$REPO_RAW/wsquashfs-launcher" -o "$tmp"
+        elif command -v wget &>/dev/null; then
+            wget -q "$REPO_RAW/wsquashfs-launcher" -O "$tmp"
+        else
+            print_error "curl ou wget requis pour le téléchargement"
+            return 1
+        fi
+        src="$tmp"
     fi
 
     mkdir -p "$INSTALL_DIR"
-    cp wsquashfs-launcher "$INSTALL_DIR/wsquashfs-launcher"
+    cp "$src" "$INSTALL_DIR/wsquashfs-launcher"
     chmod +x "$INSTALL_DIR/wsquashfs-launcher"
 
+    [[ "$src" == /tmp/* ]] && rm -f "$src"
     print_success "Script installé : $INSTALL_DIR/wsquashfs-launcher"
 }
 

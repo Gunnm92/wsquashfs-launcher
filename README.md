@@ -32,6 +32,26 @@ En mode **copy**, le résultat de l'extraction est mis en cache — les relances
 
 ## Installation
 
+### Installation rapide (curl)
+
+```bash
+# Sans sudo (recommandé)
+curl -fsSL https://raw.githubusercontent.com/Gunnm92/wsquashfs-launcher/main/wsquashfs-launcher \
+  -o ~/.local/bin/wsquashfs-launcher && chmod +x ~/.local/bin/wsquashfs-launcher
+```
+
+```bash
+# Avec sudo (système)
+curl -fsSL https://raw.githubusercontent.com/Gunnm92/wsquashfs-launcher/main/wsquashfs-launcher \
+  | sudo tee /usr/local/bin/wsquashfs-launcher > /dev/null \
+  && sudo chmod +x /usr/local/bin/wsquashfs-launcher
+```
+
+```bash
+# Via install.sh (vérifie les dépendances, configure PATH, associe .wsquashfs)
+curl -fsSL https://raw.githubusercontent.com/Gunnm92/wsquashfs-launcher/main/install.sh | bash
+```
+
 ### Prérequis
 
 ```bash
