@@ -96,7 +96,7 @@ fi
 if [[ "$MOUNTED" == false ]]; then
     if command -v unsquashfs &>/dev/null; then
         echo "Extraction via unsquashfs (peut prendre du temps)..."
-        rmdir "$MOUNT_POINT" 2>/dev/null
+        rm -rf "$MOUNT_POINT"
         if unsquashfs -d "$MOUNT_POINT" "$WSQUASHFS_FILE"; then
             MOUNT_METHOD="unsquashfs"
             MOUNTED=true
