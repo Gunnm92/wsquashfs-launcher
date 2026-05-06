@@ -25,40 +25,49 @@ detect_env() {
     fi
 }
 
-# Détecte le GPU et configure OpenGL/Vulkan pour éviter le rendu logiciel
+# Configure OpenGL/Vulkan pour utiliser le GPU matériel disponible
 setup_gpu() {
-    local gpu_info=""
+    # Désactiver le rendu logiciel quelle que soit la pile graphique
+    export LIBGL_ALWAYS_SOFTWARE=0
 
-    # NVIDIA
-    if [[ -f /proc/driver/nvidia/version ]] || command -v nvidia-smi &>/dev/null; then
-        # Forcer le driver NVIDIA pour OpenGL (évite Mesa/llvmpipe)
-        export __GLX_VENDOR_LIBRARY_NAME=nvidia
-        export __NV_PRIME_RENDER_OFFLOAD=1
-        # Pointer Vulkan uniquement sur l'ICD NVIDIA
-        local nvidia_icd
-        nvidia_icd=$(find /etc/vulkan/icd.d /usr/share/vulkan/icd.d \
-                          -name "nvidia_icd*.json" 2>/dev/null | head -1)
-        [[ -n "$nvidia_icd" ]] && export VK_ICD_FILENAMES="$nvidia_icd"
-        gpu_info="NVIDIA"
+    # Construire VK_ICD_FILENAMES à partir des ICDs matériels disponibles
+    # (exclut les rendus logiciels : lavapipe, swrast, virtio)
+    local hw_icds=()
+    local icd_dir f
+    for icd_dir in /etc/vulkan/icd.d /usr/share/vulkan/icd.d; do
+        [[ -d "$icd_dir" ]] || continue
+        for f in "$icd_dir"/*.json; do
+            [[ -f "$f" ]] || continue
+            case "$(basename "$f")" in
+                lvp_icd* | swrast* | virtio* | virtgpu*) continue ;;
+            esac
+            hw_icds+=("$f")
+        done
+    done
 
-    # AMD (ROCm/RADV)
-    elif [[ -d /dev/dri ]] && command -v vulkaninfo &>/dev/null 2>&1; then
-        local amd_icd
-        amd_icd=$(find /etc/vulkan/icd.d /usr/share/vulkan/icd.d \
-                       -name "radeon_icd*.json" 2>/dev/null | head -1)
-        [[ -n "$amd_icd" ]] && export VK_ICD_FILENAMES="$amd_icd"
-        gpu_info="AMD"
-
-    # Intel
-    elif [[ -d /dev/dri ]]; then
-        gpu_info="Intel/Generic"
+    if [[ ${#hw_icds[@]} -gt 0 ]]; then
+        local old_IFS="$IFS"; IFS=':'
+        export VK_ICD_FILENAMES="${hw_icds[*]}"
+        IFS="$old_IFS"
     fi
 
-    # Désactiver explicitement le rendu logiciel
-    export LIBGL_ALWAYS_SOFTWARE=0
-    export GALLIUM_DRIVER=""
+    # NVIDIA uniquement : forcer le driver OpenGL propriétaire
+    # (sans ça, Mesa/llvmpipe est utilisé même si le GPU est accessible)
+    if [[ -f /proc/driver/nvidia/version ]]; then
+        export __GLX_VENDOR_LIBRARY_NAME=nvidia
+        export __NV_PRIME_RENDER_OFFLOAD=1
+    fi
 
-    echo "$gpu_info"
+    # Nom affiché : dérivé des ICDs matériels trouvés
+    if [[ ${#hw_icds[@]} -gt 0 ]]; then
+        local names=()
+        for f in "${hw_icds[@]}"; do
+            names+=("$(basename "$f" .json | sed 's/_icd.*//')")
+        done
+        echo "${names[*]}"
+    else
+        echo "Non détecté"
+    fi
 }
 
 getWine_var() {
