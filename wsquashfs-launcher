@@ -83,30 +83,33 @@ if [[ ! -d "$MOUNT_POINT" ]]; then
     mkdir -p "$MOUNT_POINT" || { echo "Erreur : Impossible de créer le point de montage"; exit 1; }
 fi
 
-if [[ -e /dev/fuse ]] && command -v squashfuse &>/dev/null; then
+if command -v squashfuse &>/dev/null && [[ -e /dev/fuse ]]; then
     echo "Montage de $WSQUASHFS_FILE sur $MOUNT_POINT (squashfuse)"
-    if squashfuse "$WSQUASHFS_FILE" "$MOUNT_POINT"; then
+    if squashfuse "$WSQUASHFS_FILE" "$MOUNT_POINT" 2>/dev/null; then
         MOUNT_METHOD="squashfuse"
         MOUNTED=true
     else
-        echo "Erreur : Échec du montage squashfuse"
-        exit 1
+        echo "squashfuse indisponible (permissions FUSE) — bascule sur unsquashfs..."
     fi
-elif command -v unsquashfs &>/dev/null; then
-    echo "FUSE non disponible — extraction via unsquashfs (peut prendre du temps)..."
-    rmdir "$MOUNT_POINT" 2>/dev/null
-    if unsquashfs -d "$MOUNT_POINT" "$WSQUASHFS_FILE"; then
-        MOUNT_METHOD="unsquashfs"
-        MOUNTED=true
+fi
+
+if [[ "$MOUNTED" == false ]]; then
+    if command -v unsquashfs &>/dev/null; then
+        echo "Extraction via unsquashfs (peut prendre du temps)..."
+        rmdir "$MOUNT_POINT" 2>/dev/null
+        if unsquashfs -d "$MOUNT_POINT" "$WSQUASHFS_FILE"; then
+            MOUNT_METHOD="unsquashfs"
+            MOUNTED=true
+        else
+            echo "Erreur : Échec de l'extraction unsquashfs"
+            exit 1
+        fi
     else
-        echo "Erreur : Échec de l'extraction unsquashfs"
+        echo "Erreur : ni squashfuse ni unsquashfs ne sont disponibles."
+        echo "  → Installer squashfs-tools : apt-get install squashfs-tools"
+        echo "  → Ou exposer /dev/fuse dans le conteneur : --device /dev/fuse"
         exit 1
     fi
-else
-    echo "Erreur : ni squashfuse (avec /dev/fuse) ni unsquashfs ne sont disponibles."
-    echo "  → Installer squashfs-tools : apt-get install squashfs-tools"
-    echo "  → Ou exposer /dev/fuse dans le conteneur : --device /dev/fuse"
-    exit 1
 fi
 
 AUTORUN_FILE="$MOUNT_POINT/autorun.cmd"
