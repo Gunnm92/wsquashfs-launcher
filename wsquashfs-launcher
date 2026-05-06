@@ -25,10 +25,34 @@ detect_env() {
     fi
 }
 
+# Corrige DISPLAY si le socket X11 courant est absent (ex: Xwayland sur :0, DISPLAY=:1)
+fix_display() {
+    local cur="${DISPLAY#:}"
+    [[ -S "/tmp/.X11-unix/X${cur}" ]] && return
+    local d
+    for d in 0 1 2 3; do
+        if [[ -S "/tmp/.X11-unix/X${d}" ]]; then
+            export DISPLAY=":${d}"
+            return
+        fi
+    done
+}
+
 # Configure OpenGL/Vulkan pour utiliser le GPU matériel disponible
 setup_gpu() {
-    # Désactiver le rendu logiciel quelle que soit la pile graphique
     export LIBGL_ALWAYS_SOFTWARE=0
+
+    # XDG_RUNTIME_DIR requis pour l'accès Vulkan/DRM (souvent absent dans docker exec)
+    if [[ -z "$XDG_RUNTIME_DIR" ]] || [[ ! -d "$XDG_RUNTIME_DIR" ]]; then
+        local uid_runtime="/run/user/$(id -u)"
+        if [[ -d "$uid_runtime" ]]; then
+            export XDG_RUNTIME_DIR="$uid_runtime"
+        else
+            local tmp_runtime="/tmp/wsquashfs-runtime-$(id -u)"
+            mkdir -p "$tmp_runtime" && chmod 700 "$tmp_runtime" 2>/dev/null || true
+            export XDG_RUNTIME_DIR="$tmp_runtime"
+        fi
+    fi
 
     # Construire VK_ICD_FILENAMES à partir des ICDs matériels disponibles
     # (exclut les rendus logiciels : lavapipe, swrast, virtio)
@@ -51,11 +75,21 @@ setup_gpu() {
         IFS="$old_IFS"
     fi
 
-    # NVIDIA uniquement : forcer le driver OpenGL propriétaire
-    # (sans ça, Mesa/llvmpipe est utilisé même si le GPU est accessible)
+    # NVIDIA : forcer le driver OpenGL propriétaire + EGL
+    # (sans ça, Mesa/llvmpipe est sélectionné même si le GPU est accessible via XWayland)
     if [[ -f /proc/driver/nvidia/version ]]; then
         export __GLX_VENDOR_LIBRARY_NAME=nvidia
         export __NV_PRIME_RENDER_OFFLOAD=1
+        # L'ICD EGL peut être dans /etc/glvnd/ plutôt que /usr/share/glvnd/ (selon le conteneur)
+        local egl_path
+        for egl_path in \
+            /etc/glvnd/egl_vendor.d/10_nvidia.json \
+            /usr/share/glvnd/egl_vendor.d/10_nvidia.json; do
+            if [[ -f "$egl_path" ]]; then
+                export __EGL_VENDOR_LIBRARY_FILENAMES="$egl_path"
+                break
+            fi
+        done
     fi
 
     # Nom affiché : dérivé des ICDs matériels trouvés
@@ -226,6 +260,7 @@ fi
 
 GAME_NAME=$(basename "$WSQUASHFS_FILE" .wsquashfs)
 ENV_TYPE=$(detect_env)
+fix_display
 GPU_TYPE=$(setup_gpu)
 
 SQUASHFSPOINT="${CACHE_DIR}/mnt/${GAME_NAME}"
@@ -238,6 +273,8 @@ echo "WSquashFS Launcher"
 echo "========================================="
 echo "Environnement : $ENV_TYPE"
 echo "GPU           : ${GPU_TYPE:-Non détecté}"
+echo "Display       : ${DISPLAY:-<non défini>}"
+echo "XDG_RUNTIME   : ${XDG_RUNTIME_DIR:-<non défini>}"
 echo "Jeu           : $GAME_NAME"
 echo "Fichier       : $WSQUASHFS_FILE"
 
@@ -412,7 +449,7 @@ echo "Exécutable    : $EXEC_PATH"
 echo "Arguments     : ${EXEC_ARGS:-<aucun>}"
 echo "Wine          : $WINE_BINARY ($WINE_ARCH)"
 echo "Préfixe       : $WINEPREFIX"
-echo "GPU           : ${GPU_TYPE:-Non détecté}${__GLX_VENDOR_LIBRARY_NAME:+ (__GLX=$__GLX_VENDOR_LIBRARY_NAME)}"
+echo "GPU           : ${GPU_TYPE:-Non détecté}${__GLX_VENDOR_LIBRARY_NAME:+ (__GLX=$__GLX_VENDOR_LIBRARY_NAME)}${__EGL_VENDOR_LIBRARY_FILENAMES:+ (EGL forcé)}"
 [[ "$MOUNT_MODE" == "overlay" ]] && echo "Sauvegardes   : $SAVEPOINT"
 [[ "$DXVK"  == "1" ]] && echo "DXVK          : activé"
 [[ "$VKD3D" == "1" ]] && echo "VKD3D         : activé"
