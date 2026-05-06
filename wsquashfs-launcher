@@ -1,20 +1,31 @@
 #!/bin/bash
 
-# Fonction pour récupérer une variable depuis le fichier autorun.cmd
+# Récupère une variable depuis autorun.cmd
 getWine_var() {
-    WINEPOINT=$1
-    WINEVAR=$2
-    WINEVALUE=$3
+    local winepoint="$1"
+    local winevar="$2"
+    local default="$3"
 
-    if [[ -e "${WINEPOINT}/autorun.cmd" ]]; then
-        VAL=$(grep "^${WINEVAR}=" "${WINEPOINT}/autorun.cmd" | sed -e "s/^${WINEVAR}=//" | head -1 | dos2unix)
-        if [[ -n "${VAL}" ]]; then
-            echo "${VAL}"
+    if [[ -e "${winepoint}/autorun.cmd" ]]; then
+        local val
+        val=$(grep "^${winevar}=" "${winepoint}/autorun.cmd" | sed -e "s/^${winevar}=//" | head -1 | tr -d '\r')
+        if [[ -n "${val}" ]]; then
+            echo "${val}"
         else
-            echo "${WINEVALUE}"
+            echo "${default}"
         fi
     else
-        echo "${WINEVALUE}"
+        echo "${default}"
+    fi
+}
+
+MOUNT_METHOD=""
+
+do_umount() {
+    if [[ "$MOUNT_METHOD" == "unsquashfs" ]]; then
+        rm -rf "$1"
+    else
+        fusermount -u "$1" 2>/dev/null || fusermount3 -u "$1" 2>/dev/null || umount "$1"
     fi
 }
 
@@ -24,60 +35,88 @@ if [[ $# -ne 1 ]]; then
     exit 1
 fi
 
-# Variables
 WSQUASHFS_FILE=$1
 if [[ "${WSQUASHFS_FILE##*.}" != "wsquashfs" ]]; then
     echo "Erreur : Le fichier spécifié n'a pas l'extension .wsquashfs"
     exit 1
 fi
 
-BASE_NAME=$(basename "$WSQUASHFS_FILE" .wsquashfs)
-MOUNT_POINT="$HOME/.squashfs/$BASE_NAME"
-AUTORUN_FILE="$MOUNT_POINT/autorun.cmd"
-BOTTLE_NAME="Soda" # Nom de la bouteille existante
-
-# Vérification du fichier wsquashfs
 if [[ ! -f "$WSQUASHFS_FILE" ]]; then
     echo "Erreur : Le fichier wsquashfs spécifié n'existe pas : $WSQUASHFS_FILE"
     exit 1
 fi
 
+BASE_NAME=$(basename "$WSQUASHFS_FILE" .wsquashfs)
+MOUNT_POINT="$HOME/.squashfs/$BASE_NAME"
+
+MOUNTED=false
+
+cleanup() {
+    if [[ "$MOUNTED" == true ]]; then
+        if [[ "$MOUNT_METHOD" == "unsquashfs" ]]; then
+            echo "Suppression de l'extraction $MOUNT_POINT..."
+            rm -rf "$MOUNT_POINT" || echo "Attention : Impossible de supprimer $MOUNT_POINT"
+        else
+            echo "Démontage de $MOUNT_POINT..."
+            if do_umount "$MOUNT_POINT"; then
+                rmdir "$MOUNT_POINT" 2>/dev/null || echo "Attention : Impossible de supprimer $MOUNT_POINT"
+            else
+                echo "Attention : Impossible de démonter $MOUNT_POINT"
+            fi
+        fi
+    fi
+}
+trap cleanup EXIT INT TERM
+
 # Contrôle si le point de montage existe déjà
 if mountpoint -q "$MOUNT_POINT"; then
     echo "Le point de montage $MOUNT_POINT est déjà utilisé. Démontage..."
-    if ! umount "$MOUNT_POINT"; then
+    if ! do_umount "$MOUNT_POINT"; then
         echo "Erreur : Impossible de démonter $MOUNT_POINT. Veuillez vérifier."
         exit 1
     fi
     echo "Démontage réussi."
 fi
 
-# Création du point de montage si nécessaire
 if [[ ! -d "$MOUNT_POINT" ]]; then
     echo "Création du point de montage : $MOUNT_POINT"
     mkdir -p "$MOUNT_POINT" || { echo "Erreur : Impossible de créer le point de montage"; exit 1; }
 fi
 
-# Montage
-echo "Montage de $WSQUASHFS_FILE sur $MOUNT_POINT"
-if ! squashfuse "$WSQUASHFS_FILE" "$MOUNT_POINT"; then
-    echo "Erreur : Échec du montage wsquashfs"
+if [[ -e /dev/fuse ]] && command -v squashfuse &>/dev/null; then
+    echo "Montage de $WSQUASHFS_FILE sur $MOUNT_POINT (squashfuse)"
+    if squashfuse "$WSQUASHFS_FILE" "$MOUNT_POINT"; then
+        MOUNT_METHOD="squashfuse"
+        MOUNTED=true
+    else
+        echo "Erreur : Échec du montage squashfuse"
+        exit 1
+    fi
+elif command -v unsquashfs &>/dev/null; then
+    echo "FUSE non disponible — extraction via unsquashfs (peut prendre du temps)..."
+    rmdir "$MOUNT_POINT" 2>/dev/null
+    if unsquashfs -d "$MOUNT_POINT" "$WSQUASHFS_FILE"; then
+        MOUNT_METHOD="unsquashfs"
+        MOUNTED=true
+    else
+        echo "Erreur : Échec de l'extraction unsquashfs"
+        exit 1
+    fi
+else
+    echo "Erreur : ni squashfuse (avec /dev/fuse) ni unsquashfs ne sont disponibles."
+    echo "  → Installer squashfs-tools : apt-get install squashfs-tools"
+    echo "  → Ou exposer /dev/fuse dans le conteneur : --device /dev/fuse"
     exit 1
 fi
 
-# Vérification de l'existence de autorun.cmd
+AUTORUN_FILE="$MOUNT_POINT/autorun.cmd"
 if [[ ! -f "$AUTORUN_FILE" ]]; then
     echo "Erreur : Le fichier autorun.cmd n'existe pas dans $MOUNT_POINT"
-    umount "$MOUNT_POINT"
-    rmdir "$MOUNT_POINT"
     exit 1
 fi
 
-# Utilisation de getWine_var pour récupérer toutes les variables de Batocera
 DIR=$(getWine_var "$MOUNT_POINT" "DIR" "")
 CMD=$(getWine_var "$MOUNT_POINT" "CMD" "")
-
-# Variables Wine/Proton spécifiques à Batocera
 WINE_VERSION=$(getWine_var "$MOUNT_POINT" "WINE" "")
 PROTON_VERSION=$(getWine_var "$MOUNT_POINT" "PROTON" "")
 RUNNER=$(getWine_var "$MOUNT_POINT" "RUNNER" "")
@@ -86,45 +125,34 @@ DXVK=$(getWine_var "$MOUNT_POINT" "DXVK" "")
 VKD3D=$(getWine_var "$MOUNT_POINT" "VKD3D" "")
 ESYNC=$(getWine_var "$MOUNT_POINT" "ESYNC" "")
 FSYNC=$(getWine_var "$MOUNT_POINT" "FSYNC" "")
+BOTTLE_NAME=$(getWine_var "$MOUNT_POINT" "BOTTLE" "Soda")
 
-# Vérification des variables extraites
 if [[ -z "$CMD" ]]; then
     echo "Erreur : CMD n'est pas défini dans $AUTORUN_FILE"
-    umount "$MOUNT_POINT"
-    rmdir "$MOUNT_POINT"
     exit 1
 fi
 
-# Gestion du chemin complet
-# Dans Batocera, DIR est relatif à la racine du prefix Wine (qui est le point de montage)
-# Exemple: DIR=drive_c/Program Files/MyGame
+# Parse CMD en tableau — les chemins avec espaces doivent utiliser DIR
+read -ra CMD_PARTS <<< "$CMD"
+CMD_EXE="${CMD_PARTS[0]//\"/}"
+CMD_ARGS=("${CMD_PARTS[@]:1}")
+
 if [[ -z "$DIR" ]]; then
-    # Si DIR n'est pas défini, suppose que le fichier est à la racine du prefix
-    EXEC_PATH="$MOUNT_POINT/$(echo "$CMD" | awk '{print $1}' | sed 's/^"//;s/"$//')"
-    EXEC_ARGS=$(echo "$CMD" | cut -d' ' -f2-)
+    EXEC_PATH="$MOUNT_POINT/$CMD_EXE"
 else
-    # DIR est relatif au prefix Wine (MOUNT_POINT)
-    EXEC_PATH="$MOUNT_POINT/$DIR/$(echo "$CMD" | awk '{print $1}' | sed 's/^"//;s/"$//')"
-    EXEC_ARGS=$(echo "$CMD" | cut -d' ' -f2-)
+    EXEC_PATH="$MOUNT_POINT/$DIR/$CMD_EXE"
 fi
 
 if [[ ! -f "$EXEC_PATH" ]]; then
     echo "Erreur : Le fichier exécutable spécifié n'existe pas : $EXEC_PATH"
-    umount "$MOUNT_POINT"
-    rmdir "$MOUNT_POINT"
     exit 1
 fi
 
-# Détection du type de fichier exécuté
 EXT="${EXEC_PATH##*.}"
 
-# Configuration du préfixe Wine
-# IMPORTANT: Dans Batocera, le wsquashfs contient TOUT le prefix Wine (system.reg, user.reg, drive_c/, etc.)
-# Le WINEPREFIX doit pointer vers le point de montage (MOUNT_POINT), pas vers un sous-répertoire
 export WINEPREFIX="$MOUNT_POINT"
 export WINEARCH="$WINE_ARCH"
 
-# Vérifier la structure du prefix Wine
 if [[ -f "$MOUNT_POINT/system.reg" ]] && [[ -d "$MOUNT_POINT/drive_c" ]]; then
     echo "✓ Préfixe Wine complet détecté dans le wsquashfs (structure Batocera)"
 else
@@ -132,7 +160,6 @@ else
     echo "Structure attendue: system.reg, user.reg, drive_c/, etc. à la racine du wsquashfs"
 fi
 
-# Configuration des optimisations Wine/Proton
 if [[ "$ESYNC" == "1" ]]; then
     export WINEESYNC=1
     echo "ESYNC activé"
@@ -143,11 +170,19 @@ if [[ "$FSYNC" == "1" ]]; then
     echo "FSYNC activé"
 fi
 
-# Déterminer si on utilise Wine ou Bottles
+if [[ "$DXVK" == "1" ]]; then
+    export WINEDLLOVERRIDES="${WINEDLLOVERRIDES:+${WINEDLLOVERRIDES};}d3d11=n,b;d3d10core=n,b;d3d9=n,b;dxgi=n,b"
+    echo "DXVK activé (WINEDLLOVERRIDES)"
+fi
+
+if [[ "$VKD3D" == "1" ]]; then
+    export WINEDLLOVERRIDES="${WINEDLLOVERRIDES:+${WINEDLLOVERRIDES};}d3d12=n,b"
+    echo "VKD3D activé (WINEDLLOVERRIDES)"
+fi
+
 USE_BOTTLES=false
 WINE_BINARY="wine"
 
-# Support version Wine personnalisée
 if [[ -n "$WINE_VERSION" ]]; then
     echo "Version Wine demandée : $WINE_VERSION"
     if [[ -x "/opt/wine-$WINE_VERSION/bin/wine" ]]; then
@@ -157,7 +192,6 @@ if [[ -n "$WINE_VERSION" ]]; then
     fi
 fi
 
-# Support Proton si spécifié
 if [[ -n "$PROTON_VERSION" ]]; then
     echo "Version Proton demandée : $PROTON_VERSION"
     if [[ -x "/usr/local/bin/proton" ]]; then
@@ -167,7 +201,6 @@ if [[ -n "$PROTON_VERSION" ]]; then
     fi
 fi
 
-# Support runner personnalisé
 if [[ -n "$RUNNER" ]]; then
     echo "Runner personnalisé : $RUNNER"
     if [[ -x "$RUNNER" ]]; then
@@ -175,40 +208,34 @@ if [[ -n "$RUNNER" ]]; then
     fi
 fi
 
-# Vérifier si Bottles est disponible et préféré (si aucune version Wine spécifique n'est demandée)
 if [[ -z "$WINE_VERSION" ]] && [[ -z "$PROTON_VERSION" ]] && [[ -z "$RUNNER" ]]; then
-    if command -v flatpak &> /dev/null && flatpak list | grep -q com.usebottles.bottles; then
+    if command -v flatpak &>/dev/null && flatpak list | grep -q com.usebottles.bottles; then
         USE_BOTTLES=true
     fi
 fi
 
-# Construction de la commande
+# Construction du tableau de commande (sans eval)
+declare -a RUN_CMD
+
 if [[ "$USE_BOTTLES" == true ]]; then
-    # Utilisation de Bottles
     if [[ "$EXT" == "bat" ]]; then
-        RUN_CMD="flatpak run --command=bottles-cli com.usebottles.bottles run -b \"$BOTTLE_NAME\" -e cmd -a \"/c \\\"$EXEC_PATH\\\" $EXEC_ARGS\""
+        RUN_CMD=(flatpak run --command=bottles-cli com.usebottles.bottles run
+                 -b "$BOTTLE_NAME" -e cmd -a "/c \"$EXEC_PATH\" ${CMD_ARGS[*]}")
+    elif [[ ${#CMD_ARGS[@]} -gt 0 ]]; then
+        RUN_CMD=(flatpak run --command=bottles-cli com.usebottles.bottles run
+                 -b "$BOTTLE_NAME" -e "$EXEC_PATH" -a "${CMD_ARGS[*]}")
     else
-        if [[ -n "$EXEC_ARGS" ]]; then
-            RUN_CMD="flatpak run --command=bottles-cli com.usebottles.bottles run -b \"$BOTTLE_NAME\" -e \"$EXEC_PATH\" -a \"$EXEC_ARGS\""
-        else
-            RUN_CMD="flatpak run --command=bottles-cli com.usebottles.bottles run -b \"$BOTTLE_NAME\" -e \"$EXEC_PATH\""
-        fi
+        RUN_CMD=(flatpak run --command=bottles-cli com.usebottles.bottles run
+                 -b "$BOTTLE_NAME" -e "$EXEC_PATH")
     fi
 else
-    # Utilisation de Wine standard avec WINEPREFIX
-    # WINEPREFIX est déjà exporté, mais on le met aussi dans la commande pour être explicite
     if [[ "$EXT" == "bat" ]]; then
-        RUN_CMD="WINEPREFIX=\"$WINEPREFIX\" $WINE_BINARY cmd /c \"$EXEC_PATH\" $EXEC_ARGS"
+        RUN_CMD=("$WINE_BINARY" cmd /c "$EXEC_PATH" "${CMD_ARGS[@]}")
     else
-        if [[ -n "$EXEC_ARGS" ]]; then
-            RUN_CMD="WINEPREFIX=\"$WINEPREFIX\" $WINE_BINARY \"$EXEC_PATH\" $EXEC_ARGS"
-        else
-            RUN_CMD="WINEPREFIX=\"$WINEPREFIX\" $WINE_BINARY \"$EXEC_PATH\""
-        fi
+        RUN_CMD=("$WINE_BINARY" "$EXEC_PATH" "${CMD_ARGS[@]}")
     fi
 fi
 
-# Affichage des informations
 echo "========================================="
 echo "Informations d'exécution :"
 echo "========================================="
@@ -216,7 +243,7 @@ echo "Fichier WSquashFS : $WSQUASHFS_FILE"
 echo "Point de montage  : $MOUNT_POINT"
 echo "Préfixe Wine      : $WINEPREFIX"
 echo "Chemin exécutable : $EXEC_PATH"
-echo "Arguments         : $EXEC_ARGS"
+echo "Arguments         : ${CMD_ARGS[*]}"
 echo ""
 echo "Configuration :"
 if [[ "$USE_BOTTLES" == true ]]; then
@@ -226,26 +253,17 @@ else
     echo "  Binary Wine     : $WINE_BINARY"
 fi
 echo "  Architecture    : $WINE_ARCH"
-[[ -n "$WINE_VERSION" ]] && echo "  Version Wine    : $WINE_VERSION"
+[[ -n "$WINE_VERSION" ]]   && echo "  Version Wine    : $WINE_VERSION"
 [[ -n "$PROTON_VERSION" ]] && echo "  Version Proton  : $PROTON_VERSION"
-[[ -n "$RUNNER" ]] && echo "  Runner          : $RUNNER"
-[[ "$DXVK" == "1" ]] && echo "  DXVK            : Activé"
-[[ "$VKD3D" == "1" ]] && echo "  VKD3D           : Activé"
-[[ "$ESYNC" == "1" ]] && echo "  ESYNC           : Activé"
-[[ "$FSYNC" == "1" ]] && echo "  FSYNC           : Activé"
+[[ -n "$RUNNER" ]]         && echo "  Runner          : $RUNNER"
+[[ "$DXVK"  == "1" ]]      && echo "  DXVK            : Activé"
+[[ "$VKD3D" == "1" ]]      && echo "  VKD3D           : Activé"
+[[ "$ESYNC" == "1" ]]      && echo "  ESYNC           : Activé"
+[[ "$FSYNC" == "1" ]]      && echo "  FSYNC           : Activé"
 echo ""
-echo "Commande          : $RUN_CMD"
+echo "Commande          : ${RUN_CMD[*]}"
 echo "========================================="
 
-# Exécution de la commande
-eval $RUN_CMD
-
-# Nettoyage
-echo "Démontage de $MOUNT_POINT..."
-umount "$MOUNT_POINT"
-
-# Suppression du répertoire de montage
-echo "Suppression du répertoire de montage : $MOUNT_POINT"
-rmdir "$MOUNT_POINT" || echo "Attention : Impossible de supprimer le répertoire $MOUNT_POINT. Veuillez vérifier."
+"${RUN_CMD[@]}"
 
 echo "Terminé."
