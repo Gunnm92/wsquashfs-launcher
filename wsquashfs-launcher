@@ -467,6 +467,10 @@ WORKDIR="$WINEPOINT"
 [[ -n "$DIR" ]] && WORKDIR="${WINEPOINT}/${DIR}"
 cd "$WORKDIR" || exit 1
 
+# Wine 9+ utilise le driver Wayland natif si WAYLAND_DISPLAY est défini.
+# Ce driver est expérimental et mal supporté avec NVIDIA — forcer X11.
+unset WAYLAND_DISPLAY
+
 declare -a RUN_CMD
 read -ra EXEC_ARGS_ARR <<< "$EXEC_ARGS"
 
