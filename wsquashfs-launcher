@@ -39,11 +39,11 @@ find_wine_binary() {
         "$HOME/.local/share/wsquashfs/wine" \
         "/opt"; do
         [[ -d "$d" ]] || continue
-        # wine-ge / wine-lutris / GE-Proton en priorité (noms variés selon la version)
+        # wine-ge en priorité (installé par notre script sous wine-ge-*, ou variantes)
         while IFS= read -r -d '' w; do
             [[ -x "$w" ]] && candidates+=("$w")
         done < <(find "$d" -maxdepth 3 -name "wine" -path "*/bin/wine" -print0 2>/dev/null \
-            | grep -z -iE '/(wine-lutris|lutris-|wine-ge|ge-proton|GE-Proton)')
+            | grep -z -iE '/(wine-ge|lutris-|wine-lutris)')
         # wine-tkg ensuite
         while IFS= read -r -d '' w; do
             [[ -x "$w" ]] && candidates+=("$w")

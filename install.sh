@@ -153,13 +153,16 @@ _github_latest_tag() {
 }
 
 _extract_wine() {
-    local archive="$1"
+    local archive="$1" label="$2"
     mkdir -p "$WINE_INSTALL_DIR"
-    # Récupérer le nom du répertoire racine dans l'archive avant d'extraire
     local top_dir
     top_dir=$(tar -tf "$archive" 2>/dev/null | head -1 | cut -d/ -f1)
     tar -xf "$archive" -C "$WINE_INSTALL_DIR" 2>&1 | tail -1 || true
-    # Retourner le wine du répertoire qu'on vient d'extraire
+    # Renommer le dossier extrait avec un nom normalisé (ex: lutris-GE-Proton8-26 → wine-ge-GE-Proton8-26)
+    if [[ -n "$label" && -d "${WINE_INSTALL_DIR}/${top_dir}" && "$top_dir" != "$label" ]]; then
+        mv "${WINE_INSTALL_DIR}/${top_dir}" "${WINE_INSTALL_DIR}/${label}" 2>/dev/null || true
+        top_dir="$label"
+    fi
     find "${WINE_INSTALL_DIR}/${top_dir}" -maxdepth 2 -name "wine" -path "*/bin/wine" 2>/dev/null | head -1
 }
 
@@ -197,7 +200,7 @@ download_wine_ge() {
     print_info "Téléchargement de $filename (~234 Mo)..."
     if _download "$url" "${tmp}/${filename}"; then
         local installed
-        installed=$(_extract_wine "${tmp}/${filename}")
+        installed=$(_extract_wine "${tmp}/${filename}" "wine-ge-${tag}")
         rm -rf "$tmp"
         if [[ -n "$installed" ]]; then
             print_success "wine-ge installé : $installed"
