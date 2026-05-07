@@ -133,7 +133,8 @@ sync_wine_stubs() {
     # En mode copy    → WINEPOINT (écriture directe)
     local target_root="${2:-$WINEPOINT}"
     local wine_root
-    wine_root=$(dirname "$(dirname "$wine_bin")")
+    # Résoudre le symlink pour trouver le vrai répertoire Wine (ex: /usr/bin/wine → /opt/wine-staging/bin/wine)
+    wine_root=$(dirname "$(dirname "$(readlink -f "$wine_bin")")")
     local src_dirs=(
         "${wine_root}/lib/wine/x86_64-windows:system32"
         "${wine_root}/lib64/wine/x86_64-windows:system32"   # wine-ge/lutris met les DLLs 64-bit ici
