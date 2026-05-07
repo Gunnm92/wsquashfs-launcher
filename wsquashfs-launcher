@@ -141,7 +141,7 @@ sync_wine_stubs() {
         # chemins Debian/Ubuntu
         "/usr/lib/x86_64-linux-gnu/wine/x86_64-windows:system32"
         "/usr/lib/x86_64-linux-gnu/wine/i386-windows:syswow64"
-        "/usr/lib/i386-linux-gnu/wine/i386-windows:system32"
+        "/usr/lib/i386-linux-gnu/wine/i386-windows:syswow64"
     )
     local entry src_dir dst_subdir src dst name
     for entry in "${src_dirs[@]}"; do
