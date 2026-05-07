@@ -39,17 +39,16 @@ find_wine_binary() {
         "$HOME/.local/share/wsquashfs/wine" \
         "/opt"; do
         [[ -d "$d" ]] || continue
-        # wine-ge / wine-lutris en priorité
+        # wine-ge / wine-lutris / GE-Proton en priorité (noms variés selon la version)
         while IFS= read -r -d '' w; do
             [[ -x "$w" ]] && candidates+=("$w")
-        done < <(find "$d" -maxdepth 3 -name "wine" -path "*/wine-lutris*/bin/wine" -print0 2>/dev/null)
-        while IFS= read -r -d '' w; do
-            [[ -x "$w" ]] && candidates+=("$w")
-        done < <(find "$d" -maxdepth 3 -name "wine" -path "*/wine-ge*/bin/wine" -print0 2>/dev/null)
+        done < <(find "$d" -maxdepth 3 -name "wine" -path "*/bin/wine" -print0 2>/dev/null \
+            | grep -z -iE '/(wine-lutris|lutris-|wine-ge|ge-proton|GE-Proton)')
         # wine-tkg ensuite
         while IFS= read -r -d '' w; do
             [[ -x "$w" ]] && candidates+=("$w")
-        done < <(find "$d" -maxdepth 3 -name "wine" -path "*/wine-*tkg*/bin/wine" -print0 2>/dev/null)
+        done < <(find "$d" -maxdepth 3 -name "wine" -path "*/bin/wine" -print0 2>/dev/null \
+            | grep -z -i 'tkg')
     done
     for c in "${candidates[@]}"; do
         [[ -x "$c" ]] && echo "$c" && return
@@ -137,6 +136,7 @@ sync_wine_stubs() {
     wine_root=$(dirname "$(dirname "$wine_bin")")
     local src_dirs=(
         "${wine_root}/lib/wine/x86_64-windows:system32"
+        "${wine_root}/lib64/wine/x86_64-windows:system32"   # wine-ge/lutris met les DLLs 64-bit ici
         "${wine_root}/lib/wine/i386-windows:syswow64"
         # chemins Debian/Ubuntu
         "/usr/lib/x86_64-linux-gnu/wine/x86_64-windows:system32"
@@ -148,15 +148,16 @@ sync_wine_stubs() {
         src_dir="${entry%%:*}"
         dst_subdir="${entry##*:}"
         [[ -d "$src_dir" ]] || continue
-        # Créer le répertoire cible s'il n'existe pas
         mkdir -p "${target_root}/drive_c/windows/${dst_subdir}" 2>/dev/null || true
         for src in "$src_dir"/*.dll; do
             [[ -f "$src" ]] || continue
             name=$(basename "$src")
-            # Vérifier l'absence dans le prefix réel (overlay ou copie) pour ne pas écraser
             local overlay_dst="${WINEPOINT}/drive_c/windows/${dst_subdir}/${name}"
-            [[ -f "$overlay_dst" ]] && continue   # déjà présent — ne jamais écraser
+            # -f renvoie false pour les symlinks cassés → on ne saute pas, on remplace
+            [[ -f "$overlay_dst" ]] && continue
             dst="${target_root}/drive_c/windows/${dst_subdir}/${name}"
+            # Supprimer le symlink cassé avant cp (ex: → /usr/wine/proton/... inexistant)
+            [[ -L "$dst" ]] && rm -f "$dst" 2>/dev/null || true
             cp "$src" "$dst" 2>/dev/null || true
         done
     done
