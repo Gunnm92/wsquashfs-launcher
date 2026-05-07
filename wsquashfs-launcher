@@ -25,6 +25,38 @@ detect_env() {
     fi
 }
 
+# Retourne le chemin du binaire Wine le plus compatible avec les prefixes Batocera.
+# Priorité : Wine Batocera natif → wines installés → wine système.
+find_wine_binary() {
+    local candidates=(
+        "/usr/wine/wine-tkg/bin/wine"
+        "/usr/wine/wine-proton/bin/wine"
+        "/usr/wine/ge-custom/bin/wine"
+    )
+    # Chemins installés par notre installeur ou manuellement
+    for d in \
+        "$HOME/.local/share/wsquashfs/wine" \
+        "/opt"; do
+        [[ -d "$d" ]] || continue
+        while IFS= read -r -d '' w; do
+            [[ -x "$w" ]] && candidates+=("$w")
+        done < <(find "$d" -maxdepth 3 -name "wine" -path "*/bin/wine" -print0 2>/dev/null)
+    done
+    for c in "${candidates[@]}"; do
+        [[ -x "$c" ]] && echo "$c" && return
+    done
+    command -v wine
+}
+
+# Détecte l'architecture réelle du prefix depuis system.reg (comme setPrefixArch de Batocera).
+detect_prefix_arch() {
+    local system_reg="${WINEPOINT}/system.reg"
+    if grep -q '"#arch"="win32"' "$system_reg" 2>/dev/null; then
+        echo "win32"
+    else
+        echo "win64"
+    fi
+}
 
 getWine_var() {
     local winepoint="$1" winevar="$2" default="$3"
@@ -49,6 +81,52 @@ apply_wine_env() {
     done <<< "$(tr ' ' '\n' <<< "$1")"
 }
 
+# Arrêt propre du wineserver — séquence Batocera : kill → wait → kill -9 forcé
+stop_wineserver() {
+    WINEPREFIX="$WINEPOINT" wineserver -k 2>/dev/null || true
+    local i=0
+    while (( i++ < 10 )); do
+        WINEPREFIX="$WINEPOINT" wineserver -w 2>/dev/null && return 0
+        sleep 1
+    done
+    # Kill forcé si wineserver s'accroche encore
+    local pids
+    pids=$(pgrep -f "WINEPREFIX=${WINEPOINT}" 2>/dev/null) || true
+    [[ -n "$pids" ]] && kill -9 $pids 2>/dev/null || true
+}
+
+# Copie les DLLs Wine absentes du prefix (stubs Wine 10+ manquants dans vieux prefixes Batocera).
+# Ne copie que les DLLs absentes — les DLLs existantes (DXVK etc.) ne sont jamais écrasées.
+sync_wine_stubs() {
+    local wine_bin="$1"
+    local wine_root
+    wine_root=$(dirname "$(dirname "$wine_bin")")
+    local src_dirs=(
+        "${wine_root}/lib/wine/x86_64-windows:system32"
+        "${wine_root}/lib/wine/i386-windows:syswow64"
+        # chemins Debian/Ubuntu
+        "/usr/lib/x86_64-linux-gnu/wine/x86_64-windows:system32"
+        "/usr/lib/x86_64-linux-gnu/wine/i386-windows:syswow64"
+        "/usr/lib/i386-linux-gnu/wine/i386-windows:system32"
+    )
+    local entry src_dir dst_subdir src dst name size
+    for entry in "${src_dirs[@]}"; do
+        src_dir="${entry%%:*}"
+        dst_subdir="${entry##*:}"
+        [[ -d "$src_dir" ]] || continue
+        for src in "$src_dir"/*.dll; do
+            [[ -f "$src" ]] || continue
+            name=$(basename "$src")
+            dst="${WINEPOINT}/drive_c/windows/${dst_subdir}/${name}"
+            [[ -f "$dst" ]] && continue   # déjà présent — ne pas écraser
+            # Ne copier que les stubs Wine (petits fichiers PE, typiquement < 100 Ko)
+            size=$(stat -c '%s' "$src" 2>/dev/null) || continue
+            (( size < 102400 )) || continue
+            cp "$src" "$dst" 2>/dev/null || true
+        done
+    done
+}
+
 # Extrait le wsquashfs dans WINEPOINT : squashfuse (copie) ou unsquashfs
 do_fresh_extraction() {
     if command -v squashfuse &>/dev/null && \
@@ -71,7 +149,6 @@ do_fresh_extraction() {
         echo "  → Ou installer squashfs-tools : apt-get install squashfs-tools"
         return 1
     fi
-    # Marquer le cache comme valide
     echo "${WSQUASHFS_FILE}:$(stat -c '%s:%Y' "$WSQUASHFS_FILE" 2>/dev/null)" \
         > "${WINEPOINT}/.wsquashfs_cache"
     return 0
@@ -88,8 +165,7 @@ cleanup() {
     local exit_code=$?
     trap - EXIT INT TERM
     if [[ "$MOUNTED" == true ]]; then
-        # Attendre que wineserver ait fini d'écrire le registre avant de démonter
-        wineserver -w 2>/dev/null || true
+        stop_wineserver
         case "$MOUNT_MODE" in
             overlay)
                 do_umount "$WINEPOINT"
@@ -167,8 +243,8 @@ if [[ ! -f "$WSQUASHFS_FILE" ]]; then
     exit 1
 fi
 
-if ! command -v wine &>/dev/null; then
-    echo "Erreur : wine n'est pas installé"
+if ! command -v wine &>/dev/null && [[ -z "$(find_wine_binary)" ]]; then
+    echo "Erreur : aucun binaire Wine trouvé"
     exit 1
 fi
 
@@ -202,7 +278,7 @@ echo "Fichier       : $WSQUASHFS_FILE"
 # ============================================================
 
 # Nettoyer d'éventuels montages orphelins
-mountpoint -q "$WINEPOINT"    2>/dev/null && do_umount "$WINEPOINT"
+mountpoint -q "$WINEPOINT"     2>/dev/null && do_umount "$WINEPOINT"
 mountpoint -q "$SQUASHFSPOINT" 2>/dev/null && do_umount "$SQUASHFSPOINT"
 
 mkdir -p "$SQUASHFSPOINT" "$SAVEPOINT" "$WORKPOINT" "$WINEPOINT"
@@ -210,13 +286,20 @@ mkdir -p "$SQUASHFSPOINT" "$SAVEPOINT" "$WORKPOINT" "$WINEPOINT"
 # MODE 1 : overlay (squashfuse + fuse-overlayfs)
 if command -v squashfuse &>/dev/null && \
    squashfuse "$WSQUASHFS_FILE" "$SQUASHFSPOINT" 2>/dev/null; then
-    if command -v fuse-overlayfs &>/dev/null && \
-       fuse-overlayfs \
-           -o lowerdir="$SQUASHFSPOINT",upperdir="$SAVEPOINT",workdir="$WORKPOINT" \
-           "$WINEPOINT" 2>/dev/null; then
-        MOUNT_MODE="overlay"
-        MOUNTED=true
-        echo "Mode          : overlay (squashfuse + fuse-overlayfs)"
+    if command -v fuse-overlayfs &>/dev/null; then
+        # Essayer avec redirect_dir=on (comme Batocera kernel overlay) puis sans
+        if fuse-overlayfs \
+               -o "lowerdir=${SQUASHFSPOINT},upperdir=${SAVEPOINT},workdir=${WORKPOINT},redirect_dir=on" \
+               "$WINEPOINT" 2>/dev/null || \
+           fuse-overlayfs \
+               -o "lowerdir=${SQUASHFSPOINT},upperdir=${SAVEPOINT},workdir=${WORKPOINT}" \
+               "$WINEPOINT" 2>/dev/null; then
+            MOUNT_MODE="overlay"
+            MOUNTED=true
+            echo "Mode          : overlay (squashfuse + fuse-overlayfs)"
+        else
+            do_umount "$SQUASHFSPOINT"
+        fi
     else
         do_umount "$SQUASHFSPOINT"
     fi
@@ -254,7 +337,7 @@ CMD=$(getWine_var "$WINEPOINT" "CMD" "")
 WINE_VERSION=$(getWine_var "$WINEPOINT" "WINE" "")
 PROTON_VERSION=$(getWine_var "$WINEPOINT" "PROTON" "")
 RUNNER=$(getWine_var "$WINEPOINT" "RUNNER" "")
-WINE_ARCH=$(getWine_var "$WINEPOINT" "ARCH" "win64")
+WINE_ARCH=$(getWine_var "$WINEPOINT" "ARCH" "")
 DXVK=$(getWine_var "$WINEPOINT" "DXVK" "0")
 VKD3D=$(getWine_var "$WINEPOINT" "VKD3D" "0")
 ESYNC=$(getWine_var "$WINEPOINT" "ESYNC" "0")
@@ -294,8 +377,45 @@ fi
 EXT="${EXEC_PATH##*.}"
 
 # ============================================================
+# BINAIRE WINE
+# ============================================================
+
+# Base : Wine le plus compatible avec les prefixes Batocera
+WINE_BINARY=$(find_wine_binary)
+
+# Surcharge via autorun.cmd
+if [[ -n "$RUNNER" ]]; then
+    if [[ -x "$RUNNER" ]]; then
+        WINE_BINARY="$RUNNER"
+    else
+        echo "Attention : runner ${RUNNER} non exécutable, utilisation de $(basename "$WINE_BINARY")"
+    fi
+elif [[ -n "$PROTON_VERSION" ]]; then
+    if [[ -x "/usr/local/bin/proton" ]]; then
+        WINE_BINARY="/usr/local/bin/proton"
+    else
+        echo "Attention : Proton absent, utilisation de $(basename "$WINE_BINARY")"
+    fi
+elif [[ -n "$WINE_VERSION" ]]; then
+    found=""
+    for d in "/opt/wine-${WINE_VERSION}" "$HOME/.local/share/wsquashfs/wine/wine-${WINE_VERSION}"; do
+        [[ -x "${d}/bin/wine" ]] && found="${d}/bin/wine" && break
+    done
+    if [[ -n "$found" ]]; then
+        WINE_BINARY="$found"
+    else
+        echo "Attention : Wine ${WINE_VERSION} absent, utilisation de $(basename "$WINE_BINARY")"
+    fi
+fi
+
+# ============================================================
 # CONFIGURATION WINE
 # ============================================================
+
+# Architecture : autorun.cmd → system.reg → défaut win64
+if [[ -z "$WINE_ARCH" ]]; then
+    WINE_ARCH=$(detect_prefix_arch)
+fi
 
 export WINEPREFIX="$WINEPOINT"
 export WINEARCH="$WINE_ARCH"
@@ -318,65 +438,19 @@ if [[ -f "${WINEPOINT}/system.reg" ]] && [[ -d "${WINEPOINT}/drive_c" ]]; then
 else
     echo "Initialisation du préfixe Wine ($WINE_ARCH)..."
     WINEDLLOVERRIDES="mscoree,mshtml=" wineboot -u 2>&1 | grep -v "fixme:" || true
-    wineserver -w 2>/dev/null || true
+    WINEPREFIX="$WINEPOINT" wineserver -w 2>/dev/null || true
 fi
 
-# zlib1.dll est une dépendance interne de Wine 10+ (user32, gdi32...).
-# Les prefixes Batocera générés avec une version antérieure ne l'incluent pas.
-# Wine ne la résout pas automatiquement depuis son propre répertoire lib dans
-# ce contexte — on la copie si elle est absente du prefix.
-_wine_lib_dirs=(
-    "/usr/lib/x86_64-linux-gnu/wine/x86_64-windows:system32"
-    "/usr/lib/x86_64-linux-gnu/wine/i386-windows:syswow64"
-    "/usr/lib/i386-linux-gnu/wine/i386-windows:system32"
-)
-for _entry in "${_wine_lib_dirs[@]}"; do
-    _src_dir="${_entry%%:*}"
-    _dst_subdir="${_entry##*:}"
-    _src="${_src_dir}/zlib1.dll"
-    _dst="${WINEPOINT}/drive_c/windows/${_dst_subdir}/zlib1.dll"
-    if [[ -f "$_src" ]] && [[ ! -f "$_dst" ]]; then
-        cp "$_src" "$_dst" 2>/dev/null && echo "→ zlib1.dll copié dans ${_dst_subdir}" || true
-    fi
-done
-unset _wine_lib_dirs _entry _src_dir _dst_subdir _src _dst
+# Synchroniser les stubs Wine manquants (compatibilité prefixes Batocera / Wine 10+).
+# Ne copie que les DLLs absentes du prefix — ne touche jamais aux DLLs existantes.
+sync_wine_stubs "$WINE_BINARY"
 
 if [[ -d "${WINEPOINT}/regs" ]]; then
     echo "Import des fichiers de registre..."
     while IFS= read -r -d '' regfile; do
         echo "  → $(basename "$regfile")"
-        wine regedit "//?/unix${regfile}" 2>/dev/null || true
+        "$WINE_BINARY" regedit "//?/unix${regfile}" 2>/dev/null || true
     done < <(find "${WINEPOINT}/regs" -maxdepth 1 -type f -iname "*.reg" -print0)
-fi
-
-# ============================================================
-# BINAIRE WINE
-# ============================================================
-
-WINE_BINARY="wine"
-
-if [[ -n "$WINE_VERSION" ]]; then
-    if [[ -x "/opt/wine-${WINE_VERSION}/bin/wine" ]]; then
-        WINE_BINARY="/opt/wine-${WINE_VERSION}/bin/wine"
-    else
-        echo "Attention : Wine ${WINE_VERSION} absent, utilisation de wine"
-    fi
-fi
-
-if [[ -n "$PROTON_VERSION" ]]; then
-    if [[ -x "/usr/local/bin/proton" ]]; then
-        WINE_BINARY="proton"
-    else
-        echo "Attention : Proton absent, utilisation de wine"
-    fi
-fi
-
-if [[ -n "$RUNNER" ]]; then
-    if [[ -x "$RUNNER" ]]; then
-        WINE_BINARY="$RUNNER"
-    else
-        echo "Attention : runner ${RUNNER} non exécutable, utilisation de wine"
-    fi
 fi
 
 # ============================================================

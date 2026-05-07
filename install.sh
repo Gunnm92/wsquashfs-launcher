@@ -25,6 +25,8 @@ print_success() { echo -e "${GREEN}✓${NC} $1"; }
 print_error()   { echo -e "${RED}✗${NC} $1"; }
 print_info()    { echo -e "${YELLOW}→${NC} $1"; }
 
+WINE_INSTALL_DIR="$HOME/.local/share/wsquashfs/wine"
+
 check_root() {
     if [[ $EUID -eq 0 ]]; then
         INSTALL_DIR="/usr/local/bin"
@@ -96,6 +98,123 @@ check_dependencies() {
     fi
     print_success "Dépendances vérifiées"
     return 0
+}
+
+# Cherche un Wine compatible avec les prefixes Batocera (.wsquashfs).
+# Retourne le chemin ou chaîne vide.
+find_compatible_wine() {
+    local candidates=(
+        "/usr/wine/wine-tkg/bin/wine"
+        "/usr/wine/wine-proton/bin/wine"
+        "/usr/wine/ge-custom/bin/wine"
+    )
+    local d w
+    for d in "$WINE_INSTALL_DIR" "/opt"; do
+        [[ -d "$d" ]] || continue
+        while IFS= read -r -d '' w; do
+            [[ -x "$w" ]] && candidates+=("$w")
+        done < <(find "$d" -maxdepth 3 -name "wine" -path "*/bin/wine" -print0 2>/dev/null)
+    done
+    for c in "${candidates[@]}"; do
+        [[ -x "$c" ]] && echo "$c" && return 0
+    done
+    return 1
+}
+
+_download() {
+    local url="$1" dest="$2"
+    if command -v curl &>/dev/null; then
+        curl -fsSL --progress-bar "$url" -o "$dest"
+    elif command -v wget &>/dev/null; then
+        wget -q --show-progress "$url" -O "$dest"
+    else
+        print_error "curl ou wget requis"
+        return 1
+    fi
+}
+
+download_wine_tkg() {
+    local api_url="https://api.github.com/repos/Kron4ek/Wine-Builds/releases/latest"
+    print_info "Recherche de la dernière version wine-tkg (Kron4ek)..."
+    local version
+    version=$(_download "$api_url" - 2>/dev/null | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/') || true
+    [[ -z "$version" ]] && version="11.8"
+    local filename="wine-${version}-staging-tkg-amd64.tar.xz"
+    local url="https://github.com/Kron4ek/Wine-Builds/releases/download/${version}/${filename}"
+    local tmp
+    tmp=$(mktemp -d)
+    print_info "Téléchargement de $filename (~87 Mo)..."
+    if _download "$url" "${tmp}/${filename}"; then
+        mkdir -p "$WINE_INSTALL_DIR"
+        tar -xf "${tmp}/${filename}" -C "$WINE_INSTALL_DIR"
+        rm -rf "$tmp"
+        local installed
+        installed=$(find "$WINE_INSTALL_DIR" -maxdepth 2 -name "wine" -path "*/bin/wine" | head -1)
+        if [[ -n "$installed" ]]; then
+            print_success "wine-tkg installé : $installed"
+            return 0
+        fi
+    fi
+    rm -rf "$tmp"
+    print_error "Échec du téléchargement de wine-tkg"
+    return 1
+}
+
+download_wine_ge() {
+    local api_url="https://api.github.com/repos/GloriousEggroll/wine-ge-custom/releases/latest"
+    print_info "Recherche de la dernière version wine-ge (GloriousEggroll)..."
+    local tag
+    tag=$(_download "$api_url" - 2>/dev/null | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/') || true
+    [[ -z "$tag" ]] && tag="GE-Proton8-26"
+    local filename="wine-lutris-${tag}-x86_64.tar.xz"
+    local url="https://github.com/GloriousEggroll/wine-ge-custom/releases/download/${tag}/${filename}"
+    local tmp
+    tmp=$(mktemp -d)
+    print_info "Téléchargement de $filename (~234 Mo)..."
+    if _download "$url" "${tmp}/${filename}"; then
+        mkdir -p "$WINE_INSTALL_DIR"
+        tar -xf "${tmp}/${filename}" -C "$WINE_INSTALL_DIR"
+        rm -rf "$tmp"
+        local installed
+        installed=$(find "$WINE_INSTALL_DIR" -maxdepth 2 -name "wine" -path "*/bin/wine" | head -1)
+        if [[ -n "$installed" ]]; then
+            print_success "wine-ge installé : $installed"
+            return 0
+        fi
+    fi
+    rm -rf "$tmp"
+    print_error "Échec du téléchargement de wine-ge"
+    return 1
+}
+
+check_wine_batocera() {
+    echo ""
+    print_info "Vérification du Wine compatible Batocera..."
+    echo ""
+
+    local found
+    found=$(find_compatible_wine) || true
+    if [[ -n "$found" ]]; then
+        print_success "Wine compatible trouvé : $found"
+        return 0
+    fi
+
+    print_info "Aucun Wine compatible Batocera détecté"
+    echo "    Les prefixes .wsquashfs sont conçus pour wine-tkg."
+    echo "    Le Wine système peut provoquer des incompatibilités de DLLs."
+    echo ""
+    echo "    Options :"
+    echo "    1) wine-tkg  (Kron4ek staging, ~87 Mo)  — recommandé"
+    echo "    2) wine-ge   (GloriousEggroll,  ~234 Mo)"
+    echo "    3) Ignorer   (utiliser wine système, instable avec certains jeux)"
+    echo ""
+    read -p "  Choix [1/2/3] : " -n 1 -r
+    echo ""
+    case "$REPLY" in
+        1) download_wine_tkg || true ;;
+        2) download_wine_ge  || true ;;
+        *) print_info "Wine système sera utilisé — certaines DLLs peuvent manquer" ;;
+    esac
 }
 
 install_script() {
@@ -234,8 +353,9 @@ main() {
     check_root
     print_info "Répertoire d'installation : $INSTALL_DIR"
 
-    check_dependencies || exit 1
-    install_script     || exit 1
+    check_dependencies  || exit 1
+    check_wine_batocera
+    install_script      || exit 1
     create_mime_type
     check_path
     show_usage
