@@ -88,6 +88,8 @@ cleanup() {
     local exit_code=$?
     trap - EXIT INT TERM
     if [[ "$MOUNTED" == true ]]; then
+        # Attendre que wineserver ait fini d'écrire le registre avant de démonter
+        wineserver -w 2>/dev/null || true
         case "$MOUNT_MODE" in
             overlay)
                 do_umount "$WINEPOINT"
