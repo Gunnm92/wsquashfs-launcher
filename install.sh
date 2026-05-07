@@ -121,69 +121,89 @@ find_compatible_wine() {
     return 1
 }
 
+# Télécharge url vers dest (fichier ou - pour stdout). Affiche les erreurs HTTP.
 _download() {
     local url="$1" dest="$2"
     if command -v curl &>/dev/null; then
-        curl -fsSL --progress-bar "$url" -o "$dest"
+        if [[ "$dest" == "-" ]]; then
+            curl -sSL "$url"
+        else
+            curl -L --progress-bar "$url" -o "$dest"
+        fi
     elif command -v wget &>/dev/null; then
-        wget -q --show-progress "$url" -O "$dest"
+        if [[ "$dest" == "-" ]]; then
+            wget -qO- "$url"
+        else
+            wget --show-progress -q "$url" -O "$dest"
+        fi
     else
         print_error "curl ou wget requis"
         return 1
     fi
 }
 
+# Récupère la dernière version depuis l'API GitHub (fallback sur $2 si échec)
+_github_latest_tag() {
+    local repo="$1" fallback="$2"
+    local tag
+    tag=$(_download "https://api.github.com/repos/${repo}/releases/latest" - 2>/dev/null \
+        | grep '"tag_name"' | head -1 \
+        | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/') || true
+    echo "${tag:-$fallback}"
+}
+
+_extract_wine() {
+    local archive="$1"
+    mkdir -p "$WINE_INSTALL_DIR"
+    tar -xf "$archive" -C "$WINE_INSTALL_DIR" 2>&1 | tail -1 || true
+    find "$WINE_INSTALL_DIR" -maxdepth 3 -name "wine" -path "*/bin/wine" | head -1
+}
+
 download_wine_tkg() {
-    local api_url="https://api.github.com/repos/Kron4ek/Wine-Builds/releases/latest"
-    print_info "Recherche de la dernière version wine-tkg (Kron4ek)..."
     local version
-    version=$(_download "$api_url" - 2>/dev/null | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/') || true
-    [[ -z "$version" ]] && version="11.8"
+    print_info "Recherche de la dernière version wine-tkg (Kron4ek)..."
+    version=$(_github_latest_tag "Kron4ek/Wine-Builds" "11.8")
     local filename="wine-${version}-staging-tkg-amd64.tar.xz"
     local url="https://github.com/Kron4ek/Wine-Builds/releases/download/${version}/${filename}"
-    local tmp
-    tmp=$(mktemp -d)
+    local tmp; tmp=$(mktemp -d)
     print_info "Téléchargement de $filename (~87 Mo)..."
     if _download "$url" "${tmp}/${filename}"; then
-        mkdir -p "$WINE_INSTALL_DIR"
-        tar -xf "${tmp}/${filename}" -C "$WINE_INSTALL_DIR"
-        rm -rf "$tmp"
         local installed
-        installed=$(find "$WINE_INSTALL_DIR" -maxdepth 2 -name "wine" -path "*/bin/wine" | head -1)
+        installed=$(_extract_wine "${tmp}/${filename}")
+        rm -rf "$tmp"
         if [[ -n "$installed" ]]; then
             print_success "wine-tkg installé : $installed"
             return 0
         fi
+        print_error "Extraction échouée (archive corrompue ?)"
+    else
+        print_error "Téléchargement échoué : $url"
     fi
     rm -rf "$tmp"
-    print_error "Échec du téléchargement de wine-tkg"
     return 1
 }
 
 download_wine_ge() {
-    local api_url="https://api.github.com/repos/GloriousEggroll/wine-ge-custom/releases/latest"
-    print_info "Recherche de la dernière version wine-ge (GloriousEggroll)..."
     local tag
-    tag=$(_download "$api_url" - 2>/dev/null | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/') || true
-    [[ -z "$tag" ]] && tag="GE-Proton8-26"
+    print_info "Recherche de la dernière version wine-ge (GloriousEggroll)..."
+    tag=$(_github_latest_tag "GloriousEggroll/wine-ge-custom" "GE-Proton8-26")
     local filename="wine-lutris-${tag}-x86_64.tar.xz"
     local url="https://github.com/GloriousEggroll/wine-ge-custom/releases/download/${tag}/${filename}"
-    local tmp
-    tmp=$(mktemp -d)
+    local tmp; tmp=$(mktemp -d)
     print_info "Téléchargement de $filename (~234 Mo)..."
     if _download "$url" "${tmp}/${filename}"; then
-        mkdir -p "$WINE_INSTALL_DIR"
-        tar -xf "${tmp}/${filename}" -C "$WINE_INSTALL_DIR"
-        rm -rf "$tmp"
         local installed
-        installed=$(find "$WINE_INSTALL_DIR" -maxdepth 2 -name "wine" -path "*/bin/wine" | head -1)
+        installed=$(_extract_wine "${tmp}/${filename}")
+        rm -rf "$tmp"
         if [[ -n "$installed" ]]; then
             print_success "wine-ge installé : $installed"
             return 0
         fi
+        print_error "Extraction échouée (archive corrompue ?)"
+    else
+        print_error "Téléchargement échoué : $url"
     fi
     rm -rf "$tmp"
-    print_error "Échec du téléchargement de wine-ge"
     return 1
 }
 
