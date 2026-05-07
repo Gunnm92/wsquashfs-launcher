@@ -248,8 +248,11 @@ Options :
   --help, -h  Afficher cette aide
 
 Variables d'environnement :
-  WSQUASHFS_SAVES_DIR   Sauvegardes overlay (défaut: ~/.local/share/wsquashfs/saves)
-  WSQUASHFS_CACHE       Cache de travail   (défaut: ~/.cache/wsquashfs)
+  WSQUASHFS_SAVES_DIR        Sauvegardes overlay (défaut: ~/.local/share/wsquashfs/saves)
+  WSQUASHFS_CACHE            Cache de travail   (défaut: ~/.cache/wsquashfs)
+  WSQUASHFS_VIRTUAL_DESKTOP  Bureau virtuel Wine pour tous les jeux (ex: 1920x1080)
+                             Évite les crashs KDE/WM causés par les changements de résolution.
+                             Peut aussi être défini par jeu via VIRTUAL_DESKTOP= dans autorun.cmd
 HELP
         exit 0
         ;;
@@ -392,6 +395,9 @@ ESYNC=$(getWine_var "$WINEPOINT" "ESYNC" "0")
 FSYNC=$(getWine_var "$WINEPOINT" "FSYNC" "0")
 WINE_LANG=$(getWine_var "$WINEPOINT" "LANG" "")
 WINE_ENV=$(getWine_var "$WINEPOINT" "ENV" "")
+# Bureau virtuel Wine — évite les crashs KDE/WM quand le jeu change la résolution.
+# Priorité : autorun.cmd (VIRTUAL_DESKTOP=1920x1080) > variable d'env WSQUASHFS_VIRTUAL_DESKTOP.
+VIRTUAL_DESKTOP=$(getWine_var "$WINEPOINT" "VIRTUAL_DESKTOP" "${WSQUASHFS_VIRTUAL_DESKTOP:-}")
 
 if [[ -z "$CMD" ]]; then
     echo "Erreur : CMD non défini dans autorun.cmd"
@@ -541,6 +547,7 @@ echo "Préfixe       : $WINEPREFIX"
 [[ "$ESYNC" == "1" ]] && echo "ESYNC         : activé"
 [[ "$FSYNC" == "1" ]] && echo "FSYNC         : activé"
 [[ -n "$WINE_LANG" ]] && echo "Langue        : $WINE_LANG"
+[[ -n "$VIRTUAL_DESKTOP" ]] && echo "Bureau virtuel: ${VIRTUAL_DESKTOP}"
 echo "========================================="
 echo ""
 
@@ -555,7 +562,17 @@ cd "$WORKDIR" || exit 1
 declare -a RUN_CMD
 read -ra EXEC_ARGS_ARR <<< "$EXEC_ARGS"
 
-if [[ "$EXT" == "bat" ]]; then
+if [[ -n "$VIRTUAL_DESKTOP" ]]; then
+    # Bureau virtuel : empêche le jeu de changer la résolution système (crash KDE/WM)
+    DESKTOP_NAME=$(echo "$GAME_NAME" | tr ' ' '_' | tr -cd 'a-zA-Z0-9_')
+    if [[ "$EXT" == "bat" ]]; then
+        RUN_CMD=("$WINE_BINARY" explorer "/desktop=${DESKTOP_NAME},${VIRTUAL_DESKTOP}" \
+                 cmd /c "$EXEC_PATH" "${EXEC_ARGS_ARR[@]}")
+    else
+        RUN_CMD=("$WINE_BINARY" explorer "/desktop=${DESKTOP_NAME},${VIRTUAL_DESKTOP}" \
+                 "$EXEC_PATH" "${EXEC_ARGS_ARR[@]}")
+    fi
+elif [[ "$EXT" == "bat" ]]; then
     RUN_CMD=("$WINE_BINARY" cmd /c "$EXEC_PATH" "${EXEC_ARGS_ARR[@]}")
 else
     RUN_CMD=("$WINE_BINARY" "$EXEC_PATH" "${EXEC_ARGS_ARR[@]}")
