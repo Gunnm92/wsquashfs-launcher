@@ -321,6 +321,26 @@ else
     wineserver -w 2>/dev/null || true
 fi
 
+# zlib1.dll est une dépendance interne de Wine 10+ (user32, gdi32...).
+# Les prefixes Batocera générés avec une version antérieure ne l'incluent pas.
+# Wine ne la résout pas automatiquement depuis son propre répertoire lib dans
+# ce contexte — on la copie si elle est absente du prefix.
+_wine_lib_dirs=(
+    "/usr/lib/x86_64-linux-gnu/wine/x86_64-windows:system32"
+    "/usr/lib/x86_64-linux-gnu/wine/i386-windows:syswow64"
+    "/usr/lib/i386-linux-gnu/wine/i386-windows:system32"
+)
+for _entry in "${_wine_lib_dirs[@]}"; do
+    _src_dir="${_entry%%:*}"
+    _dst_subdir="${_entry##*:}"
+    _src="${_src_dir}/zlib1.dll"
+    _dst="${WINEPOINT}/drive_c/windows/${_dst_subdir}/zlib1.dll"
+    if [[ -f "$_src" ]] && [[ ! -f "$_dst" ]]; then
+        cp "$_src" "$_dst" 2>/dev/null && echo "→ zlib1.dll copié dans ${_dst_subdir}" || true
+    fi
+done
+unset _wine_lib_dirs _entry _src_dir _dst_subdir _src _dst
+
 if [[ -d "${WINEPOINT}/regs" ]]; then
     echo "Import des fichiers de registre..."
     while IFS= read -r -d '' regfile; do
