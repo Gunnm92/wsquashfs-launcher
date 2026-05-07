@@ -155,8 +155,12 @@ _github_latest_tag() {
 _extract_wine() {
     local archive="$1"
     mkdir -p "$WINE_INSTALL_DIR"
+    # Récupérer le nom du répertoire racine dans l'archive avant d'extraire
+    local top_dir
+    top_dir=$(tar -tf "$archive" 2>/dev/null | head -1 | cut -d/ -f1)
     tar -xf "$archive" -C "$WINE_INSTALL_DIR" 2>&1 | tail -1 || true
-    find "$WINE_INSTALL_DIR" -maxdepth 3 -name "wine" -path "*/bin/wine" | head -1
+    # Retourner le wine du répertoire qu'on vient d'extraire
+    find "${WINE_INSTALL_DIR}/${top_dir}" -maxdepth 2 -name "wine" -path "*/bin/wine" 2>/dev/null | head -1
 }
 
 download_wine_tkg() {

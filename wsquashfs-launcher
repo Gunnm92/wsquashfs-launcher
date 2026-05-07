@@ -26,21 +26,30 @@ detect_env() {
 }
 
 # Retourne le chemin du binaire Wine le plus compatible avec les prefixes Batocera.
-# Priorité : Wine Batocera natif → wines installés → wine système.
+# Priorité : wine-ge → wine-proton → wine-tkg → wine système.
+# wine-ge (GloriousEggroll) offre une meilleure compatibilité jeux que wine-tkg.
 find_wine_binary() {
     local candidates=(
-        "/usr/wine/wine-tkg/bin/wine"
-        "/usr/wine/wine-proton/bin/wine"
         "/usr/wine/ge-custom/bin/wine"
+        "/usr/wine/wine-proton/bin/wine"
+        "/usr/wine/wine-tkg/bin/wine"
     )
-    # Chemins installés par notre installeur ou manuellement
+    # Chemins installés par notre installeur ou manuellement — wine-ge en premier
     for d in \
         "$HOME/.local/share/wsquashfs/wine" \
         "/opt"; do
         [[ -d "$d" ]] || continue
+        # wine-ge / wine-lutris en priorité
         while IFS= read -r -d '' w; do
             [[ -x "$w" ]] && candidates+=("$w")
-        done < <(find "$d" -maxdepth 3 -name "wine" -path "*/bin/wine" -print0 2>/dev/null)
+        done < <(find "$d" -maxdepth 3 -name "wine" -path "*/wine-lutris*/bin/wine" -print0 2>/dev/null)
+        while IFS= read -r -d '' w; do
+            [[ -x "$w" ]] && candidates+=("$w")
+        done < <(find "$d" -maxdepth 3 -name "wine" -path "*/wine-ge*/bin/wine" -print0 2>/dev/null)
+        # wine-tkg ensuite
+        while IFS= read -r -d '' w; do
+            [[ -x "$w" ]] && candidates+=("$w")
+        done < <(find "$d" -maxdepth 3 -name "wine" -path "*/wine-*tkg*/bin/wine" -print0 2>/dev/null)
     done
     for c in "${candidates[@]}"; do
         [[ -x "$c" ]] && echo "$c" && return
@@ -56,6 +65,21 @@ detect_prefix_arch() {
     else
         echo "win64"
     fi
+}
+
+# Détecte le nom d'utilisateur Wine dans le prefix (profiles packagés par Batocera, ex: steamuser).
+# Retourne le premier utilisateur trouvé (hors Public/All Users/Default User).
+detect_wine_username() {
+    local users_dir="${WINEPOINT}/drive_c/users"
+    [[ -d "$users_dir" ]] || return
+    local name
+    for d in "$users_dir"/*/; do
+        name=$(basename "$d")
+        case "$name" in
+            Public|"All Users"|"Default User"|LocalService|NetworkService) continue ;;
+        esac
+        [[ -d "$d" ]] && echo "$name" && return
+    done
 }
 
 getWine_var() {
@@ -95,10 +119,20 @@ stop_wineserver() {
     [[ -n "$pids" ]] && kill -9 $pids 2>/dev/null || true
 }
 
-# Copie les DLLs Wine absentes du prefix (stubs Wine 10+ manquants dans vieux prefixes Batocera).
+# Copie les DLLs Wine absentes du prefix (DLLs Wine 10+ manquantes dans vieux prefixes Batocera).
 # Ne copie que les DLLs absentes — les DLLs existantes (DXVK etc.) ne sont jamais écrasées.
+# Note : aucune limite de taille — Wine 10+ a promu certaines DLLs de stubs à implémentations
+# complètes (ex: coml2.dll ~344 Ko) qui sont nécessaires même dans les vieux prefixes Batocera.
+#
+# En mode overlay : fuse-overlayfs non-privilégié ne peut pas faire de copy-up des répertoires
+# root-owned (system32, syswow64). On écrit donc directement dans le SAVEPOINT (upperdir)
+# au lieu du WINEPOINT (overlay), ce qui évite le copy-up et l'erreur EPERM.
 sync_wine_stubs() {
     local wine_bin="$1"
+    # target_root : répertoire racine du prefix où écrire les DLLs
+    # En mode overlay → SAVEPOINT (upperdir direct, évite copy-up EPERM)
+    # En mode copy    → WINEPOINT (écriture directe)
+    local target_root="${2:-$WINEPOINT}"
     local wine_root
     wine_root=$(dirname "$(dirname "$wine_bin")")
     local src_dirs=(
@@ -109,19 +143,20 @@ sync_wine_stubs() {
         "/usr/lib/x86_64-linux-gnu/wine/i386-windows:syswow64"
         "/usr/lib/i386-linux-gnu/wine/i386-windows:system32"
     )
-    local entry src_dir dst_subdir src dst name size
+    local entry src_dir dst_subdir src dst name
     for entry in "${src_dirs[@]}"; do
         src_dir="${entry%%:*}"
         dst_subdir="${entry##*:}"
         [[ -d "$src_dir" ]] || continue
+        # Créer le répertoire cible s'il n'existe pas
+        mkdir -p "${target_root}/drive_c/windows/${dst_subdir}" 2>/dev/null || true
         for src in "$src_dir"/*.dll; do
             [[ -f "$src" ]] || continue
             name=$(basename "$src")
-            dst="${WINEPOINT}/drive_c/windows/${dst_subdir}/${name}"
-            [[ -f "$dst" ]] && continue   # déjà présent — ne pas écraser
-            # Ne copier que les stubs Wine (petits fichiers PE, typiquement < 100 Ko)
-            size=$(stat -c '%s' "$src" 2>/dev/null) || continue
-            (( size < 102400 )) || continue
+            # Vérifier l'absence dans le prefix réel (overlay ou copie) pour ne pas écraser
+            local overlay_dst="${WINEPOINT}/drive_c/windows/${dst_subdir}/${name}"
+            [[ -f "$overlay_dst" ]] && continue   # déjà présent — ne jamais écraser
+            dst="${target_root}/drive_c/windows/${dst_subdir}/${name}"
             cp "$src" "$dst" 2>/dev/null || true
         done
     done
@@ -281,17 +316,28 @@ echo "Fichier       : $WSQUASHFS_FILE"
 mountpoint -q "$WINEPOINT"     2>/dev/null && do_umount "$WINEPOINT"
 mountpoint -q "$SQUASHFSPOINT" 2>/dev/null && do_umount "$SQUASHFSPOINT"
 
-mkdir -p "$SQUASHFSPOINT" "$SAVEPOINT" "$WORKPOINT" "$WINEPOINT"
+mkdir -p "$SQUASHFSPOINT" "$SAVEPOINT" "$WINEPOINT"
+# WORKPOINT doit être vide avant chaque montage overlay (évite l'état obsolète)
+rm -rf "$WORKPOINT" && mkdir -p "$WORKPOINT"
+
+# Supprimer les fichiers verrou et fichiers temporaires wineserver obsolètes dans SAVEPOINT
+# Les reg*.tmp orphelins (wineserver interrompu) corrompent fuse-overlayfs et causent ESTALE
+rm -f "${SAVEPOINT}/wineserver" "${SAVEPOINT}/.wineserver-lock" 2>/dev/null || true
+rm -f "${SAVEPOINT}"/reg*.tmp 2>/dev/null || true
+
+# Supprimer les entrées redirect/opaque laissées par d'anciennes sessions redirect_dir=on.
+# system32 et syswow64 ne contiennent jamais de données de sauvegarde utilisateur :
+# les DLLs copiées par sync_wine_stubs sont régénérées à chaque lancement.
+rm -rf "${SAVEPOINT}/drive_c/windows/system32" \
+       "${SAVEPOINT}/drive_c/windows/syswow64" 2>/dev/null || true
 
 # MODE 1 : overlay (squashfuse + fuse-overlayfs)
 if command -v squashfuse &>/dev/null && \
    squashfuse "$WSQUASHFS_FILE" "$SQUASHFSPOINT" 2>/dev/null; then
     if command -v fuse-overlayfs &>/dev/null; then
-        # Essayer avec redirect_dir=on (comme Batocera kernel overlay) puis sans
+        # Note : redirect_dir=on cause des ESTALE sur les chemins imbriqués lors des
+        # remontages successifs (fuse-overlayfs bug). On n'utilise pas cette option.
         if fuse-overlayfs \
-               -o "lowerdir=${SQUASHFSPOINT},upperdir=${SAVEPOINT},workdir=${WORKPOINT},redirect_dir=on" \
-               "$WINEPOINT" 2>/dev/null || \
-           fuse-overlayfs \
                -o "lowerdir=${SQUASHFSPOINT},upperdir=${SAVEPOINT},workdir=${WORKPOINT}" \
                "$WINEPOINT" 2>/dev/null; then
             MOUNT_MODE="overlay"
@@ -420,6 +466,14 @@ fi
 export WINEPREFIX="$WINEPOINT"
 export WINEARCH="$WINE_ARCH"
 
+# Adapter le nom d'utilisateur Wine au prefix (évite l'erreur de création de profil).
+# Les prefixes Batocera sont packagés avec "steamuser" — si on tourne sous un autre user,
+# Wine essaie de créer drive_c/users/$USER à travers l'overlay, ce qui produit ESTALE.
+PREFIX_USERNAME=$(detect_wine_username)
+if [[ -n "$PREFIX_USERNAME" && "$PREFIX_USERNAME" != "$USER" ]]; then
+    export WINEUSERNAME="$PREFIX_USERNAME"
+fi
+
 [[ "$ESYNC" == "1" ]] && export WINEESYNC=1
 [[ "$FSYNC" == "1" ]] && export WINEFSYNC=1
 
@@ -441,9 +495,25 @@ else
     WINEPREFIX="$WINEPOINT" wineserver -w 2>/dev/null || true
 fi
 
-# Synchroniser les stubs Wine manquants (compatibilité prefixes Batocera / Wine 10+).
-# Ne copie que les DLLs absentes du prefix — ne touche jamais aux DLLs existantes.
-sync_wine_stubs "$WINE_BINARY"
+# Synchroniser les DLLs Wine manquantes (compatibilité prefixes Batocera / Wine 10+).
+# En mode overlay : écriture dans SAVEPOINT (upperdir) pour éviter EPERM copy-up sur
+# les répertoires root-owned (system32, syswow64) par fuse-overlayfs non-privilégié.
+# Après écriture dans l'upperdir, on recharge l'overlay pour que les DLLs soient visibles
+# (fuse-overlayfs cache les listdir au montage et ne voit pas les fichiers ajoutés après).
+if [[ "$MOUNT_MODE" == "overlay" ]]; then
+    sync_wine_stubs "$WINE_BINARY" "$SAVEPOINT"
+    # Recharger l'overlay pour que fuse-overlayfs voie les nouveaux fichiers dans l'upperdir
+    do_umount "$WINEPOINT"
+    rm -rf "$WORKPOINT" && mkdir -p "$WORKPOINT"
+    if ! fuse-overlayfs \
+           -o "lowerdir=${SQUASHFSPOINT},upperdir=${SAVEPOINT},workdir=${WORKPOINT}" \
+           "$WINEPOINT" 2>/dev/null; then
+        echo "Erreur : échec du rechargement de l'overlay après sync DLLs"
+        exit 1
+    fi
+else
+    sync_wine_stubs "$WINE_BINARY"
+fi
 
 if [[ -d "${WINEPOINT}/regs" ]]; then
     echo "Import des fichiers de registre..."
@@ -462,6 +532,7 @@ echo "Exécutable    : $EXEC_PATH"
 echo "Arguments     : ${EXEC_ARGS:-<aucun>}"
 echo "Wine          : $WINE_BINARY ($WINE_ARCH)"
 echo "Préfixe       : $WINEPREFIX"
+[[ -n "$WINEUSERNAME" ]] && echo "Utilisateur   : $WINEUSERNAME (adapté au prefix)"
 [[ "$MOUNT_MODE" == "overlay" ]] && echo "Sauvegardes   : $SAVEPOINT"
 [[ "$DXVK"  == "1" ]] && echo "DXVK          : activé"
 [[ "$VKD3D" == "1" ]] && echo "VKD3D         : activé"
