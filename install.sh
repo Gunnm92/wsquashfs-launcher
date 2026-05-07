@@ -189,30 +189,47 @@ download_wine_ge() {
 
 check_wine_batocera() {
     echo ""
-    print_info "Vérification du Wine compatible Batocera..."
+    print_info "Vérification des Wine compatibles Batocera..."
     echo ""
 
-    local found
-    found=$(find_compatible_wine) || true
-    if [[ -n "$found" ]]; then
-        print_success "Wine compatible trouvé : $found"
+    local found_tkg found_ge
+    found_tkg=$(find "$WINE_INSTALL_DIR" /usr/wine/wine-tkg -maxdepth 2 -name "wine" -path "*/bin/wine" 2>/dev/null | head -1) || true
+    found_ge=$(find "$WINE_INSTALL_DIR" /usr/wine/ge-custom /usr/wine/wine-proton -maxdepth 2 -name "wine" -path "*/bin/wine" 2>/dev/null | head -1) || true
+
+    [[ -n "$found_tkg" ]] && print_success "wine-tkg trouvé : $found_tkg"
+    [[ -n "$found_ge"  ]] && print_success "wine-ge  trouvé : $found_ge"
+
+    local need_tkg=false need_ge=false
+    [[ -z "$found_tkg" ]] && need_tkg=true
+    [[ -z "$found_ge"  ]] && need_ge=true
+
+    if [[ "$need_tkg" == false && "$need_ge" == false ]]; then
         return 0
     fi
 
-    print_info "Aucun Wine compatible Batocera détecté"
-    echo "    Les prefixes .wsquashfs sont conçus pour wine-tkg."
+    echo ""
+    print_info "Les prefixes .wsquashfs sont conçus pour wine-tkg ou wine-ge."
     echo "    Le Wine système peut provoquer des incompatibilités de DLLs."
+    echo "    Les deux versions peuvent être utiles selon le jeu."
+    echo ""
+    [[ "$need_tkg" == true ]] && echo "    wine-tkg  manquant  (Kron4ek staging, ~87 Mo)"
+    [[ "$need_ge"  == true ]] && echo "    wine-ge   manquant  (GloriousEggroll, ~234 Mo)"
     echo ""
     echo "    Options :"
-    echo "    1) wine-tkg  (Kron4ek staging, ~87 Mo)  — recommandé"
-    echo "    2) wine-ge   (GloriousEggroll,  ~234 Mo)"
-    echo "    3) Ignorer   (utiliser wine système, instable avec certains jeux)"
+    echo "    1) Installer les deux  (~321 Mo)  — recommandé"
+    [[ "$need_tkg" == true ]] && echo "    2) wine-tkg seulement (~87 Mo)"
+    [[ "$need_ge"  == true ]] && echo "    3) wine-ge  seulement (~234 Mo)"
+    echo "    4) Ignorer"
     echo ""
-    read -p "  Choix [1/2/3] : " -n 1 -r
+    read -p "  Choix [1/2/3/4] : " -n 1 -r
     echo ""
     case "$REPLY" in
-        1) download_wine_tkg || true ;;
-        2) download_wine_ge  || true ;;
+        1)
+            [[ "$need_tkg" == true ]] && { download_wine_tkg || true; }
+            [[ "$need_ge"  == true ]] && { download_wine_ge  || true; }
+            ;;
+        2) [[ "$need_tkg" == true ]] && { download_wine_tkg || true; } ;;
+        3) [[ "$need_ge"  == true ]] && { download_wine_ge  || true; } ;;
         *) print_info "Wine système sera utilisé — certaines DLLs peuvent manquer" ;;
     esac
 }
