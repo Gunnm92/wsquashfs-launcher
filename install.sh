@@ -126,9 +126,9 @@ _download() {
     local url="$1" dest="$2"
     if command -v curl &>/dev/null; then
         if [[ "$dest" == "-" ]]; then
-            curl -sSL "$url"
+            curl -fsSL "$url"
         else
-            curl -L --progress-bar "$url" -o "$dest"
+            curl -fL --progress-bar "$url" -o "$dest"
         fi
     elif command -v wget &>/dev/null; then
         if [[ "$dest" == "-" ]]; then
@@ -157,15 +157,27 @@ _extract_wine() {
     mkdir -p "$WINE_INSTALL_DIR"
     local top_dir
     top_dir=$(tar -tf "$archive" 2>/dev/null | head -1 | cut -d/ -f1)
-    if ! tar -xf "$archive" -C "$WINE_INSTALL_DIR" 2>/dev/null; then
+    [[ -z "$top_dir" ]] && return 1
+
+    # Extraire dans /tmp (fs local) pour éviter les erreurs de liens durs sur les
+    # systèmes de fichiers réseau (shfs Unraid, CIFS…) qui ne les supportent pas.
+    local local_tmp
+    local_tmp=$(mktemp -d)
+    if ! tar -xf "$archive" -C "$local_tmp" 2>/dev/null; then
+        rm -rf "$local_tmp"
         return 1
     fi
-    # Renommer le dossier extrait avec un nom normalisé (ex: lutris-GE-Proton8-26 → wine-ge-GE-Proton8-26)
-    if [[ -n "$label" && -d "${WINE_INSTALL_DIR}/${top_dir}" && "$top_dir" != "$label" ]]; then
-        mv "${WINE_INSTALL_DIR}/${top_dir}" "${WINE_INSTALL_DIR}/${label}" 2>/dev/null || true
-        top_dir="$label"
+
+    # Nom final : label fourni (ex: wine-ge-GE-Proton8-26) ou top_dir d'origine
+    local final_name="${label:-$top_dir}"
+    rm -rf "${WINE_INSTALL_DIR:?}/${final_name}"
+    # cp -rp : préserve modes/timestamps mais pas les liens durs (compatibilité shfs)
+    if ! cp -rp "${local_tmp}/${top_dir}" "${WINE_INSTALL_DIR}/${final_name}" 2>/dev/null; then
+        rm -rf "$local_tmp"
+        return 1
     fi
-    find "${WINE_INSTALL_DIR}/${top_dir}" -maxdepth 2 -name "wine" -path "*/bin/wine" 2>/dev/null | head -1
+    rm -rf "$local_tmp"
+    find "${WINE_INSTALL_DIR}/${final_name}" -maxdepth 2 -name "wine" -path "*/bin/wine" 2>/dev/null | head -1
 }
 
 download_wine_tkg() {
