@@ -49,10 +49,19 @@ check_dependencies() {
         print_success "wine détecté"
     else
         print_error "wine manquant"
-        echo "    Debian/Ubuntu : sudo apt install wine"
-        echo "    Arch Linux    : sudo pacman -S wine"
-        echo "    Fedora        : sudo dnf install wine"
-        has_error=true
+        if command -v apt-get &>/dev/null; then
+            print_info "Installation de wine32:i386..."
+            ${USE_SUDO:+$USE_SUDO} dpkg --add-architecture i386 \
+                && ${USE_SUDO:+$USE_SUDO} apt-get update -qq \
+                && ${USE_SUDO:+$USE_SUDO} apt-get install -y wine32:i386 \
+                && print_success "wine32:i386 installé" \
+                || { print_error "Installation wine32:i386 échouée"; has_error=true; }
+        else
+            echo "    Debian/Ubuntu : sudo dpkg --add-architecture i386 && sudo apt-get update && sudo apt-get install wine32:i386"
+            echo "    Arch Linux    : sudo pacman -S wine"
+            echo "    Fedora        : sudo dnf install wine"
+            has_error=true
+        fi
     fi
 
     # --- montage squashfs (squashfuse OU unsquashfs obligatoire) ---
