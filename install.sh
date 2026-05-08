@@ -44,13 +44,24 @@ check_dependencies() {
 
     local has_error=false
 
-    # --- wine + support 32-bit (obligatoire) ---
-    print_info "Installation de wine32:i386..."
-    ${USE_SUDO:+$USE_SUDO} dpkg --add-architecture i386 \
-        && ${USE_SUDO:+$USE_SUDO} apt-get update -qq \
-        && ${USE_SUDO:+$USE_SUDO} apt-get install -y wine32:i386 \
-        && print_success "wine32:i386 installé" \
-        || { print_error "Installation wine32:i386 échouée"; has_error=true; }
+    # --- wine32:i386 (obligatoire — inclut wine + support 32-bit pour wine-ge/wine-tkg) ---
+    if dpkg -l wine32:i386 2>/dev/null | grep -q '^ii'; then
+        print_success "wine32:i386 déjà installé"
+    elif command -v apt-get &>/dev/null; then
+        print_info "Installation de wine32:i386..."
+        dpkg --add-architecture i386 && apt-get update && apt-get install -y wine32:i386 \
+            && print_success "wine32:i386 installé" \
+            || { print_error "Installation wine32:i386 échouée"; has_error=true; }
+    else
+        if command -v wine &>/dev/null; then
+            print_success "wine détecté (non-apt, wine32:i386 non vérifiable)"
+        else
+            print_error "wine manquant"
+            echo "    Arch Linux : sudo pacman -S wine"
+            echo "    Fedora     : sudo dnf install wine"
+            has_error=true
+        fi
+    fi
 
     # --- montage squashfs (squashfuse OU unsquashfs obligatoire) ---
     local has_squashfuse=false
