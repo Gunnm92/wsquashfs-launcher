@@ -33,7 +33,7 @@ check_root() {
         USE_SUDO=""
     else
         INSTALL_DIR="$HOME/.local/bin"
-        USE_SUDO=""
+        USE_SUDO="sudo"
     fi
 }
 
@@ -157,7 +157,9 @@ _extract_wine() {
     mkdir -p "$WINE_INSTALL_DIR"
     local top_dir
     top_dir=$(tar -tf "$archive" 2>/dev/null | head -1 | cut -d/ -f1)
-    tar -xf "$archive" -C "$WINE_INSTALL_DIR" 2>&1 | tail -1 || true
+    if ! tar -xf "$archive" -C "$WINE_INSTALL_DIR" 2>/dev/null; then
+        return 1
+    fi
     # Renommer le dossier extrait avec un nom normalisé (ex: lutris-GE-Proton8-26 → wine-ge-GE-Proton8-26)
     if [[ -n "$label" && -d "${WINE_INSTALL_DIR}/${top_dir}" && "$top_dir" != "$label" ]]; then
         mv "${WINE_INSTALL_DIR}/${top_dir}" "${WINE_INSTALL_DIR}/${label}" 2>/dev/null || true
@@ -178,7 +180,7 @@ download_wine_tkg() {
         local installed
         installed=$(_extract_wine "${tmp}/${filename}")
         rm -rf "$tmp"
-        if [[ -n "$installed" ]]; then
+        if [[ -x "$installed" ]]; then
             print_success "wine-tkg installé : $installed"
             return 0
         fi
@@ -202,7 +204,7 @@ download_wine_ge() {
         local installed
         installed=$(_extract_wine "${tmp}/${filename}" "wine-ge-${tag}")
         rm -rf "$tmp"
-        if [[ -n "$installed" ]]; then
+        if [[ -x "$installed" ]]; then
             print_success "wine-ge installé : $installed"
             return 0
         fi
