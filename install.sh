@@ -83,6 +83,19 @@ check_dependencies() {
         [[ "$has_squashfuse" == false ]] && [[ "$has_unsquashfs" == false ]] && has_error=true
     fi
 
+    # --- xz-utils (requis pour extraire les archives Wine .tar.xz) ---
+    if command -v xz &>/dev/null; then
+        print_success "xz détecté"
+    elif command -v apt-get &>/dev/null; then
+        print_info "xz absent — installation automatique de xz-utils..."
+        ${USE_SUDO:+$USE_SUDO} apt-get install -y xz-utils 2>/dev/null \
+            && print_success "xz-utils installé" \
+            || { print_error "Impossible d'installer xz-utils (requis pour les archives Wine)"; has_error=true; }
+    else
+        print_error "xz absent — requis pour extraire les archives Wine .tar.xz"
+        has_error=true
+    fi
+
     # --- fuse-overlayfs (optionnel, mode overlay) ---
     if command -v fuse-overlayfs &>/dev/null; then
         print_success "fuse-overlayfs détecté  (mode overlay disponible)"
