@@ -247,8 +247,8 @@ check_wine_batocera() {
     echo ""
 
     local found_tkg found_ge
-    found_tkg=$(find "$WINE_INSTALL_DIR" /usr/wine/wine-tkg -maxdepth 2 -name "wine" -path "*/bin/wine" 2>/dev/null | head -1) || true
-    found_ge=$(find "$WINE_INSTALL_DIR" /usr/wine/ge-custom /usr/wine/wine-proton -maxdepth 2 -name "wine" -path "*/bin/wine" 2>/dev/null | head -1) || true
+    found_tkg=$(find "$WINE_INSTALL_DIR" /usr/wine/wine-tkg -maxdepth 3 -name "wine" -path "*/bin/wine" 2>/dev/null | head -1) || true
+    found_ge=$(find "$WINE_INSTALL_DIR" /usr/wine/ge-custom /usr/wine/wine-proton -maxdepth 3 -name "wine" -path "*/bin/wine" 2>/dev/null | head -1) || true
 
     [[ -n "$found_tkg" ]] && print_success "wine-tkg trouvé : $found_tkg"
     [[ -n "$found_ge"  ]] && print_success "wine-ge  trouvé : $found_ge"
