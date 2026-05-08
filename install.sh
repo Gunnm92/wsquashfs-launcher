@@ -37,6 +37,17 @@ check_root() {
     fi
 }
 
+_apt_install() {
+    local pkgs=("$@")
+    apt-get install -y "${pkgs[@]}" \
+        && print_success "${pkgs[*]} installé(s)" \
+        || { print_error "Échec installation : ${pkgs[*]}"; return 1; }
+}
+
+_dpkg_installed() {
+    dpkg -l "$1" 2>/dev/null | grep -q '^ii'
+}
+
 check_dependencies() {
     echo ""
     print_info "Vérification des dépendances..."
@@ -44,73 +55,44 @@ check_dependencies() {
 
     local has_error=false
 
-    # --- wine32:i386 (obligatoire — inclut wine + support 32-bit pour wine-ge/wine-tkg) ---
-    if dpkg -l wine32:i386 2>/dev/null | grep -q '^ii'; then
+    if ! command -v apt-get &>/dev/null; then
+        print_error "apt-get requis (Debian/Ubuntu/dérivés)"
+        return 1
+    fi
+
+    # --- wine32:i386 ---
+    if _dpkg_installed wine32:i386; then
         print_success "wine32:i386 déjà installé"
-    elif command -v apt-get &>/dev/null; then
+    else
         print_info "Installation de wine32:i386..."
-        dpkg --add-architecture i386 && apt-get update && apt-get install -y wine32:i386 \
-            && print_success "wine32:i386 installé" \
-            || { print_error "Installation wine32:i386 échouée"; has_error=true; }
-    else
-        if command -v wine &>/dev/null; then
-            print_success "wine détecté (non-apt, wine32:i386 non vérifiable)"
-        else
-            print_error "wine manquant"
-            echo "    Arch Linux : sudo pacman -S wine"
-            echo "    Fedora     : sudo dnf install wine"
-            has_error=true
-        fi
+        dpkg --add-architecture i386 && apt-get update \
+            && _apt_install wine32:i386 \
+            || has_error=true
     fi
 
-    # --- montage squashfs (squashfuse OU unsquashfs obligatoire) ---
-    local has_squashfuse=false
-    local has_unsquashfs=false
-    command -v squashfuse   &>/dev/null && has_squashfuse=true
-    command -v unsquashfs   &>/dev/null && has_unsquashfs=true
-
-    if [[ "$has_squashfuse" == true ]] || [[ "$has_unsquashfs" == true ]]; then
-        [[ "$has_squashfuse" == true ]] && print_success "squashfuse détecté"
-        [[ "$has_unsquashfs" == true ]] && print_success "unsquashfs détecté"
+    # --- squashfuse + squashfs-tools ---
+    if _dpkg_installed squashfuse && _dpkg_installed squashfs-tools; then
+        print_success "squashfuse et squashfs-tools déjà installés"
     else
-        print_error "squashfuse et unsquashfs manquants (au moins un requis)"
-        echo ""
-        if command -v apt-get &>/dev/null; then
-            read -p "  Installer squashfuse et squashfs-tools ? [o/N] " -n 1 -r
-            echo ""
-            if [[ $REPLY =~ ^[OoYy]$ ]]; then
-                ${USE_SUDO:+$USE_SUDO} apt-get install -y squashfuse squashfs-tools
-                print_success "squashfuse et squashfs-tools installés"
-                has_squashfuse=true
-                has_unsquashfs=true
-            fi
-        else
-            echo "    Debian/Ubuntu : sudo apt install squashfuse squashfs-tools"
-            echo "    Arch Linux    : sudo pacman -S squashfuse squashfs-tools"
-        fi
-        [[ "$has_squashfuse" == false ]] && [[ "$has_unsquashfs" == false ]] && has_error=true
+        print_info "Installation de squashfuse et squashfs-tools..."
+        _apt_install squashfuse squashfs-tools || has_error=true
     fi
 
-    # --- xz-utils (requis pour extraire les archives Wine .tar.xz) ---
-    if command -v xz &>/dev/null; then
-        print_success "xz détecté"
-    elif command -v apt-get &>/dev/null; then
-        print_info "xz absent — installation automatique de xz-utils..."
-        ${USE_SUDO:+$USE_SUDO} apt-get install -y xz-utils 2>/dev/null \
-            && print_success "xz-utils installé" \
-            || { print_error "Impossible d'installer xz-utils (requis pour les archives Wine)"; has_error=true; }
+    # --- xz-utils ---
+    if _dpkg_installed xz-utils; then
+        print_success "xz-utils déjà installé"
     else
-        print_error "xz absent — requis pour extraire les archives Wine .tar.xz"
-        has_error=true
+        print_info "Installation de xz-utils..."
+        _apt_install xz-utils || has_error=true
     fi
 
     # --- fuse-overlayfs (optionnel, mode overlay) ---
-    if command -v fuse-overlayfs &>/dev/null; then
-        print_success "fuse-overlayfs détecté  (mode overlay disponible)"
+    if _dpkg_installed fuse-overlayfs; then
+        print_success "fuse-overlayfs déjà installé (mode overlay disponible)"
     else
-        print_info  "fuse-overlayfs absent   (mode copy utilisé — fonctionnel)"
-        echo "    Pour activer le mode overlay :"
-        echo "    Debian/Ubuntu : sudo apt install fuse-overlayfs"
+        print_info "Installation de fuse-overlayfs..."
+        _apt_install fuse-overlayfs \
+            || print_info "fuse-overlayfs indisponible — mode copy utilisé (fonctionnel)"
     fi
 
     echo ""
