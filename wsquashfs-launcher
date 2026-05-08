@@ -51,7 +51,25 @@ find_wine_binary() {
             | grep -z -i 'tkg')
     done
     for c in "${candidates[@]}"; do
-        [[ -x "$c" ]] && echo "$c" && return
+        [[ -x "$c" ]] || continue
+        # Vérifier que l'interpréteur ELF est présent (wine est souvent un stub 32-bit
+        # qui requiert /lib/ld-linux.so.2 absent des systèmes 64-bit purs)
+        local interp
+        interp=$(readelf -l "$c" 2>/dev/null | grep 'interpreter' \
+                 | sed 's/.*interpreter: \(.*\)\]/\1/')
+        if [[ -z "$interp" || -x "$interp" ]]; then
+            echo "$c" && return
+        fi
+        # Fallback : wine64 dans le même répertoire bin/
+        local wine64="${c%wine}wine64"
+        if [[ -x "$wine64" ]]; then
+            local interp64
+            interp64=$(readelf -l "$wine64" 2>/dev/null | grep 'interpreter' \
+                       | sed 's/.*interpreter: \(.*\)\]/\1/')
+            if [[ -z "$interp64" || -x "$interp64" ]]; then
+                echo "$wine64" && return
+            fi
+        fi
     done
     command -v wine
 }
