@@ -37,11 +37,12 @@ check_root() {
     fi
 }
 
+SUDO=""
+
 _apt_install() {
-    local pkgs=("$@")
-    apt-get install -y "${pkgs[@]}" \
-        && print_success "${pkgs[*]} installé(s)" \
-        || { print_error "Échec installation : ${pkgs[*]}"; return 1; }
+    $SUDO apt-get install -y "$@" \
+        && print_success "$* installé(s)" \
+        || { print_error "Échec installation : $*"; return 1; }
 }
 
 _dpkg_installed() {
@@ -60,12 +61,21 @@ check_dependencies() {
         return 1
     fi
 
+    if [[ $EUID -ne 0 ]]; then
+        if ! command -v sudo &>/dev/null; then
+            print_error "sudo absent — relancez avec : sudo bash $0"
+            return 1
+        fi
+        SUDO="sudo"
+        print_info "Non-root : sudo utilisé pour les opérations système"
+    fi
+
     # --- wine32:i386 ---
     if _dpkg_installed wine32:i386; then
         print_success "wine32:i386 déjà installé"
     else
         print_info "Installation de wine32:i386..."
-        dpkg --add-architecture i386 && apt-get update \
+        $SUDO dpkg --add-architecture i386 && $SUDO apt-get update \
             && _apt_install wine32:i386 \
             || has_error=true
     fi
