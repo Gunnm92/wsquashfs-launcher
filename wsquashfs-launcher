@@ -114,6 +114,22 @@ do_umount() {
     fusermount -u "$1" 2>/dev/null || fusermount3 -u "$1" 2>/dev/null || umount "$1" 2>/dev/null || true
 }
 
+# Auto-correction de propriété sur le cache : un dossier créé par un autre
+# UID (session sudo antérieure, ancien PUID de conteneur avant remap
+# usermod, etc.) bloque ensuite mkdir/rm/unsquashfs pour TOUS les jeux
+# dont le cache vit sous ce même chemin. On corrige la racine en une
+# passe récursive (skip si déjà correct — pas de chown -R inutile à
+# chaque lancement) plutôt que de rustiner un jeu à la fois.
+# sudo -n : jamais de prompt interactif (le script peut tourner sans TTY,
+# ex. lancé depuis un frontend). Sans sudo (dé)configuré, no-op silencieux.
+fix_ownership() {
+    local path="$1"
+    [[ -e "$path" ]] || return 0
+    [[ "$(stat -c '%u' "$path" 2>/dev/null)" == "$(id -u)" ]] && return 0
+    command -v sudo &>/dev/null || return 0
+    sudo -n chown -R "$(id -u):$(id -g)" "$path" 2>/dev/null || true
+}
+
 # Parse "KEY=VAL KEY2=VAL2" et exporte sans eval
 apply_wine_env() {
     local pair
@@ -240,6 +256,9 @@ trap cleanup EXIT INT TERM
 # ============================================================
 # COMMANDES SPÉCIALES
 # ============================================================
+
+fix_ownership "$CACHE_DIR"
+fix_ownership "$SAVES_DIR"
 
 case "${1:-}" in
     --clean)
