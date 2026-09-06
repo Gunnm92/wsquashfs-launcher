@@ -13,6 +13,24 @@
 SAVES_DIR="${WSQUASHFS_SAVES_DIR:-$HOME/.local/share/wsquashfs/saves}"
 CACHE_DIR="${WSQUASHFS_CACHE:-$HOME/.cache/wsquashfs}"
 
+# Certains paquets Batocera sont root:root avec des permissions parfois
+# restrictives — un frontend (Pegasus...) élève donc souvent ce script via
+# `sudo -E` pour pouvoir les monter/extraire. Mais root n'a pas le cookie
+# X11 (~/.Xauthority) de la session graphique de l'utilisateur réel :
+# lancer Wine tel quel donne "Authorization required, but no authorization
+# protocol specified" puis "no driver could be loaded" — confirmé en direct.
+# On garde donc le montage/l'extraction en root (si c'est ainsi qu'on a été
+# lancé), mais on repasse sur SUDO_USER (positionné automatiquement par sudo)
+# juste avant d'exécuter Wine. ALLOW_OTHER_OPT n'est utile que dans ce cas :
+# sans lui, un montage fait en root reste invisible à SUDO_USER ensuite
+# (FUSE : seul le monteur ou root — ici l'inverse — peut y accéder sans
+# allow_other), ce qui cascade en "Permission denied" au lancement suivant.
+RUN_AS_ROOT=false
+[[ "$(id -u)" -eq 0 ]] && RUN_AS_ROOT=true
+TARGET_USER="${SUDO_USER:-}"
+ALLOW_OTHER_OPT=""
+[[ "$RUN_AS_ROOT" == true ]] && ALLOW_OTHER_OPT="allow_other"
+
 # ============================================================
 # FONCTIONS
 # ============================================================
@@ -114,6 +132,28 @@ do_umount() {
     fusermount -u "$1" 2>/dev/null || fusermount3 -u "$1" 2>/dev/null || umount "$1" 2>/dev/null || true
 }
 
+# Balaie TOUS les montages wsquashfs actifs sous CACHE_DIR, pas seulement
+# celui du jeu qu'on lance — un jeu qui plante ou qu'on ferme brutalement
+# (SIGKILL, déconnexion Moonlight) ne passe jamais par cleanup() ; sans ce
+# balayage à chaque lancement, ces montages orphelins s'accumulent
+# indéfiniment au fil des jeux essayés (confirmé en direct : 10 montages
+# fantômes après 10 jeux testés une fois chacun). Best-effort : un jeu
+# ACTIVEMENT en cours (fichier ouvert dans son montage) échoue juste
+# silencieusement à se démonter ("busy") et n'est donc jamais perturbé.
+unmount_all_stale() {
+    # mount(8) affiche toujours le chemin CANONIQUE (symlinks résolus) —
+    # CACHE_DIR peut être un chemin symlinké (ex: $HOME/.cache/... quand
+    # $HOME lui-même est un lien, comme /home/arcade -> /config sur
+    # SteamBox) : un grep -F sur CACHE_DIR brut ne matcherait alors jamais
+    # rien, confirmé en direct (fonction silencieusement no-op).
+    local real_cache_dir m
+    real_cache_dir=$(readlink -f "$CACHE_DIR" 2>/dev/null || echo "$CACHE_DIR")
+    mount 2>/dev/null | grep -F "${real_cache_dir}/wine/" | sed -E 's/^[^ ]+ on (.*) type .*/\1/' \
+        | while IFS= read -r m; do do_umount "$m"; done
+    mount 2>/dev/null | grep -F "${real_cache_dir}/mnt/" | sed -E 's/^[^ ]+ on (.*) type .*/\1/' \
+        | while IFS= read -r m; do do_umount "$m"; done
+}
+
 # Auto-correction de propriété sur le cache : un dossier créé par un autre
 # UID (session sudo antérieure, ancien PUID de conteneur avant remap
 # usermod, etc.) bloque ensuite mkdir/rm/unsquashfs pour TOUS les jeux
@@ -128,6 +168,19 @@ fix_ownership() {
     [[ "$(stat -c '%u' "$path" 2>/dev/null)" == "$(id -u)" ]] && return 0
     command -v sudo &>/dev/null || return 0
     sudo -n chown -R "$(id -u):$(id -g)" "$path" 2>/dev/null || true
+}
+
+# Quand ce script monte/extrait en root (voir RUN_AS_ROOT plus haut), tout ce
+# qu'il crée (dossiers de cache, prefix extrait) appartient à root — Wine
+# refuse ensuite de démarrer dans un WINEPREFIX qui ne lui appartient pas
+# ("... is not owned by you", confirmé en direct), même une fois relancé en
+# TARGET_USER. No-op si on ne tourne pas en root avec un utilisateur cible
+# connu (chemin normal, non élevé).
+chown_to_target() {
+    [[ "$RUN_AS_ROOT" == true ]] || return 0
+    [[ -n "$TARGET_USER" ]] || return 0
+    [[ -e "$1" ]] || return 0
+    chown -R "${TARGET_USER}:${TARGET_USER}" "$1" 2>/dev/null || true
 }
 
 # Parse "KEY=VAL KEY2=VAL2" et exporte sans eval
@@ -201,7 +254,7 @@ sync_wine_stubs() {
 # Extrait le wsquashfs dans WINEPOINT : squashfuse (copie) ou unsquashfs
 do_fresh_extraction() {
     if command -v squashfuse &>/dev/null && \
-       squashfuse "$WSQUASHFS_FILE" "$SQUASHFSPOINT" 2>/dev/null; then
+       squashfuse ${ALLOW_OTHER_OPT:+-o "$ALLOW_OTHER_OPT"} "$WSQUASHFS_FILE" "$SQUASHFSPOINT" 2>/dev/null; then
         echo "Mode          : copy (squashfuse)"
         [[ -n "$WINEPOINT" ]] && rm -rf "$WINEPOINT"
         mkdir -p "$WINEPOINT"
@@ -222,6 +275,9 @@ do_fresh_extraction() {
     fi
     echo "${WSQUASHFS_FILE}:$(stat -c '%s:%Y' "$WSQUASHFS_FILE" 2>/dev/null)" \
         > "${WINEPOINT}/.wsquashfs_cache"
+    # Mode copy : WINEPOINT est un vrai répertoire extrait — s'il l'a été en
+    # root, Wine (relancé en TARGET_USER plus loin) le refusera sinon.
+    chown_to_target "$WINEPOINT"
     return 0
 }
 
@@ -263,6 +319,10 @@ fix_ownership "$SAVES_DIR"
 case "${1:-}" in
     --clean)
         echo "Nettoyage des copies de travail wsquashfs..."
+        # Démonter avant de supprimer : rm -rf sur un point de montage FUSE
+        # actif tente de supprimer les fichiers du jeu À TRAVERS le montage
+        # plutôt que le point de montage lui-même (destructif/imprévisible).
+        unmount_all_stale
         rm -rf "${CACHE_DIR}/mnt" "${CACHE_DIR}/wine" "${CACHE_DIR}/work" 2>/dev/null || true
         echo "✓ Copies de travail supprimées"
         echo "  Les sauvegardes overlay sont préservées dans : ${SAVES_DIR}"
@@ -354,13 +414,17 @@ echo "Fichier       : $WSQUASHFS_FILE"
 # MONTAGE
 # ============================================================
 
-# Nettoyer d'éventuels montages orphelins
-mountpoint -q "$WINEPOINT"     2>/dev/null && do_umount "$WINEPOINT"
-mountpoint -q "$SQUASHFSPOINT" 2>/dev/null && do_umount "$SQUASHFSPOINT"
+# Nettoyer d'éventuels montages orphelins (celui de ce jeu ET ceux d'autres
+# jeux abandonnés en cours de route, voir unmount_all_stale)
+unmount_all_stale
 
 mkdir -p "$SQUASHFSPOINT" "$SAVEPOINT" "$WINEPOINT"
 # WORKPOINT doit être vide avant chaque montage overlay (évite l'état obsolète)
 rm -rf "$WORKPOINT" && mkdir -p "$WORKPOINT"
+chown_to_target "$SQUASHFSPOINT"
+chown_to_target "$SAVEPOINT"
+chown_to_target "$WINEPOINT"
+chown_to_target "$WORKPOINT"
 
 # Supprimer les fichiers verrou et fichiers temporaires wineserver obsolètes dans SAVEPOINT
 # Les reg*.tmp orphelins (wineserver interrompu) corrompent fuse-overlayfs et causent ESTALE
@@ -375,12 +439,12 @@ rm -rf "${SAVEPOINT}/drive_c/windows/system32" \
 
 # MODE 1 : overlay (squashfuse + fuse-overlayfs)
 if command -v squashfuse &>/dev/null && \
-   squashfuse "$WSQUASHFS_FILE" "$SQUASHFSPOINT" 2>/dev/null; then
+   squashfuse ${ALLOW_OTHER_OPT:+-o "$ALLOW_OTHER_OPT"} "$WSQUASHFS_FILE" "$SQUASHFSPOINT" 2>/dev/null; then
     if command -v fuse-overlayfs &>/dev/null; then
         # Note : redirect_dir=on cause des ESTALE sur les chemins imbriqués lors des
         # remontages successifs (fuse-overlayfs bug). On n'utilise pas cette option.
         if fuse-overlayfs \
-               -o "lowerdir=${SQUASHFSPOINT},upperdir=${SAVEPOINT},workdir=${WORKPOINT}" \
+               -o "lowerdir=${SQUASHFSPOINT},upperdir=${SAVEPOINT},workdir=${WORKPOINT}${ALLOW_OTHER_OPT:+,$ALLOW_OTHER_OPT}" \
                "$WINEPOINT" 2>/dev/null; then
             MOUNT_MODE="overlay"
             MOUNTED=true
@@ -427,7 +491,15 @@ PROTON_VERSION=$(getWine_var "$WINEPOINT" "PROTON" "")
 RUNNER=$(getWine_var "$WINEPOINT" "RUNNER" "")
 WINE_ARCH=$(getWine_var "$WINEPOINT" "ARCH" "")
 DXVK=$(getWine_var "$WINEPOINT" "DXVK" "0")
-VKD3D=$(getWine_var "$WINEPOINT" "VKD3D" "0")
+# VKD3D activé par défaut (pas 0) : le d3d12.dll natif de Wine dépend de
+# stubs noyau (win32k.sys/dxgkrnl.sys/dxgmms1.sys, "SharedGpuResources")
+# qui échouent à charger dans ce genre d'environnement conteneurisé sans
+# vrai pilote graphique côté noyau Windows émulé — confirmé en direct :
+# tout jeu D3D12 termine en page fault. vkd3d-proton traduit directement
+# vers Vulkan, sans ces stubs. Inoffensif pour un jeu qui ne charge jamais
+# d3d12.dll (l'override ne fait alors simplement rien). Un jeu packagé
+# avec VKD3D=0 explicite dans son autorun.cmd garde la priorité.
+VKD3D=$(getWine_var "$WINEPOINT" "VKD3D" "1")
 ESYNC=$(getWine_var "$WINEPOINT" "ESYNC" "0")
 FSYNC=$(getWine_var "$WINEPOINT" "FSYNC" "0")
 WINE_LANG=$(getWine_var "$WINEPOINT" "LANG" "")
@@ -515,7 +587,11 @@ export WINEARCH="$WINE_ARCH"
 # Les prefixes Batocera sont packagés avec "steamuser" — si on tourne sous un autre user,
 # Wine essaie de créer drive_c/users/$USER à travers l'overlay, ce qui produit ESTALE.
 PREFIX_USERNAME=$(detect_wine_username)
-if [[ -n "$PREFIX_USERNAME" && "$PREFIX_USERNAME" != "$USER" ]]; then
+# Comparer contre TARGET_USER (pas $USER, qui vaudrait "root" ici) quand on
+# a été élevé : c'est TARGET_USER qui lancera réellement Wine plus loin.
+EFFECTIVE_USER="$USER"
+[[ "$RUN_AS_ROOT" == true && -n "$TARGET_USER" ]] && EFFECTIVE_USER="$TARGET_USER"
+if [[ -n "$PREFIX_USERNAME" && "$PREFIX_USERNAME" != "$EFFECTIVE_USER" ]]; then
     export WINEUSERNAME="$PREFIX_USERNAME"
 fi
 
@@ -538,6 +614,8 @@ else
     echo "Initialisation du préfixe Wine ($WINE_ARCH)..."
     WINEDLLOVERRIDES="mscoree,mshtml=" wineboot -u 2>&1 | grep -v "fixme:" || true
     WINEPREFIX="$WINEPOINT" wineserver -w 2>/dev/null || true
+    chown_to_target "$WINEPOINT"
+    [[ "$MOUNT_MODE" == "overlay" ]] && chown_to_target "$SAVEPOINT"
 fi
 
 # Synchroniser les DLLs Wine manquantes (compatibilité prefixes Batocera / Wine 10+).
@@ -547,17 +625,23 @@ fi
 # (fuse-overlayfs cache les listdir au montage et ne voit pas les fichiers ajoutés après).
 if [[ "$MOUNT_MODE" == "overlay" ]]; then
     sync_wine_stubs "$WINE_BINARY" "$SAVEPOINT"
+    # Les DLLs viennent d'être copiées en root dans l'upperdir — sans ce
+    # chown, Wine (relancé en TARGET_USER) verrait un prefix appartenant en
+    # partie à root une fois l'overlay rechargé.
+    chown_to_target "$SAVEPOINT"
     # Recharger l'overlay pour que fuse-overlayfs voie les nouveaux fichiers dans l'upperdir
     do_umount "$WINEPOINT"
     rm -rf "$WORKPOINT" && mkdir -p "$WORKPOINT"
+    chown_to_target "$WORKPOINT"
     if ! fuse-overlayfs \
-           -o "lowerdir=${SQUASHFSPOINT},upperdir=${SAVEPOINT},workdir=${WORKPOINT}" \
+           -o "lowerdir=${SQUASHFSPOINT},upperdir=${SAVEPOINT},workdir=${WORKPOINT}${ALLOW_OTHER_OPT:+,$ALLOW_OTHER_OPT}" \
            "$WINEPOINT" 2>/dev/null; then
         echo "Erreur : échec du rechargement de l'overlay après sync DLLs"
         exit 1
     fi
 else
     sync_wine_stubs "$WINE_BINARY"
+    chown_to_target "$WINEPOINT"
 fi
 
 if [[ -d "${WINEPOINT}/regs" ]]; then
@@ -578,6 +662,13 @@ echo "Arguments     : ${EXEC_ARGS:-<aucun>}"
 echo "Wine          : $WINE_BINARY ($WINE_ARCH)"
 echo "Préfixe       : $WINEPREFIX"
 [[ -n "$WINEUSERNAME" ]] && echo "Utilisateur   : $WINEUSERNAME (adapté au prefix)"
+if [[ "$RUN_AS_ROOT" == true ]]; then
+    if [[ -n "$TARGET_USER" ]]; then
+        echo "Privilège     : montage en root, Wine relancé en $TARGET_USER"
+    else
+        echo "Attention     : lancé en root sans SUDO_USER — l'affichage risque d'échouer (pas de cookie X11)"
+    fi
+fi
 [[ "$MOUNT_MODE" == "overlay" ]] && echo "Sauvegardes   : $SAVEPOINT"
 [[ "$DXVK"  == "1" ]] && echo "DXVK          : activé"
 [[ "$VKD3D" == "1" ]] && echo "VKD3D         : activé"
@@ -615,7 +706,26 @@ else
     RUN_CMD=("$WINE_BINARY" "$EXEC_PATH" "${EXEC_ARGS_ARR[@]}")
 fi
 
-"${RUN_CMD[@]}"
+if [[ "$RUN_AS_ROOT" == true ]] && [[ -n "$TARGET_USER" ]]; then
+    # env explicite plutôt que `sudo --preserve-env` : certaines politiques
+    # sudoers restreignent --preserve-env (env_reset sans autorisation
+    # explicite), alors que passer des VAR=valeur à `env` en argument
+    # fonctionne toujours, quelle que soit la politique de l'appelant.
+    sudo -u "$TARGET_USER" env \
+        DISPLAY="${DISPLAY:-}" \
+        WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-}" \
+        XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-}" \
+        WINEPREFIX="$WINEPREFIX" \
+        WINEARCH="$WINEARCH" \
+        WINEDLLOVERRIDES="${WINEDLLOVERRIDES:-}" \
+        WINEESYNC="${WINEESYNC:-}" \
+        WINEFSYNC="${WINEFSYNC:-}" \
+        WINEUSERNAME="${WINEUSERNAME:-}" \
+        LC_ALL="${LC_ALL:-}" \
+        "${RUN_CMD[@]}"
+else
+    "${RUN_CMD[@]}"
+fi
 EXIT_CODE=$?
 
 echo ""
