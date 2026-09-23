@@ -31,6 +31,30 @@ TARGET_USER="${SUDO_USER:-}"
 ALLOW_OTHER_OPT=""
 [[ "$RUN_AS_ROOT" == true ]] && ALLOW_OTHER_OPT="allow_other"
 
+# Le contenu des .wsquashfs Batocera appartient à root:root (755/644) et
+# fuse-overlayfs applique ces droits (default_permissions) : Wine, qui tourne
+# en TARGET_USER, ne pouvait alors RIEN modifier dans le jeu — confirmé en
+# direct sur Initial D 8 (segare) : "UnauthorizedAccessException: Access to
+# the path C:\game\...\teknoparrot.ini is denied", et C:\users\<user>
+# impossible à créer. squash_to_uid/gid fait apparaître toute l'arborescence
+# fusionnée comme appartenant à l'utilisateur qui lance Wine.
+WINE_UID=$(id -u)
+WINE_GID=$(id -g)
+if [[ "$RUN_AS_ROOT" == true && -n "$TARGET_USER" ]]; then
+    WINE_UID=$(id -u "$TARGET_USER")
+    WINE_GID=$(id -g "$TARGET_USER")
+fi
+OVERLAY_SQUASH_OPT="squash_to_uid=${WINE_UID},squash_to_gid=${WINE_GID}"
+
+# Exécute une commande en tant que l'utilisateur qui lance Wine.
+as_wine_user() {
+    if [[ "$RUN_AS_ROOT" == true && -n "$TARGET_USER" ]]; then
+        sudo -u "$TARGET_USER" "$@"
+    else
+        "$@"
+    fi
+}
+
 # ============================================================
 # FONCTIONS
 # ============================================================
@@ -162,12 +186,23 @@ unmount_all_stale() {
 # chaque lancement) plutôt que de rustiner un jeu à la fois.
 # sudo -n : jamais de prompt interactif (le script peut tourner sans TTY,
 # ex. lancé depuis un frontend). Sans sudo (dé)configuré, no-op silencieux.
+#
+# Propriétaire visé = l'utilisateur qui lance Wine (pas root quand on a été
+# élevé via sudo, sinon Wine refuse ensuite le prefix). find -xdev, jamais
+# chown -R : ce dernier traversait les overlays encore montés sous CACHE_DIR
+# et chaque chown y déclenchait un copy-up du fichier — confirmé en direct,
+# le jeu ENTIER recopié dans SAVES_DIR (7 Go par jeu).
 fix_ownership() {
     local path="$1"
     [[ -e "$path" ]] || return 0
-    [[ "$(stat -c '%u' "$path" 2>/dev/null)" == "$(id -u)" ]] && return 0
-    command -v sudo &>/dev/null || return 0
-    sudo -n chown -R "$(id -u):$(id -g)" "$path" 2>/dev/null || true
+    [[ "$(stat -c '%u' "$path" 2>/dev/null)" == "$WINE_UID" ]] && return 0
+    local chown_cmd=(chown)
+    if [[ "$(id -u)" -ne 0 ]]; then
+        command -v sudo &>/dev/null || return 0
+        chown_cmd=(sudo -n chown)
+    fi
+    find "$path" -xdev ! -user "$WINE_UID" -print0 2>/dev/null \
+        | xargs -0r "${chown_cmd[@]}" -h "${WINE_UID}:${WINE_GID}" 2>/dev/null || true
 }
 
 # Quand ce script monte/extrait en root (voir RUN_AS_ROOT plus haut), tout ce
@@ -192,11 +227,15 @@ apply_wine_env() {
 }
 
 # Arrêt propre du wineserver — séquence Batocera : kill → wait → kill -9 forcé
+# Lancé en tant que l'utilisateur de Wine : chaque UID a son propre socket
+# wineserver (/tmp/.wine-<uid>), root ne joignait donc jamais celui de
+# TARGET_USER — l'overlay était démonté sous un wineserver encore vivant, qui
+# perdait ensuite le registre ("could not save registry branch to system.reg").
 stop_wineserver() {
-    WINEPREFIX="$WINEPOINT" wineserver -k 2>/dev/null || true
+    as_wine_user env WINEPREFIX="$WINEPOINT" wineserver -k 2>/dev/null || true
     local i=0
     while (( i++ < 10 )); do
-        WINEPREFIX="$WINEPOINT" wineserver -w 2>/dev/null && return 0
+        as_wine_user env WINEPREFIX="$WINEPOINT" wineserver -w 2>/dev/null && return 0
         sleep 1
     done
     # Kill forcé si wineserver s'accroche encore
@@ -247,8 +286,58 @@ sync_wine_stubs() {
             # Supprimer le symlink cassé avant cp (ex: → /usr/wine/proton/... inexistant)
             [[ -L "$dst" ]] && rm -f "$dst" 2>/dev/null || true
             cp "$src" "$dst" 2>/dev/null || true
+            [[ "$target_root" == "$WINEPOINT" ]] && : > "${WINEPOINT}/.wsquashfs_dxvk"
         done
     done
+}
+
+# Les prefixes Batocera n'embarquent pas DXVK : system32/syswow64 contiennent
+# des liens vers /userdata/system/wine/dxvk/{x64,x32}/*.dll, un chemin qui
+# n'existe que sous Batocera (247 jeux sur 247 concernés dans une collection
+# réelle). Liens cassés → Wine retombe sur son d3d9/d3d11 intégré (OpenGL),
+# soit llvmpipe sous Xwayland+NVIDIA — confirmé en direct : Dead or Alive 5
+# Ultimate (segare) quittait aussitôt sans aucune erreur.
+find_dxvk_dir() {
+    local d
+    for d in "${WSQUASHFS_DXVK_DIR:-}" /usr/share/dxvk "$HOME/.local/share/wsquashfs/dxvk"; do
+        [[ -n "$d" && -f "${d}/x64/dxgi.dll" ]] && echo "$d" && return
+    done
+}
+
+# Comme dxvk_install() de batocera-wine : les liens DXVK sont recréés à
+# CHAQUE lancement (pas seulement réparés), vers le DXVK local. À lancer
+# APRÈS sync_wine_stubs, qui aurait sinon laissé la DLL intégrée de Wine.
+# target_root : comme sync_wine_stubs (SAVEPOINT en overlay, WINEPOINT sinon).
+install_dxvk() {
+    local target_root="${1:-$WINEPOINT}" dxvk_dir pair arch sub dll
+    dxvk_dir=$(find_dxvk_dir)
+    [[ -n "$dxvk_dir" ]] || return 0
+    for pair in x64:system32 x32:syswow64; do
+        arch="${pair%%:*}" sub="${pair##*:}"
+        # Prefix win32 : system32 contient les DLL 32 bits, pas de syswow64
+        if [[ "$WINE_ARCH" == "win32" ]]; then
+            [[ "$arch" == "x64" ]] && continue
+            sub=system32
+        fi
+        mkdir -p "${target_root}/drive_c/windows/${sub}" 2>/dev/null || true
+        for dll in d3d8 d3d9 d3d10core d3d11 dxgi; do
+            [[ -f "${dxvk_dir}/${arch}/${dll}.dll" ]] || continue
+            ln -sfn "${dxvk_dir}/${arch}/${dll}.dll" \
+                "${target_root}/drive_c/windows/${sub}/${dll}.dll" 2>/dev/null || true
+        done
+    done
+}
+
+# Comme sandboxing_prefix() de batocera-wine : les dossiers du profil Wine
+# (Documents, Music...) sont packagés en liens vers /userdata/system,
+# inexistant ici — un jeu qui sauvegarde dans "Mes documents" échouait.
+# Remplacés par de vrais dossiers (dans l'upperdir en overlay : les
+# sauvegardes y persistent).
+fix_userdata_links() {
+    local link
+    while IFS= read -r -d '' link; do
+        rm -f "$link" && mkdir -p "$link"
+    done < <(find "${WINEPOINT}/drive_c/users" -maxdepth 6 -type l -lname '/userdata*' -print0 2>/dev/null)
 }
 
 # Extrait le wsquashfs dans WINEPOINT : squashfuse (copie) ou unsquashfs
@@ -291,6 +380,10 @@ SAVEPOINT=""
 cleanup() {
     local exit_code=$?
     trap - EXIT INT TERM
+    # Le script a fait un cd dans WINEPOINT pour lancer le jeu : sans en
+    # sortir, son propre CWD rend l'overlay "busy" et le démontage échouait
+    # à chaque fois — d'où les montages orphelins (confirmé en direct).
+    cd / || true
     if [[ "$MOUNTED" == true ]]; then
         stop_wineserver
         case "$MOUNT_MODE" in
@@ -444,7 +537,7 @@ if command -v squashfuse &>/dev/null && \
         # Note : redirect_dir=on cause des ESTALE sur les chemins imbriqués lors des
         # remontages successifs (fuse-overlayfs bug). On n'utilise pas cette option.
         if fuse-overlayfs \
-               -o "lowerdir=${SQUASHFSPOINT},upperdir=${SAVEPOINT},workdir=${WORKPOINT}${ALLOW_OTHER_OPT:+,$ALLOW_OTHER_OPT}" \
+               -o "lowerdir=${SQUASHFSPOINT},upperdir=${SAVEPOINT},workdir=${WORKPOINT},${OVERLAY_SQUASH_OPT}${ALLOW_OTHER_OPT:+,$ALLOW_OTHER_OPT}" \
                "$WINEPOINT" 2>/dev/null; then
             MOUNT_MODE="overlay"
             MOUNTED=true
@@ -490,7 +583,15 @@ WINE_VERSION=$(getWine_var "$WINEPOINT" "WINE" "")
 PROTON_VERSION=$(getWine_var "$WINEPOINT" "PROTON" "")
 RUNNER=$(getWine_var "$WINEPOINT" "RUNNER" "")
 WINE_ARCH=$(getWine_var "$WINEPOINT" "ARCH" "")
-DXVK=$(getWine_var "$WINEPOINT" "DXVK" "0")
+# DXVK activé par défaut (contrairement à Batocera) : sous Xwayland + NVIDIA,
+# l'OpenGL de wined3d tombe sur llvmpipe (rendu logiciel, confirmé en direct)
+# alors que Vulkan voit bien le GPU. DXVK=0 dans autorun.cmd (par jeu) ou
+# WSQUASHFS_DXVK=0 (global) pour revenir aux DLL intégrées de Wine.
+DXVK=$(getWine_var "$WINEPOINT" "DXVK" "${WSQUASHFS_DXVK:-1}")
+if [[ "$DXVK" == "1" && -z "$(find_dxvk_dir)" ]]; then
+    echo "Attention : DXVK introuvable (/usr/share/dxvk), rendu via wined3d"
+    DXVK=0
+fi
 # VKD3D activé par défaut (pas 0) : le d3d12.dll natif de Wine dépend de
 # stubs noyau (win32k.sys/dxgkrnl.sys/dxgmms1.sys, "SharedGpuResources")
 # qui échouent à charger dans ce genre d'environnement conteneurisé sans
@@ -599,11 +700,19 @@ fi
 [[ "$FSYNC" == "1" ]] && export WINEFSYNC=1
 
 if [[ "$DXVK" == "1" ]]; then
-    export WINEDLLOVERRIDES="${WINEDLLOVERRIDES:+${WINEDLLOVERRIDES};}d3d11=n,b;d3d10core=n,b;d3d9=n,b;dxgi=n,b"
+    export WINEDLLOVERRIDES="${WINEDLLOVERRIDES:+${WINEDLLOVERRIDES};}d3d8,d3d9,d3d10core,d3d11,dxgi=n,b"
+else
+    # Explicite, comme Batocera : un prefix peut contenir des copies natives
+    # de DXVK que Wine chargerait sinon.
+    export WINEDLLOVERRIDES="${WINEDLLOVERRIDES:+${WINEDLLOVERRIDES};}d3d8,d3d9,d3d10core,d3d11,dxgi=b"
 fi
 if [[ "$VKD3D" == "1" ]]; then
     export WINEDLLOVERRIDES="${WINEDLLOVERRIDES:+${WINEDLLOVERRIDES};}d3d12=n,b"
 fi
+
+# Batocera exporte WINEDEBUG=-all (les fixme ralentissent certains jeux) ;
+# on garde les err: pour le diagnostic. Surchargeable depuis l'environnement.
+export WINEDEBUG="${WINEDEBUG:-fixme-all}"
 
 [[ -n "$WINE_LANG" ]] && export LC_ALL="$WINE_LANG"
 [[ -n "$WINE_ENV" ]] && apply_wine_env "$WINE_ENV"
@@ -618,6 +727,8 @@ else
     [[ "$MOUNT_MODE" == "overlay" ]] && chown_to_target "$SAVEPOINT"
 fi
 
+fix_userdata_links
+
 # Synchroniser les DLLs Wine manquantes (compatibilité prefixes Batocera / Wine 10+).
 # En mode overlay : écriture dans SAVEPOINT (upperdir) pour éviter EPERM copy-up sur
 # les répertoires root-owned (system32, syswow64) par fuse-overlayfs non-privilégié.
@@ -625,6 +736,7 @@ fi
 # (fuse-overlayfs cache les listdir au montage et ne voit pas les fichiers ajoutés après).
 if [[ "$MOUNT_MODE" == "overlay" ]]; then
     sync_wine_stubs "$WINE_BINARY" "$SAVEPOINT"
+    [[ "$DXVK" == "1" ]] && install_dxvk "$SAVEPOINT"
     # Les DLLs viennent d'être copiées en root dans l'upperdir — sans ce
     # chown, Wine (relancé en TARGET_USER) verrait un prefix appartenant en
     # partie à root une fois l'overlay rechargé.
@@ -634,13 +746,14 @@ if [[ "$MOUNT_MODE" == "overlay" ]]; then
     rm -rf "$WORKPOINT" && mkdir -p "$WORKPOINT"
     chown_to_target "$WORKPOINT"
     if ! fuse-overlayfs \
-           -o "lowerdir=${SQUASHFSPOINT},upperdir=${SAVEPOINT},workdir=${WORKPOINT}${ALLOW_OTHER_OPT:+,$ALLOW_OTHER_OPT}" \
+           -o "lowerdir=${SQUASHFSPOINT},upperdir=${SAVEPOINT},workdir=${WORKPOINT},${OVERLAY_SQUASH_OPT}${ALLOW_OTHER_OPT:+,$ALLOW_OTHER_OPT}" \
            "$WINEPOINT" 2>/dev/null; then
         echo "Erreur : échec du rechargement de l'overlay après sync DLLs"
         exit 1
     fi
 else
     sync_wine_stubs "$WINE_BINARY"
+    [[ "$DXVK" == "1" ]] && install_dxvk
     chown_to_target "$WINEPOINT"
 fi
 
@@ -722,11 +835,19 @@ if [[ "$RUN_AS_ROOT" == true ]] && [[ -n "$TARGET_USER" ]]; then
         WINEFSYNC="${WINEFSYNC:-}" \
         WINEUSERNAME="${WINEUSERNAME:-}" \
         LC_ALL="${LC_ALL:-}" \
+        WINEDEBUG="${WINEDEBUG:-}" \
         "${RUN_CMD[@]}"
 else
     "${RUN_CMD[@]}"
 fi
 EXIT_CODE=$?
+
+# Beaucoup de jeux passent par un lanceur qui démarre le vrai exécutable puis
+# quitte aussitôt (ring_loader.exe → DOA5A.exe, TeknoParrotUi → OpenParrot) :
+# sans cette attente, cleanup() tuait le jeu à peine lancé via
+# stop_wineserver — confirmé en direct sur Dead or Alive 5 Ultimate (segare).
+# Comme Batocera : on attend que tous les processus du prefix aient terminé.
+as_wine_user env WINEPREFIX="$WINEPOINT" wineserver -w 2>/dev/null || true
 
 echo ""
 echo "========================================="
