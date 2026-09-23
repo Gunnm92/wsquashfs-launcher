@@ -116,10 +116,19 @@ find_wine_binary() {
     command -v wine
 }
 
+# Vrai si ce binaire Wine sait exécuter un prefix win32 (build classique avec
+# i386-unix ; un build WoW64 seul n'a que x86_64-unix).
+wine_supports_win32() {
+    local root
+    root=$(dirname "$(dirname "$(readlink -f "$1")")")
+    [[ -d "${root}/lib/wine/i386-unix" || -d "${root}/lib32/wine/i386-unix" ]]
+}
+
 # Détecte l'architecture réelle du prefix depuis system.reg (comme setPrefixArch de Batocera).
+# Format réel : ligne "#arch=win32" en tête de system.reg/userdef.reg — l'ancien
+# motif '"#arch"="win32"' ne correspondait jamais (tout prefix vu en win64).
 detect_prefix_arch() {
-    local system_reg="${WINEPOINT}/system.reg"
-    if grep -q '"#arch"="win32"' "$system_reg" 2>/dev/null; then
+    if grep -qs '^#arch=win32' "${WINEPOINT}/system.reg" "${WINEPOINT}/userdef.reg"; then
         echo "win32"
     else
         echo "win64"
@@ -154,6 +163,22 @@ getWine_var() {
 
 do_umount() {
     fusermount -u "$1" 2>/dev/null || fusermount3 -u "$1" 2>/dev/null || umount "$1" 2>/dev/null || true
+}
+
+# Démontage de fin de partie : juste après wineserver -k, les processus du jeu
+# tiennent encore des fichiers ouverts quelques instants ("busy") — un seul
+# essai laissait le montage en place (confirmé en campagne de test). Quelques
+# essais, puis démontage différé en dernier recours, comme safe_umount() de
+# batocera-wine (umount -l).
+umount_retry() {
+    local i
+    for ((i = 0; i < 5; i++)); do
+        mountpoint -q "$1" 2>/dev/null || return 0
+        fusermount -u "$1" 2>/dev/null || fusermount3 -u "$1" 2>/dev/null || umount "$1" 2>/dev/null
+        mountpoint -q "$1" 2>/dev/null || return 0
+        sleep 1
+    done
+    fusermount3 -uz "$1" 2>/dev/null || fusermount -uz "$1" 2>/dev/null || umount -l "$1" 2>/dev/null || true
 }
 
 # Balaie TOUS les montages wsquashfs actifs sous CACHE_DIR, pas seulement
@@ -215,7 +240,11 @@ chown_to_target() {
     [[ "$RUN_AS_ROOT" == true ]] || return 0
     [[ -n "$TARGET_USER" ]] || return 0
     [[ -e "$1" ]] || return 0
-    chown -R "${TARGET_USER}:${TARGET_USER}" "$1" 2>/dev/null || true
+    # Jamais à travers un montage FUSE (overlay encore monté d'une session
+    # précédente...) : chaque chown y déclenche un copy-up du fichier.
+    mountpoint -q "$1" 2>/dev/null && return 0
+    find "$1" -xdev ! -user "$TARGET_USER" -print0 2>/dev/null \
+        | xargs -0r chown -h "${TARGET_USER}:${TARGET_USER}" 2>/dev/null || true
 }
 
 # Parse "KEY=VAL KEY2=VAL2" et exporte sans eval
@@ -274,6 +303,11 @@ sync_wine_stubs() {
     for entry in "${src_dirs[@]}"; do
         src_dir="${entry%%:*}"
         dst_subdir="${entry##*:}"
+        # Prefix win32 : system32 contient les DLL 32 bits, pas de syswow64
+        if [[ "$WINE_ARCH" == "win32" ]]; then
+            [[ "$dst_subdir" == "system32" ]] && continue
+            dst_subdir=system32
+        fi
         [[ -d "$src_dir" ]] || continue
         mkdir -p "${target_root}/drive_c/windows/${dst_subdir}" 2>/dev/null || true
         for src in "$src_dir"/*.dll; do
@@ -340,6 +374,29 @@ fix_userdata_links() {
     done < <(find "${WINEPOINT}/drive_c/users" -maxdepth 6 -type l -lname '/userdata*' -print0 2>/dev/null)
 }
 
+# Résout <base>/<rel> sans tenir compte de la casse (comme Windows/Wine).
+# Affiche le chemin réel, retour 1 si un composant est introuvable.
+resolve_ci() {
+    local cur="$1" part match entry name
+    local -a parts
+    IFS='/' read -ra parts <<< "$2"
+    for part in "${parts[@]}"; do
+        [[ -z "$part" || "$part" == "." ]] && continue
+        if [[ -e "${cur}/${part}" ]]; then
+            cur="${cur}/${part}"
+            continue
+        fi
+        match=""
+        for entry in "$cur"/* "$cur"/.[!.]*; do
+            name="${entry##*/}"
+            if [[ "${name,,}" == "${part,,}" ]]; then match="$entry"; break; fi
+        done
+        [[ -n "$match" ]] || return 1
+        cur="$match"
+    done
+    echo "$cur"
+}
+
 # Extrait le wsquashfs dans WINEPOINT : squashfuse (copie) ou unsquashfs
 do_fresh_extraction() {
     if command -v squashfuse &>/dev/null && \
@@ -388,8 +445,8 @@ cleanup() {
         stop_wineserver
         case "$MOUNT_MODE" in
             overlay)
-                do_umount "$WINEPOINT"
-                do_umount "$SQUASHFSPOINT"
+                umount_retry "$WINEPOINT"
+                umount_retry "$SQUASHFSPOINT"
                 [[ -d "$WORKPOINT" ]] && rm -rf "$WORKPOINT"
                 ;;
             copy)
@@ -626,11 +683,15 @@ else
     EXEC_ARGS=$(echo "$CMD" | cut -d' ' -f2- -s)
 fi
 
-if [[ -z "$DIR" ]]; then
-    EXEC_PATH="${WINEPOINT}/${EXEC_NAME}"
-else
-    EXEC_PATH="${WINEPOINT}/${DIR}/${EXEC_NAME}"
+# Windows ignore la casse, les autorun.cmd Batocera aussi : "game.exe" pour
+# Game.exe (Rabbids Hollywood Arcade, confirmé en direct). DIR et CMD sont
+# résolus composant par composant, sans tenir compte de la casse.
+DIR="${DIR//\\//}"
+if [[ -n "$DIR" ]]; then
+    DIR_RESOLVED=$(resolve_ci "$WINEPOINT" "$DIR") && DIR="${DIR_RESOLVED#"$WINEPOINT"/}"
 fi
+EXEC_PATH=$(resolve_ci "$WINEPOINT" "${DIR:+$DIR/}${EXEC_NAME}") \
+    || EXEC_PATH="${WINEPOINT}/${DIR:+$DIR/}${EXEC_NAME}"
 
 if [[ ! -f "$EXEC_PATH" ]]; then
     echo "Erreur : exécutable introuvable : $EXEC_PATH"
@@ -681,6 +742,28 @@ if [[ -z "$WINE_ARCH" ]]; then
     WINE_ARCH=$(detect_prefix_arch)
 fi
 
+# Prefix win32 : il faut un Wine "classique" (avec i386-unix). Les builds
+# WoW64 seuls (wine-staging d'Arch depuis 2025) refusent ces prefixes —
+# confirmé en direct : "... is a 32-bit installation, it cannot support
+# 64-bit applications" (Lethal Enforcers 3, konamipc). batocera-wine fait le
+# même constat (setPrefixArch). On cherche un runner compatible installé.
+if [[ "$WINE_ARCH" == "win32" ]] && ! wine_supports_win32 "$WINE_BINARY"; then
+    alt=""
+    while IFS= read -r -d '' w; do
+        wine_supports_win32 "$w" && { alt="$w"; break; }
+    done < <(find /usr/wine /opt "$HOME/.local/share/wsquashfs/wine" -maxdepth 3 \
+                 -path '*/bin/wine' -print0 2>/dev/null)
+    if [[ -n "$alt" ]]; then
+        WINE_BINARY="$alt"
+    else
+        echo "Erreur : prefix win32, mais $(basename "$WINE_BINARY") est un Wine WoW64 seul"
+        echo "  (pas de lib/wine/i386-unix) qui ne peut pas lancer de prefix 32 bits."
+        echo "  → Installer un Wine classique (ex. Kron4ek wine-*-amd64, non wow64)"
+        echo "    dans /opt ou ~/.local/share/wsquashfs/wine"
+        exit 1
+    fi
+fi
+
 export WINEPREFIX="$WINEPOINT"
 export WINEARCH="$WINE_ARCH"
 
@@ -710,6 +793,12 @@ if [[ "$VKD3D" == "1" ]]; then
     export WINEDLLOVERRIDES="${WINEDLLOVERRIDES:+${WINEDLLOVERRIDES};}d3d12=n,b"
 fi
 
+# Borne arcade : Wine ne doit rien ouvrir côté Linux. winebrowser ouvrait
+# Chrome (profil réel de l'utilisateur) sur la session du stream quand
+# TeknoParrot affichait une page — confirmé en direct (Initial D Zero) ;
+# winemenubuilder crée des raccourcis de menu (batocera-wine le coupe aussi).
+export WINEDLLOVERRIDES="${WINEDLLOVERRIDES:+${WINEDLLOVERRIDES};}winemenubuilder.exe=d;winebrowser.exe=d"
+
 # Batocera exporte WINEDEBUG=-all (les fixme ralentissent certains jeux) ;
 # on garde les err: pour le diagnostic. Surchargeable depuis l'environnement.
 export WINEDEBUG="${WINEDEBUG:-fixme-all}"
@@ -720,11 +809,23 @@ export WINEDEBUG="${WINEDEBUG:-fixme-all}"
 if [[ -f "${WINEPOINT}/system.reg" ]] && [[ -d "${WINEPOINT}/drive_c" ]]; then
     echo "✓ Préfixe Wine détecté (structure Batocera)"
 else
+    # .wsquashfs sans prefix (jeu seul : NBA 2K23, Robin Hood...) : prefix
+    # créé dans l'overlay. En tant qu'utilisateur Wine — lancé en root, Wine
+    # refusait ("... is not owned by you", confirmé en campagne de test) et
+    # le lanceur restait bloqué.
     echo "Initialisation du préfixe Wine ($WINE_ARCH)..."
-    WINEDLLOVERRIDES="mscoree,mshtml=" wineboot -u 2>&1 | grep -v "fixme:" || true
-    WINEPREFIX="$WINEPOINT" wineserver -w 2>/dev/null || true
-    chown_to_target "$WINEPOINT"
-    [[ "$MOUNT_MODE" == "overlay" ]] && chown_to_target "$SAVEPOINT"
+    as_wine_user env DISPLAY="${DISPLAY:-}" WINEPREFIX="$WINEPOINT" WINEARCH="$WINE_ARCH" \
+        WINEDEBUG="$WINEDEBUG" WINEDLLOVERRIDES="mscoree,mshtml=;winemenubuilder.exe=d" \
+        "$WINE_BINARY" wineboot -u 2>&1 | grep -v "fixme:" || true
+    as_wine_user env WINEPREFIX="$WINEPOINT" wineserver -w 2>/dev/null || true
+    # Overlay : JAMAIS de chown -R sur WINEPOINT (le montage) — chaque fichier
+    # du jeu serait recopié dans SAVEPOINT (confirmé en direct : 70 Go sur
+    # NBA 2K23). L'upperdir suffit, squash_to_uid s'occupe du reste.
+    if [[ "$MOUNT_MODE" == "overlay" ]]; then
+        chown_to_target "$SAVEPOINT"
+    else
+        chown_to_target "$WINEPOINT"
+    fi
 fi
 
 fix_userdata_links
@@ -761,7 +862,9 @@ if [[ -d "${WINEPOINT}/regs" ]]; then
     echo "Import des fichiers de registre..."
     while IFS= read -r -d '' regfile; do
         echo "  → $(basename "$regfile")"
-        "$WINE_BINARY" regedit "//?/unix${regfile}" 2>/dev/null || true
+        as_wine_user env DISPLAY="${DISPLAY:-}" WINEPREFIX="$WINEPOINT" WINEARCH="$WINE_ARCH" \
+            WINEDEBUG="$WINEDEBUG" WINEDLLOVERRIDES="$WINEDLLOVERRIDES" \
+            "$WINE_BINARY" regedit "//?/unix${regfile}" 2>/dev/null || true
     done < <(find "${WINEPOINT}/regs" -maxdepth 1 -type f -iname "*.reg" -print0)
 fi
 
