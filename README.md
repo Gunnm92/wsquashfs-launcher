@@ -92,8 +92,28 @@ wsquashfs-launcher --help
 ## Utilisation
 
 ```bash
-# Lancer un jeu
+# Lancer un jeu (commande de l'autorun.cmd)
 wsquashfs-launcher /path/to/game.wsquashfs
+
+# Lancer un autre programme dans le prefix du jeu : exécutable du jeu
+# (chemin relatif au prefix ou au DIR de l'autorun.cmd, casse ignorée)
+# ou outil Wine (winecfg, regedit, cmd, explorer, control joy.cpl...)
+wsquashfs-launcher --exec game.wsquashfs JConfig.exe
+wsquashfs-launcher --exec game.wsquashfs drive_c/teknoparrot/TeknoParrotUi.exe
+wsquashfs-launcher --exec game.wsquashfs winecfg
+
+# Forcer un runner Wine/Proton (nom ou partie du nom d'un runner installé
+# dans /opt, /usr/wine ou ~/.local/share/wsquashfs/wine, chemin d'un
+# binaire wine, ou "system") — combinable avec --exec
+wsquashfs-launcher --wine GE-Proton9 game.wsquashfs
+
+# Monter le jeu et le laisser monté pour le modifier à la main (les
+# modifications vont dans le dossier de sauvegardes, jamais dans le paquet)
+wsquashfs-launcher --mount game.wsquashfs
+wsquashfs-launcher --umount game.wsquashfs     # ou --umount seul : tous les jeux
+
+# Créer un .wsquashfs (zstd) à partir d'un prefix Wine
+wsquashfs-launcher --pack MonJeu.wine          # → MonJeu.wsquashfs
 
 # Supprimer les copies de travail (libère de l'espace)
 wsquashfs-launcher --clean
@@ -107,6 +127,9 @@ wsquashfs-launcher --help
 ```bash
 export WSQUASHFS_SAVES_DIR="$HOME/mes-sauvegardes"   # sauvegardes overlay
 export WSQUASHFS_CACHE="$HOME/.cache/mes-jeux"        # cache de travail
+export WSQUASHFS_DXVK=0        # désactive DXVK (activé par défaut)
+export WSQUASHFS_HIDRAW=0      # garde "DisableHidraw" du prefix (manettes
+                               # par hidraw activées par défaut)
 
 wsquashfs-launcher game.wsquashfs
 ```

@@ -427,6 +427,59 @@ do_fresh_extraction() {
     return 0
 }
 
+# Runners Wine/Proton installés, pour --wine : dossiers contenant bin/wine
+# (Wine classique, Kron4ek...) ou files/bin/wine (Proton-GE).
+list_wine_runners() {
+    local d
+    for d in /opt/* /usr/wine/* "$HOME/.local/share/wsquashfs/wine"/*; do
+        [[ -x "${d}/bin/wine" || -x "${d}/files/bin/wine" ]] && echo "$d"
+    done 2>/dev/null
+}
+
+# --wine <version|chemin> : binaire wine explicite, dossier de runner, nom
+# exact ou partiel d'un runner installé (ex. "win32", "GE-Proton9"), ou
+# "system" pour le wine du système.
+resolve_wine_override() {
+    local want="$1" d
+    if [[ "$want" == "system" ]]; then command -v wine; return; fi
+    if [[ -f "$want" && -x "$want" ]]; then echo "$want"; return; fi
+    for d in "$want" $(list_wine_runners | grep -F -- "$want"); do
+        [[ -x "${d}/bin/wine" ]] && { echo "${d}/bin/wine"; return; }
+        [[ -x "${d}/files/bin/wine" ]] && { echo "${d}/files/bin/wine"; return; }
+    done
+    return 1
+}
+
+# --umount [jeu] : arrête le wineserver du jeu puis démonte son overlay et
+# son squashfs. Sans argument : tous les montages wsquashfs.
+umount_game() {
+    local name="$1"
+    [[ -d "${CACHE_DIR}/wine/${name}" ]] || return 0
+    as_wine_user env WINEPREFIX="${CACHE_DIR}/wine/${name}" wineserver -k 2>/dev/null || true
+    umount_retry "${CACHE_DIR}/wine/${name}"
+    umount_retry "${CACHE_DIR}/mnt/${name}"
+    echo "✓ Démonté : ${name}"
+}
+
+# --pack <Jeu.wine> [sortie] : prefix Wine (dossier) → .wsquashfs, comme
+# wine2squashfs de batocera-wine (mksquashfs, compression zstd).
+pack_prefix() {
+    local src="${1%/}" out="${2:-}"
+    if [[ -z "$src" || ! -d "$src" ]]; then
+        echo "Usage : $0 --pack <dossier.wine> [sortie.wsquashfs]"
+        return 1
+    fi
+    command -v mksquashfs &>/dev/null || { echo "Erreur : mksquashfs absent (squashfs-tools)"; return 1; }
+    [[ -n "$out" ]] || out="${src%.wine}.wsquashfs"
+    if [[ -e "$out" ]]; then
+        echo "Erreur : ${out} existe déjà (jamais écrasé)"
+        return 1
+    fi
+    [[ -f "${src}/autorun.cmd" ]] || echo "Attention : pas d'autorun.cmd dans ${src} (lançable seulement via --exec)"
+    echo "Création de ${out} depuis ${src}..."
+    mksquashfs "$src" "$out" -comp zstd -noappend -quiet && echo "✓ ${out} ($(du -h "$out" | cut -f1))"
+}
+
 MOUNT_MODE=""
 MOUNTED=false
 SQUASHFSPOINT=""
@@ -466,57 +519,128 @@ trap cleanup EXIT INT TERM
 fix_ownership "$CACHE_DIR"
 fix_ownership "$SAVES_DIR"
 
-case "${1:-}" in
-    --clean)
-        echo "Nettoyage des copies de travail wsquashfs..."
-        # Démonter avant de supprimer : rm -rf sur un point de montage FUSE
-        # actif tente de supprimer les fichiers du jeu À TRAVERS le montage
-        # plutôt que le point de montage lui-même (destructif/imprévisible).
-        unmount_all_stale
-        rm -rf "${CACHE_DIR}/mnt" "${CACHE_DIR}/wine" "${CACHE_DIR}/work" 2>/dev/null || true
-        echo "✓ Copies de travail supprimées"
-        echo "  Les sauvegardes overlay sont préservées dans : ${SAVES_DIR}"
-        exit 0
-        ;;
-    --help|-h)
-        cat <<'HELP'
-Usage: wsquashfs-launcher <fichier.wsquashfs>
-       wsquashfs-launcher --clean
-
-Lance un jeu Windows empaqueté au format WSquashFS (Batocera).
-Sélectionne automatiquement le mode de montage selon les capacités disponibles.
-
-Modes (par ordre de priorité) :
-  overlay   squashfuse + fuse-overlayfs (sauvegardes isolées, idéal)
-  copy      squashfuse ou unsquashfs + cache persistant
+usage() {
+    cat <<'HELP'
+Usage :
+  wsquashfs-launcher [--wine <version>] <jeu.wsquashfs>
+        Lance le jeu (autorun.cmd).
+  wsquashfs-launcher [--wine <version>] --exec <jeu.wsquashfs> <programme> [arguments...]
+        Lance un autre programme dans le prefix du jeu : un exécutable du jeu
+        (chemin relatif au prefix ou au DIR de l'autorun.cmd, ex. JConfig.exe,
+        drive_c/teknoparrot/TeknoParrotUi.exe) ou un outil Wine (winecfg,
+        regedit, cmd, explorer, control joy.cpl...).
+  wsquashfs-launcher --mount <jeu.wsquashfs>
+        Monte le jeu et le laisse monté pour le modifier à la main ; les
+        changements vont dans le dossier de sauvegardes du jeu.
+  wsquashfs-launcher --umount [<jeu.wsquashfs>]
+        Démonte un jeu (ou tous les jeux montés).
+  wsquashfs-launcher --pack <Jeu.wine> [sortie.wsquashfs]
+        Crée un .wsquashfs (zstd) à partir d'un prefix Wine.
+  wsquashfs-launcher --clean
+        Supprime les copies de travail (cache), les sauvegardes sont gardées.
 
 Options :
-  --clean     Supprimer les copies de travail (libère de l'espace disque)
-  --help, -h  Afficher cette aide
+  --wine <version>  Runner Wine/Proton à utiliser : nom (ou partie du nom) d'un
+                    runner installé dans /opt, /usr/wine ou
+                    ~/.local/share/wsquashfs/wine, chemin d'un binaire wine,
+                    ou "system".
+
+Modes de montage (automatique) :
+  overlay   squashfuse + fuse-overlayfs (sauvegardes isolées, idéal)
+  copy      squashfuse ou unsquashfs + cache persistant
 
 Variables d'environnement :
   WSQUASHFS_SAVES_DIR        Sauvegardes overlay (défaut: ~/.local/share/wsquashfs/saves)
   WSQUASHFS_CACHE            Cache de travail   (défaut: ~/.cache/wsquashfs)
-  WSQUASHFS_VIRTUAL_DESKTOP  Bureau virtuel Wine pour tous les jeux (ex: 1920x1080)
-                             Évite les crashs KDE/WM causés par les changements de résolution.
-                             Peut aussi être défini par jeu via VIRTUAL_DESKTOP= dans autorun.cmd
+  WSQUASHFS_DXVK=0           Désactive DXVK (défaut : activé)
+  WSQUASHFS_HIDRAW=0         Garde "DisableHidraw" du prefix (défaut : hidraw activé)
+  WSQUASHFS_VIRTUAL_DESKTOP  Bureau virtuel Wine pour tous les jeux (ex: 1920x1080),
+                             aussi par jeu via VIRTUAL_DESKTOP= dans autorun.cmd
 HELP
-        exit 0
-        ;;
-esac
+}
+
+ACTION="run"
+GAME_ARG=""
+WINE_OVERRIDE=""
+declare -a EXEC_CMD=()
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --clean)
+            echo "Nettoyage des copies de travail wsquashfs..."
+            # Démonter avant de supprimer : rm -rf sur un point de montage FUSE
+            # actif tente de supprimer les fichiers du jeu À TRAVERS le montage
+            # plutôt que le point de montage lui-même (destructif/imprévisible).
+            unmount_all_stale
+            rm -rf "${CACHE_DIR}/mnt" "${CACHE_DIR}/wine" "${CACHE_DIR}/work" 2>/dev/null || true
+            echo "✓ Copies de travail supprimées"
+            echo "  Les sauvegardes overlay sont préservées dans : ${SAVES_DIR}"
+            exit 0
+            ;;
+        --help|-h)
+            usage
+            exit 0
+            ;;
+        --umount)
+            if [[ -n "${2:-}" ]]; then
+                umount_game "$(basename "$2" .wsquashfs)"
+            else
+                for g in "${CACHE_DIR}/wine"/*/; do
+                    [[ -d "$g" ]] && umount_game "$(basename "$g")"
+                done
+                unmount_all_stale
+            fi
+            exit 0
+            ;;
+        --pack)
+            pack_prefix "${2:-}" "${3:-}"
+            exit $?
+            ;;
+        --wine)
+            [[ -n "${2:-}" ]] || { echo "Erreur : --wine attend une version ou un chemin"; exit 1; }
+            WINE_OVERRIDE="$2"
+            shift 2
+            ;;
+        --mount)
+            ACTION="mount"
+            shift
+            ;;
+        --exec)
+            ACTION="exec"
+            GAME_ARG="${2:-}"
+            EXEC_CMD=("${@:3}")
+            if [[ -z "$GAME_ARG" || ${#EXEC_CMD[@]} -eq 0 ]]; then
+                echo "Usage : $0 --exec <jeu.wsquashfs> <programme> [arguments...]"
+                exit 1
+            fi
+            set --
+            ;;
+        -*)
+            echo "Erreur : option inconnue : $1  (voir $0 --help)"
+            exit 1
+            ;;
+        *)
+            if [[ -n "$GAME_ARG" ]]; then
+                echo "Erreur : un seul jeu attendu (voir $0 --help)"
+                exit 1
+            fi
+            GAME_ARG="$1"
+            shift
+            ;;
+    esac
+done
 
 # ============================================================
 # VÉRIFICATIONS
 # ============================================================
 
-if [[ $# -ne 1 ]]; then
+if [[ -z "$GAME_ARG" ]]; then
     echo "Erreur : fichier .wsquashfs requis"
     echo "Usage : $0 <fichier.wsquashfs>  |  $0 --help"
     exit 1
 fi
 
-WSQUASHFS_FILE=$(realpath "$1" 2>/dev/null) || {
-    echo "Erreur : chemin introuvable : $1"
+WSQUASHFS_FILE=$(realpath "$GAME_ARG" 2>/dev/null) || {
+    echo "Erreur : chemin introuvable : $GAME_ARG"
     exit 1
 }
 
@@ -559,6 +683,7 @@ echo "========================================="
 echo "Environnement : $ENV_TYPE"
 echo "Jeu           : $GAME_NAME"
 echo "Fichier       : $WSQUASHFS_FILE"
+[[ "$ACTION" != "run" ]] && echo "Action        : ${ACTION}${EXEC_CMD[0]:+ (${EXEC_CMD[0]})}"
 
 # ============================================================
 # MONTAGE
@@ -624,12 +749,24 @@ if [[ -z "$MOUNT_MODE" ]]; then
     fi
 fi
 
+# --mount : le jeu reste monté (cleanup ne démonte pas), pour le modifier à
+# la main — fichiers de config, sauvegardes, remplacement d'un fichier.
+if [[ "$ACTION" == "mount" ]]; then
+    MOUNTED=false
+    echo "-----------------------------------------"
+    echo "Monté dans    : $WINEPOINT"
+    [[ "$MOUNT_MODE" == "overlay" ]] && echo "Modifications : enregistrées dans $SAVEPOINT (le .wsquashfs n'est jamais modifié)"
+    echo "Démontage     : $0 --umount \"$WSQUASHFS_FILE\""
+    echo "  (tout lancement d'un autre jeu démonte aussi les montages inutilisés)"
+    exit 0
+fi
+
 # ============================================================
 # LECTURE DE AUTORUN.CMD
 # ============================================================
 
 AUTORUN_FILE="${WINEPOINT}/autorun.cmd"
-if [[ ! -f "$AUTORUN_FILE" ]]; then
+if [[ ! -f "$AUTORUN_FILE" && "$ACTION" != "exec" ]]; then
     echo "Erreur : autorun.cmd introuvable dans le wsquashfs"
     exit 1
 fi
@@ -666,7 +803,7 @@ WINE_ENV=$(getWine_var "$WINEPOINT" "ENV" "")
 # Priorité : autorun.cmd (VIRTUAL_DESKTOP=1920x1080) > variable d'env WSQUASHFS_VIRTUAL_DESKTOP.
 VIRTUAL_DESKTOP=$(getWine_var "$WINEPOINT" "VIRTUAL_DESKTOP" "${WSQUASHFS_VIRTUAL_DESKTOP:-}")
 
-if [[ -z "$CMD" ]]; then
+if [[ -z "$CMD" && "$ACTION" != "exec" ]]; then
     echo "Erreur : CMD non défini dans autorun.cmd"
     exit 1
 fi
@@ -675,14 +812,6 @@ fi
 # PARSING DE CMD
 # ============================================================
 
-if [[ "$CMD" =~ ^\"([^\"]+)\"(.*)$ ]]; then
-    EXEC_NAME="${BASH_REMATCH[1]}"
-    EXEC_ARGS="${BASH_REMATCH[2]# }"
-else
-    EXEC_NAME=$(echo "$CMD" | awk '{print $1}')
-    EXEC_ARGS=$(echo "$CMD" | cut -d' ' -f2- -s)
-fi
-
 # Windows ignore la casse, les autorun.cmd Batocera aussi : "game.exe" pour
 # Game.exe (Rabbids Hollywood Arcade, confirmé en direct). DIR et CMD sont
 # résolus composant par composant, sans tenir compte de la casse.
@@ -690,16 +819,41 @@ DIR="${DIR//\\//}"
 if [[ -n "$DIR" ]]; then
     DIR_RESOLVED=$(resolve_ci "$WINEPOINT" "$DIR") && DIR="${DIR_RESOLVED#"$WINEPOINT"/}"
 fi
-EXEC_PATH=$(resolve_ci "$WINEPOINT" "${DIR:+$DIR/}${EXEC_NAME}") \
-    || EXEC_PATH="${WINEPOINT}/${DIR:+$DIR/}${EXEC_NAME}"
 
-if [[ ! -f "$EXEC_PATH" ]]; then
-    echo "Erreur : exécutable introuvable : $EXEC_PATH"
-    echo "  CMD : $CMD  |  DIR : ${DIR:-<vide>}"
-    exit 1
+declare -a EXEC_ARGS_ARR=()
+if [[ "$ACTION" == "exec" ]]; then
+    # --exec : fichier du prefix (depuis sa racine, puis depuis le DIR de
+    # l'autorun.cmd), sinon outil Wine lancé tel quel (winecfg, regedit...).
+    prog="${EXEC_CMD[0]//\\//}"
+    EXEC_ARGS_ARR=("${EXEC_CMD[@]:1}")
+    if EXEC_PATH=$(resolve_ci "$WINEPOINT" "$prog") && [[ -f "$EXEC_PATH" ]]; then
+        DIR=$(dirname "${EXEC_PATH#"$WINEPOINT"/}"); [[ "$DIR" == "." ]] && DIR=""
+    elif [[ -n "$DIR" ]] && EXEC_PATH=$(resolve_ci "$WINEPOINT" "${DIR}/${prog}") && [[ -f "$EXEC_PATH" ]]; then
+        DIR=$(dirname "${EXEC_PATH#"$WINEPOINT"/}")
+    else
+        EXEC_PATH="${EXEC_CMD[0]}"
+        DIR=""
+    fi
+else
+    if [[ "$CMD" =~ ^\"([^\"]+)\"(.*)$ ]]; then
+        EXEC_NAME="${BASH_REMATCH[1]}"
+        EXEC_ARGS="${BASH_REMATCH[2]# }"
+    else
+        EXEC_NAME=$(echo "$CMD" | awk '{print $1}')
+        EXEC_ARGS=$(echo "$CMD" | cut -d' ' -f2- -s)
+    fi
+    read -ra EXEC_ARGS_ARR <<< "$EXEC_ARGS"
+    EXEC_PATH=$(resolve_ci "$WINEPOINT" "${DIR:+$DIR/}${EXEC_NAME}") \
+        || EXEC_PATH="${WINEPOINT}/${DIR:+$DIR/}${EXEC_NAME}"
+    if [[ ! -f "$EXEC_PATH" ]]; then
+        echo "Erreur : exécutable introuvable : $EXEC_PATH"
+        echo "  CMD : $CMD  |  DIR : ${DIR:-<vide>}"
+        exit 1
+    fi
 fi
 
 EXT="${EXEC_PATH##*.}"
+EXT="${EXT,,}"
 
 # ============================================================
 # BINAIRE WINE
@@ -733,6 +887,19 @@ elif [[ -n "$WINE_VERSION" ]]; then
     fi
 fi
 
+# --wine (ligne de commande) : prioritaire sur l'autorun.cmd.
+if [[ -n "$WINE_OVERRIDE" ]]; then
+    if found=$(resolve_wine_override "$WINE_OVERRIDE") && [[ -n "$found" ]]; then
+        WINE_BINARY="$found"
+    else
+        echo "Erreur : runner Wine introuvable : ${WINE_OVERRIDE}"
+        echo "  Runners installés :"
+        list_wine_runners | sed 's/^/    /'
+        echo "    system ($(command -v wine 2>/dev/null || echo absent))"
+        exit 1
+    fi
+fi
+
 # ============================================================
 # CONFIGURATION WINE
 # ============================================================
@@ -749,6 +916,10 @@ fi
 # même constat (setPrefixArch). On cherche un runner compatible installé.
 if [[ "$WINE_ARCH" == "win32" ]] && ! wine_supports_win32 "$WINE_BINARY"; then
     alt=""
+    if [[ -n "$WINE_OVERRIDE" ]]; then
+        echo "Erreur : prefix win32, mais le runner choisi (--wine ${WINE_OVERRIDE}) est WoW64 seul"
+        exit 1
+    fi
     while IFS= read -r -d '' w; do
         wine_supports_win32 "$w" && { alt="$w"; break; }
     done < <(find /usr/wine /opt "$HOME/.local/share/wsquashfs/wine" -maxdepth 3 \
@@ -868,6 +1039,27 @@ if [[ -d "${WINEPOINT}/regs" ]]; then
     done < <(find "${WINEPOINT}/regs" -maxdepth 1 -type f -iname "*.reg" -print0)
 fi
 
+# Manettes par hidraw dans Wine (comme l'option enable_hidraw de
+# batocera-wine) : les prefixes Batocera sont packagés avec winebus
+# "DisableHidraw"=1, leur réglage par défaut. Sans pilote PlayStation dans
+# le noyau hôte (cas d'Unraid, hid-playstation absent), une DualSense —
+# dont la virtuelle de Sunshine — n'a pas d'evdev utilisable : seul hidraw
+# transporte ses données, et winebus sait les décoder (correctif natif des
+# rapports Bluetooth 0x31). Hidraw coupé, les jeux (TeknoParrot en XInput/
+# DirectInput) ne recevaient aucun bouton. WSQUASHFS_HIDRAW=0 pour garder
+# le réglage d'origine. winebus lit l'option à son démarrage : le serveur
+# Wine est arrêté après la modification pour que le jeu reparte avec.
+if [[ "${WSQUASHFS_HIDRAW:-1}" == "1" ]] && \
+   ! grep -qs '"DisableHidraw"=dword:00000000' "${WINEPOINT}/system.reg"; then
+    echo "Manettes       : hidraw activé pour winebus (DisableHidraw=0)"
+    as_wine_user env DISPLAY="${DISPLAY:-}" WINEPREFIX="$WINEPOINT" WINEARCH="$WINE_ARCH" \
+        WINEDEBUG="$WINEDEBUG" WINEDLLOVERRIDES="$WINEDLLOVERRIDES" \
+        "$WINE_BINARY" reg add 'HKLM\System\CurrentControlSet\Services\winebus' \
+        /v DisableHidraw /t REG_DWORD /d 0 /f >/dev/null 2>&1 || true
+    as_wine_user env WINEPREFIX="$WINEPOINT" wineserver -k 2>/dev/null || true
+    as_wine_user env WINEPREFIX="$WINEPOINT" wineserver -w 2>/dev/null || true
+fi
+
 # ============================================================
 # RÉCAPITULATIF
 # ============================================================
@@ -904,7 +1096,6 @@ WORKDIR="$WINEPOINT"
 cd "$WORKDIR" || exit 1
 
 declare -a RUN_CMD
-read -ra EXEC_ARGS_ARR <<< "$EXEC_ARGS"
 
 if [[ -n "$VIRTUAL_DESKTOP" ]]; then
     # Bureau virtuel : empêche le jeu de changer la résolution système (crash KDE/WM)
