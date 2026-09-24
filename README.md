@@ -130,6 +130,11 @@ export WSQUASHFS_CACHE="$HOME/.cache/mes-jeux"        # cache de travail
 export WSQUASHFS_DXVK=0        # désactive DXVK (activé par défaut)
 export WSQUASHFS_HIDRAW=0      # garde "DisableHidraw" du prefix (manettes
                                # par hidraw activées par défaut)
+export WSQUASHFS_D7VK=0        # désactive d7vk (DirectDraw → Vulkan, activé par
+                               # défaut si /usr/share/d7vk/x32/ddraw.dll existe)
+export WSQUASHFS_BATOCERA_SAVES=/chemin/saves/<système>   # dossier des
+                               # sauvegardes SAVEDIR/SAVEFILES (défaut : saves/
+                               # à côté de roms/, comme Batocera)
 
 wsquashfs-launcher game.wsquashfs
 ```
@@ -182,12 +187,21 @@ Le fichier `autorun.cmd` à la racine du `.wsquashfs` configure l'exécution. Ut
 | `LANG` | Langue (`LC_ALL`) | `fr_FR.UTF-8` |
 | `ENV` | Variables d'environnement additionnelles | `VAR1=val1 VAR2=val2` |
 
+### Sauvegardes (comme Batocera)
+
+| Variable | Description | Exemples |
+|---|---|---|
+| `SAVEDIR` | Dossier de sauvegarde du jeu, relié à `saves/<système>/<jeu>` (à côté de `roms/`). Les sauvegardes packagées y sont copiées sans jamais écraser l'existant | `drive_c/game/saves` |
+| `SAVEFILES` | Fichiers de sauvegarde (séparés par `;`, relatifs au prefix), reliés au même dossier | `drive_c/game/save.dat;drive_c/game/cfg.ini` |
+
 ### Variables d'optimisation
 
 | Variable | Description | Valeurs |
 |---|---|---|
-| `DXVK` | DirectX → Vulkan (via `WINEDLLOVERRIDES`) | `0` / `1` |
-| `VKD3D` | DirectX 12 → Vulkan (via `WINEDLLOVERRIDES`) | `0` / `1` |
+| `DXVK` | DirectX 8-11 → Vulkan (activé par défaut) | `0` / `1` |
+| `VKD3D` | DirectX 12 → Vulkan (activé par défaut) | `0` / `1` |
+| `D7VK` | DirectDraw / DirectX 7 → Vulkan via d7vk (activé par défaut) | `0` / `1` |
+| `VIRTUAL_DESKTOP` | Bureau virtuel Wine | `1920x1080` |
 | `ESYNC` | Event synchronization | `0` / `1` |
 | `FSYNC` | Futex synchronization | `0` / `1` |
 

@@ -367,6 +367,114 @@ install_dxvk() {
 # inexistant ici — un jeu qui sauvegarde dans "Mes documents" échouait.
 # Remplacés par de vrais dossiers (dans l'upperdir en overlay : les
 # sauvegardes y persistent).
+# d7vk (DirectDraw → Vulkan, 32 bits uniquement), comme dxvk_install() de
+# batocera-wine avec son option d7vk : ddraw.dll → d7vk, et le ddraw
+# intégré de Wine exposé en ddraw_.dll. Sans lui, un jeu DirectDraw passe
+# par l'OpenGL de wined3d, soit llvmpipe (rendu logiciel) sous
+# Xwayland + NVIDIA.
+find_d7vk() {
+    local f
+    for f in "${WSQUASHFS_D7VK_DLL:-}" /usr/share/d7vk/x32/ddraw.dll \
+             "$HOME/.local/share/wsquashfs/d7vk/x32/ddraw.dll"; do
+        [[ -n "$f" && -f "$f" ]] && echo "$f" && return
+    done
+}
+
+install_d7vk() {
+    local target_root="${1:-$WINEPOINT}" d7 wine_root builtin="" c sub=syswow64
+    d7=$(find_d7vk)
+    [[ -n "$d7" ]] || return 0
+    [[ "$WINE_ARCH" == "win32" ]] && sub=system32
+    wine_root=$(dirname "$(dirname "$(readlink -f "$WINE_BINARY")")")
+    for c in "${wine_root}/lib/wine/i386-windows/ddraw.dll" \
+             "${wine_root}/lib32/wine/i386-windows/ddraw.dll" \
+             /usr/lib/wine/i386-windows/ddraw.dll; do
+        [[ -f "$c" ]] && { builtin="$c"; break; }
+    done
+    mkdir -p "${target_root}/drive_c/windows/${sub}" 2>/dev/null || true
+    ln -sfn "$d7" "${target_root}/drive_c/windows/${sub}/ddraw.dll" 2>/dev/null || true
+    [[ -n "$builtin" ]] && ln -sfn "$builtin" "${target_root}/drive_c/windows/${sub}/ddraw_.dll" 2>/dev/null || true
+}
+
+# Mise à jour du prefix au changement de runner, comme createOrUpdatePrefix()
+# de batocera-wine : Wine met le prefix à jour quand .update-timestamp ne
+# correspond plus à son wine.inf, et échouait alors sur les liens DLL déjà en
+# place (liens DXVK des prefixes Batocera, cassés ici) — "create_dest_file
+# failed ... (error=80)" pour chaque DLL, vu pendant la campagne de test.
+# Les liens de system32/syswow64 sont retirés AVANT la mise à jour, puis
+# recréés par sync_wine_stubs/install_dxvk/install_d7vk juste après.
+update_prefix_if_needed() {
+    local wine_root inf ts stamp
+    [[ -f "${WINEPOINT}/system.reg" ]] || return 0
+    wine_root=$(dirname "$(dirname "$(readlink -f "$WINE_BINARY")")")
+    inf="${wine_root}/share/wine/wine.inf"
+    [[ -f "$inf" ]] || return 0
+    ts=$(stat -c %Y "$inf")
+    stamp=$(head -n1 "${WINEPOINT}/.update-timestamp" 2>/dev/null)
+    [[ "$stamp" == "disable" || "$stamp" == "$ts" ]] && return 0
+    echo "Préfixe       : mise à jour pour $("$WINE_BINARY" --version 2>/dev/null || basename "$wine_root")"
+    find "${WINEPOINT}/drive_c/windows/system32" "${WINEPOINT}/drive_c/windows/syswow64" \
+        -maxdepth 1 -type l -delete 2>/dev/null || true
+    as_wine_user env DISPLAY="${DISPLAY:-}" WINEPREFIX="$WINEPOINT" WINEARCH="$WINE_ARCH" \
+        WINEDEBUG="-all" WINEDLLOVERRIDES="mscoree,mshtml=;winemenubuilder.exe=d" \
+        "$WINE_BINARY" wineboot -u >/dev/null 2>&1 || true
+    as_wine_user env WINEPREFIX="$WINEPOINT" wineserver -w 2>/dev/null || true
+}
+
+# SAVEDIR / SAVEFILES de l'autorun.cmd, comme saveFilesToUserdata() de
+# batocera-wine : le dossier (ou les fichiers) de sauvegarde du jeu sont
+# remplacés par des liens vers <racine>/saves/<système>/<jeu>, à côté du
+# dossier roms/ — l'emplacement des sauvegardes Batocera. Différence : la
+# copie initiale des sauvegardes packagées n'écrase JAMAIS une sauvegarde
+# déjà présente (cp -n), là où Batocera peut les remplacer si le prefix est
+# recréé.
+batocera_saves_dir() {
+    local rom_dir sys root
+    if [[ -n "${WSQUASHFS_BATOCERA_SAVES:-}" ]]; then
+        echo "${WSQUASHFS_BATOCERA_SAVES}/${GAME_NAME}"; return
+    fi
+    rom_dir=$(dirname "$WSQUASHFS_FILE")
+    sys=$(basename "$rom_dir")
+    root=$(dirname "$(dirname "$rom_dir")")
+    [[ "$(basename "$(dirname "$rom_dir")")" == "roms" ]] || return 1
+    echo "${root}/saves/${sys}/${GAME_NAME}"
+}
+
+apply_savedir() {
+    local savedir="${1//\\//}" savefiles="$2" sysdir parent base f
+    [[ -n "$savedir$savefiles" ]] || return 0
+    if ! sysdir=$(batocera_saves_dir); then
+        echo "Attention : SAVEDIR/SAVEFILES ignorés (jeu hors d'un dossier roms/<système>/ ;"
+        echo "  définir WSQUASHFS_BATOCERA_SAVES)"
+        return 0
+    fi
+    mkdir -p "$sysdir"
+    if [[ -n "$savedir" ]]; then
+        parent="${WINEPOINT}/$(dirname "$savedir")"
+        base=$(basename "$savedir")
+        mkdir -p "$parent"
+        if [[ -d "${parent}/${base}" && ! -L "${parent}/${base}" ]]; then
+            cp -an "${parent}/${base}/." "$sysdir/" 2>/dev/null || true
+            rm -rf "${parent:?}/${base:?}"
+        fi
+        [[ -L "${parent}/${base}" ]] || ln -s "$sysdir" "${parent}/${base}"
+    else
+        IFS=';' read -r -a files <<< "$savefiles"
+        for f in "${files[@]}"; do
+            f="${f//\\//}"
+            [[ -n "$f" ]] || continue
+            mkdir -p "$(dirname "${sysdir}/${f}")" "$(dirname "${WINEPOINT}/${f}")"
+            if [[ -e "${WINEPOINT}/${f}" && ! -L "${WINEPOINT}/${f}" ]]; then
+                [[ -e "${sysdir}/${f}" ]] || mv -f "${WINEPOINT}/${f}" "${sysdir}/${f}"
+                rm -f "${WINEPOINT}/${f}"
+            fi
+            ln -sfn "${sysdir}/${f}" "${WINEPOINT}/${f}"
+        done
+    fi
+    chown_to_target "$sysdir"
+    echo "Sauvegardes   : ${sysdir} (SAVEDIR/SAVEFILES)"
+}
+
 fix_userdata_links() {
     local link
     while IFS= read -r -d '' link; do
@@ -795,6 +903,13 @@ fi
 # d3d12.dll (l'override ne fait alors simplement rien). Un jeu packagé
 # avec VKD3D=0 explicite dans son autorun.cmd garde la priorité.
 VKD3D=$(getWine_var "$WINEPOINT" "VKD3D" "1")
+# d7vk activé par défaut, pour la même raison que DXVK (OpenGL = llvmpipe
+# ici) ; sans effet sur un jeu qui ne charge pas ddraw.dll. D7VK=0 dans
+# l'autorun.cmd ou WSQUASHFS_D7VK=0 pour l'écarter.
+D7VK=$(getWine_var "$WINEPOINT" "D7VK" "${WSQUASHFS_D7VK:-1}")
+[[ "$D7VK" == "1" && -z "$(find_d7vk)" ]] && D7VK=0
+SAVEDIR=$(getWine_var "$WINEPOINT" "SAVEDIR" "")
+SAVEFILES=$(getWine_var "$WINEPOINT" "SAVEFILES" "")
 ESYNC=$(getWine_var "$WINEPOINT" "ESYNC" "0")
 FSYNC=$(getWine_var "$WINEPOINT" "FSYNC" "0")
 WINE_LANG=$(getWine_var "$WINEPOINT" "LANG" "")
@@ -953,6 +1068,9 @@ fi
 [[ "$ESYNC" == "1" ]] && export WINEESYNC=1
 [[ "$FSYNC" == "1" ]] && export WINEFSYNC=1
 
+if [[ "$D7VK" == "1" ]]; then
+    export WINEDLLOVERRIDES="${WINEDLLOVERRIDES:+${WINEDLLOVERRIDES};}ddraw=n,b"
+fi
 if [[ "$DXVK" == "1" ]]; then
     export WINEDLLOVERRIDES="${WINEDLLOVERRIDES:+${WINEDLLOVERRIDES};}d3d8,d3d9,d3d10core,d3d11,dxgi=n,b"
 else
@@ -999,6 +1117,7 @@ else
     fi
 fi
 
+update_prefix_if_needed
 fix_userdata_links
 
 # Synchroniser les DLLs Wine manquantes (compatibilité prefixes Batocera / Wine 10+).
@@ -1009,6 +1128,7 @@ fix_userdata_links
 if [[ "$MOUNT_MODE" == "overlay" ]]; then
     sync_wine_stubs "$WINE_BINARY" "$SAVEPOINT"
     [[ "$DXVK" == "1" ]] && install_dxvk "$SAVEPOINT"
+    [[ "$D7VK" == "1" ]] && install_d7vk "$SAVEPOINT"
     # Les DLLs viennent d'être copiées en root dans l'upperdir — sans ce
     # chown, Wine (relancé en TARGET_USER) verrait un prefix appartenant en
     # partie à root une fois l'overlay rechargé.
@@ -1026,6 +1146,7 @@ if [[ "$MOUNT_MODE" == "overlay" ]]; then
 else
     sync_wine_stubs "$WINE_BINARY"
     [[ "$DXVK" == "1" ]] && install_dxvk
+    [[ "$D7VK" == "1" ]] && install_d7vk
     chown_to_target "$WINEPOINT"
 fi
 
@@ -1060,6 +1181,8 @@ if [[ "${WSQUASHFS_HIDRAW:-1}" == "1" ]] && \
     as_wine_user env WINEPREFIX="$WINEPOINT" wineserver -w 2>/dev/null || true
 fi
 
+apply_savedir "$SAVEDIR" "$SAVEFILES"
+
 # ============================================================
 # RÉCAPITULATIF
 # ============================================================
@@ -1080,6 +1203,7 @@ fi
 [[ "$MOUNT_MODE" == "overlay" ]] && echo "Sauvegardes   : $SAVEPOINT"
 [[ "$DXVK"  == "1" ]] && echo "DXVK          : activé"
 [[ "$VKD3D" == "1" ]] && echo "VKD3D         : activé"
+[[ "$D7VK"  == "1" ]] && echo "D7VK          : activé (DirectDraw → Vulkan)"
 [[ "$ESYNC" == "1" ]] && echo "ESYNC         : activé"
 [[ "$FSYNC" == "1" ]] && echo "FSYNC         : activé"
 [[ -n "$WINE_LANG" ]] && echo "Langue        : $WINE_LANG"
