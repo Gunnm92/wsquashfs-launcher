@@ -1239,8 +1239,8 @@ fi
 
 if [[ "$RUN_AS_ROOT" == true ]] && [[ -n "$TARGET_USER" ]]; then
     # SDL_* : winebus (manettes Wine) lit les manettes via SDL — sans ces
-    # variables, le mapping corrigé de la manette Xbox virtuelle de Sunshine
-    # (SDL_GAMECONTROLLERCONFIG, voir l'image SteamBox) était perdu ici.
+    # variables, un mapping SDL_GAMECONTROLLERCONFIG et
+    # SDL_JOYSTICK_DISABLE_UDEV de la session étaient perdus ici.
     # env explicite plutôt que `sudo --preserve-env` : certaines politiques
     # sudoers restreignent --preserve-env (env_reset sans autorisation
     # explicite), alors que passer des VAR=valeur à `env` en argument
