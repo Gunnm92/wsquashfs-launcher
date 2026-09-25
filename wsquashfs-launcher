@@ -274,8 +274,9 @@ stop_wineserver() {
     [[ -n "$pids" ]] && kill -9 $pids 2>/dev/null || true
 }
 
-# Copie les DLLs Wine absentes du prefix (DLLs Wine 10+ manquantes dans vieux prefixes Batocera).
-# Ne copie que les DLLs absentes — les DLLs existantes (DXVK etc.) ne sont jamais écrasées.
+# Relie (lien symbolique) les DLLs Wine absentes du prefix (DLLs Wine 10+ manquantes dans vieux
+# prefixes Batocera). Seules les DLLs absentes sont reliées — les existantes (DXVK etc.) ne sont
+# jamais écrasées.
 # Note : aucune limite de taille — Wine 10+ a promu certaines DLLs de stubs à implémentations
 # complètes (ex: coml2.dll ~344 Ko) qui sont nécessaires même dans les vieux prefixes Batocera.
 #
@@ -318,10 +319,13 @@ sync_wine_stubs() {
             # -f renvoie false pour les symlinks cassés → on ne saute pas, on remplace
             [[ -f "$overlay_dst" ]] && continue
             dst="${target_root}/drive_c/windows/${dst_subdir}/${name}"
-            # Supprimer le symlink cassé avant cp (ex: → /usr/wine/proton/... inexistant)
-            [[ -L "$dst" ]] && rm -f "$dst" 2>/dev/null || true
-            cp "$src" "$dst" 2>/dev/null || true
-            [[ "$target_root" == "$WINEPOINT" ]] && : > "${WINEPOINT}/.wsquashfs_dxvk"
+            # Lien symbolique, pas copie (25/09) : comme batocera-wine, qui relie
+            # les DLL du runner dans le prefix. La copie recopiait ~1 660 DLL
+            # (~500 Mo) à CHAQUE lancement dans les sauvegardes du jeu — 35 Go
+            # sur 41 Go de saves pour 140 jeux (mesuré). Wine reconnaît ses DLL
+            # intégrées à travers le lien. ln -sfn remplace aussi un lien cassé
+            # (ex. vers /userdata/... d'un prefix Batocera).
+            ln -sfn "$src" "$dst" 2>/dev/null || true
         done
     done
 }
@@ -411,7 +415,10 @@ update_prefix_if_needed() {
     inf="${wine_root}/share/wine/wine.inf"
     [[ -f "$inf" ]] || return 0
     ts=$(stat -c %Y "$inf")
-    stamp=$(head -n1 "${WINEPOINT}/.update-timestamp" 2>/dev/null)
+    # Wine écrit ce fichier en fin de ligne Windows ("1790165633\r\n") : sans
+    # retirer le \r, la comparaison échouait toujours et wineboot -u tournait
+    # à CHAQUE lancement (~70 s, ~725 DLL réécrites dans les saves — 25/09).
+    stamp=$(head -n1 "${WINEPOINT}/.update-timestamp" 2>/dev/null | tr -d '\r')
     [[ "$stamp" == "disable" || "$stamp" == "$ts" ]] && return 0
     echo "Préfixe       : mise à jour pour $("$WINE_BINARY" --version 2>/dev/null || basename "$wine_root")"
     find "${WINEPOINT}/drive_c/windows/system32" "${WINEPOINT}/drive_c/windows/syswow64" \
