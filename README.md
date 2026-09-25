@@ -128,8 +128,8 @@ wsquashfs-launcher --help
 export WSQUASHFS_SAVES_DIR="$HOME/mes-sauvegardes"   # sauvegardes overlay
 export WSQUASHFS_CACHE="$HOME/.cache/mes-jeux"        # cache de travail
 export WSQUASHFS_DXVK=0        # désactive DXVK (activé par défaut)
-export WSQUASHFS_HIDRAW=0      # garde "DisableHidraw" du prefix (manettes
-                               # par hidraw activées par défaut)
+export WSQUASHFS_HIDRAW=1      # manettes Wine par hidraw ("DisableHidraw"=0,
+                               # désactivé par défaut, comme Batocera)
 export WSQUASHFS_D7VK=0        # désactive d7vk (DirectDraw → Vulkan, activé par
                                # défaut si /usr/share/d7vk/x32/ddraw.dll existe)
 export WSQUASHFS_BATOCERA_SAVES=/chemin/saves/<système>   # dossier des

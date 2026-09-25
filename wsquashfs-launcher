@@ -661,7 +661,7 @@ Variables d'environnement :
   WSQUASHFS_SAVES_DIR        Sauvegardes overlay (défaut: ~/.local/share/wsquashfs/saves)
   WSQUASHFS_CACHE            Cache de travail   (défaut: ~/.cache/wsquashfs)
   WSQUASHFS_DXVK=0           Désactive DXVK (défaut : activé)
-  WSQUASHFS_HIDRAW=0         Garde "DisableHidraw" du prefix (défaut : hidraw activé)
+  WSQUASHFS_HIDRAW=1         Manettes Wine par hidraw (défaut : désactivé, comme Batocera)
   WSQUASHFS_VIRTUAL_DESKTOP  Bureau virtuel Wine pour tous les jeux (ex: 1920x1080),
                              aussi par jeu via VIRTUAL_DESKTOP= dans autorun.cmd
 HELP
@@ -1160,23 +1160,24 @@ if [[ -d "${WINEPOINT}/regs" ]]; then
     done < <(find "${WINEPOINT}/regs" -maxdepth 1 -type f -iname "*.reg" -print0)
 fi
 
-# Manettes par hidraw dans Wine (comme l'option enable_hidraw de
-# batocera-wine) : les prefixes Batocera sont packagés avec winebus
-# "DisableHidraw"=1, leur réglage par défaut. Sans pilote PlayStation dans
-# le noyau hôte (cas d'Unraid, hid-playstation absent), une DualSense —
-# dont la virtuelle de Sunshine — n'a pas d'evdev utilisable : seul hidraw
-# transporte ses données, et winebus sait les décoder (correctif natif des
-# rapports Bluetooth 0x31). Hidraw coupé, les jeux (TeknoParrot en XInput/
-# DirectInput) ne recevaient aucun bouton. WSQUASHFS_HIDRAW=0 pour garder
-# le réglage d'origine. winebus lit l'option à son démarrage : le serveur
-# Wine est arrêté après la modification pour que le jeu reparte avec.
-if [[ "${WSQUASHFS_HIDRAW:-1}" == "1" ]] && \
-   ! grep -qs '"DisableHidraw"=dword:00000000' "${WINEPOINT}/system.reg"; then
-    echo "Manettes       : hidraw activé pour winebus (DisableHidraw=0)"
+# Manettes par hidraw dans Wine — option enable_hidraw de batocera-wine,
+# DÉSACTIVÉE par défaut comme chez Batocera (winebus "DisableHidraw"=1).
+# Activée par défaut du 24/09 au 25/09 pour la DualSense de Sunshine
+# (lisible seulement par hidraw sans hid-playstation dans le noyau hôte) :
+# Wine présentait alors la manette aux jeux comme une DualSense brute au
+# lieu d'une manette standard (XInput via SDL), et les jeux PC testés
+# (SNK Heroines, Sonic & All-Stars Racing) avaient leurs touches décalées.
+# WSQUASHFS_HIDRAW=1 pour l'activer ponctuellement. La valeur est imposée
+# dans les deux sens : un prefix modifié pendant cette période retrouve
+# "DisableHidraw"=1 au lancement suivant.
+HIDRAW_DISABLE=1
+[[ "${WSQUASHFS_HIDRAW:-0}" == "1" ]] && HIDRAW_DISABLE=0
+if ! grep -qs "\"DisableHidraw\"=dword:0000000${HIDRAW_DISABLE}" "${WINEPOINT}/system.reg"; then
+    echo "Manettes      : winebus DisableHidraw=${HIDRAW_DISABLE}"
     as_wine_user env DISPLAY="${DISPLAY:-}" WINEPREFIX="$WINEPOINT" WINEARCH="$WINE_ARCH" \
         WINEDEBUG="$WINEDEBUG" WINEDLLOVERRIDES="$WINEDLLOVERRIDES" \
         "$WINE_BINARY" reg add 'HKLM\System\CurrentControlSet\Services\winebus' \
-        /v DisableHidraw /t REG_DWORD /d 0 /f >/dev/null 2>&1 || true
+        /v DisableHidraw /t REG_DWORD /d "${HIDRAW_DISABLE}" /f >/dev/null 2>&1 || true
     as_wine_user env WINEPREFIX="$WINEPOINT" wineserver -k 2>/dev/null || true
     as_wine_user env WINEPREFIX="$WINEPOINT" wineserver -w 2>/dev/null || true
 fi
