@@ -251,6 +251,7 @@ chown_to_target() {
 apply_wine_env() {
     local pair
     while IFS= read -r pair; do
+        # shellcheck disable=SC2163  # export de "VAR=valeur" voulu
         [[ "$pair" =~ ^[A-Za-z_][A-Za-z0-9_]*=.* ]] && export "$pair" || true
     done <<< "$(tr ' ' '\n' <<< "$1")"
 }
@@ -679,7 +680,7 @@ while [[ $# -gt 0 ]]; do
             # actif tente de supprimer les fichiers du jeu À TRAVERS le montage
             # plutôt que le point de montage lui-même (destructif/imprévisible).
             unmount_all_stale
-            rm -rf "${CACHE_DIR}/mnt" "${CACHE_DIR}/wine" "${CACHE_DIR}/work" 2>/dev/null || true
+            rm -rf "${CACHE_DIR:?}/mnt" "${CACHE_DIR:?}/wine" "${CACHE_DIR:?}/work" 2>/dev/null || true
             echo "✓ Copies de travail supprimées"
             echo "  Les sauvegardes overlay sont préservées dans : ${SAVES_DIR}"
             exit 0
