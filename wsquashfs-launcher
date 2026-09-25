@@ -427,6 +427,14 @@ update_prefix_if_needed() {
         WINEDEBUG="-all" WINEDLLOVERRIDES="mscoree,mshtml=;winemenubuilder.exe=d" \
         "$WINE_BINARY" wineboot -u >/dev/null 2>&1 || true
     as_wine_user env WINEPREFIX="$WINEPOINT" wineserver -w 2>/dev/null || true
+    # wineboot -u vient d'écrire ~1 600 DLL (~500 Mo) dans l'upperdir : les
+    # retirer tout de suite, sync_wine_stubs les remplace par des liens et
+    # l'overlay est rechargé ensuite (de toute façon effacées au lancement
+    # suivant). Vu le 25/09 : 8 jeux, +4,5 Go après un premier lancement.
+    if [[ "$MOUNT_MODE" == "overlay" ]]; then
+        rm -rf "${SAVEPOINT}/drive_c/windows/system32" \
+               "${SAVEPOINT}/drive_c/windows/syswow64" 2>/dev/null || true
+    fi
 }
 
 # SAVEDIR / SAVEFILES de l'autorun.cmd, comme saveFilesToUserdata() de
