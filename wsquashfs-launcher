@@ -23,6 +23,27 @@ case "${1:-}" in
         ;;
 esac
 
+# Lancé par un simple "sudo" (sans -E) : sudo remet HOME=/root et efface
+# XDG_RUNTIME_DIR/WAYLAND_DISPLAY — montages et sauvegardes partaient dans
+# /root, inaccessible à Wine relancé en utilisateur ("wine: cannot use
+# directory /root/.cache/wsquashfs/…: Permission denied", 26/09). On repart
+# de l'utilisateur d'origine (SUDO_USER) ; une valeur conservée par sudo -E
+# n'est jamais remplacée.
+if [[ "${EUID}" -eq 0 && -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" ]]; then
+    _sudo_home=$(getent passwd "${SUDO_USER}" | cut -d: -f6)
+    if [[ -n "${_sudo_home}" && "${HOME:-/root}" == "/root" ]]; then
+        export HOME="${_sudo_home}"
+    fi
+    _sudo_runtime="/run/user/$(id -u "${SUDO_USER}")"
+    if [[ -z "${XDG_RUNTIME_DIR:-}" && -d "${_sudo_runtime}" ]]; then
+        export XDG_RUNTIME_DIR="${_sudo_runtime}"
+    fi
+    if [[ -z "${WAYLAND_DISPLAY:-}" && -n "${XDG_RUNTIME_DIR:-}" && -S "${XDG_RUNTIME_DIR}/wayland-0" ]]; then
+        export WAYLAND_DISPLAY=wayland-0
+    fi
+    unset _sudo_home _sudo_runtime
+fi
+
 # ============================================================
 # CONFIGURATION
 # ============================================================
