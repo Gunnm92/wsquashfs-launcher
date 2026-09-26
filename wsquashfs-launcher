@@ -6,6 +6,23 @@
 #   overlay  squashfuse + fuse-overlayfs — sauvegardes isolées dans SAVES_DIR
 #   copy     squashfuse ou unsquashfs   — copie de travail persistante (cache)
 
+# Relance automatique en root (26/09) : monter l'image (squashfuse,
+# fuse-overlayfs, allow_other) demande root, comme sous Batocera — ES passe
+# par "sudo -E". Lancé à la main sans sudo, le lanceur ne pouvait pas créer
+# ses points de montage (créés en root par les lancements précédents) et
+# retombait sur une extraction complète (38 Go pour Pinball FX). sudo -E
+# garde HOME/DISPLAY et positionne SUDO_USER (utilisateur du jeu). Seulement
+# si sudo marche sans mot de passe ; --pack et --help restent sans root (le
+# .wsquashfs produit doit appartenir à l'utilisateur).
+case "${1:-}" in
+    --pack|-h|--help) ;;
+    *)
+        if [[ "${EUID}" -ne 0 ]] && command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+            exec sudo -E "$(readlink -f "$0")" "$@"
+        fi
+        ;;
+esac
+
 # ============================================================
 # CONFIGURATION
 # ============================================================
