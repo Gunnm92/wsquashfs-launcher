@@ -367,6 +367,38 @@ install_dxvk() {
     done
 }
 
+# VKD3D-Proton (Direct3D 12 → Vulkan), relié comme DXVK (26/09) : jusque-là
+# seul l'override d3d12=n,b était posé, sans aucune DLL vkd3d-proton dans le
+# prefix — Wine chargeait son propre d3d12.dll, inutilisable ici, et tout jeu
+# DX12 échouait (Pinball FX : "DX12 is not supported on your system"). Il
+# faut la version Windows (paquet vkd3d-proton-mingw, /usr/share/vkd3d-proton/
+# {x64,x86}), pas la bibliothèque Linux de vkd3d-proton.
+find_vkd3d_dir() {
+    local d
+    for d in "${WSQUASHFS_VKD3D_DIR:-}" /usr/share/vkd3d-proton "$HOME/.local/share/wsquashfs/vkd3d-proton"; do
+        [[ -n "$d" && -f "${d}/x64/d3d12.dll" ]] && echo "$d" && return
+    done
+}
+
+install_vkd3d() {
+    local target_root="${1:-$WINEPOINT}" vkd3d_dir pair arch sub dll
+    vkd3d_dir=$(find_vkd3d_dir)
+    [[ -n "$vkd3d_dir" ]] || return 0
+    for pair in x64:system32 x86:syswow64; do
+        arch="${pair%%:*}" sub="${pair##*:}"
+        if [[ "$WINE_ARCH" == "win32" ]]; then
+            [[ "$arch" == "x64" ]] && continue
+            sub=system32
+        fi
+        mkdir -p "${target_root}/drive_c/windows/${sub}" 2>/dev/null || true
+        for dll in d3d12 d3d12core; do
+            [[ -f "${vkd3d_dir}/${arch}/${dll}.dll" ]] || continue
+            ln -sfn "${vkd3d_dir}/${arch}/${dll}.dll" \
+                "${target_root}/drive_c/windows/${sub}/${dll}.dll" 2>/dev/null || true
+        done
+    done
+}
+
 # Comme sandboxing_prefix() de batocera-wine : les dossiers du profil Wine
 # (Documents, Music...) sont packagés en liens vers /userdata/system,
 # inexistant ici — un jeu qui sauvegarde dans "Mes documents" échouait.
@@ -431,7 +463,8 @@ update_prefix_if_needed() {
     # retirer tout de suite, sync_wine_stubs les remplace par des liens et
     # l'overlay est rechargé ensuite (de toute façon effacées au lancement
     # suivant). Vu le 25/09 : 8 jeux, +4,5 Go après un premier lancement.
-    if [[ "$MOUNT_MODE" == "overlay" ]]; then
+    # Prefix packagé seulement : pour un jeu seul, ce system32 EST le prefix.
+    if [[ "$MOUNT_MODE" == "overlay" && "$PACKAGED_PREFIX" == "1" ]]; then
         rm -rf "${SAVEPOINT}/drive_c/windows/system32" \
                "${SAVEPOINT}/drive_c/windows/syswow64" 2>/dev/null || true
     fi
@@ -830,11 +863,21 @@ chown_to_target "$WORKPOINT"
 rm -f "${SAVEPOINT}/wineserver" "${SAVEPOINT}/.wineserver-lock" 2>/dev/null || true
 rm -f "${SAVEPOINT}"/reg*.tmp 2>/dev/null || true
 
-# Supprimer les entrées redirect/opaque laissées par d'anciennes sessions redirect_dir=on.
-# system32 et syswow64 ne contiennent jamais de données de sauvegarde utilisateur :
-# les DLLs copiées par sync_wine_stubs sont régénérées à chaque lancement.
-rm -rf "${SAVEPOINT}/drive_c/windows/system32" \
-       "${SAVEPOINT}/drive_c/windows/syswow64" 2>/dev/null || true
+# Image = prefix packagé (Batocera : system.reg, drive_c… dans le squashfs)
+# ou jeu seul (NBA 2K23, Pinball FX : prefix créé dans les saves au premier
+# lancement) ? Lu directement dans l'image (< 0,1 s, même sur 38 Go).
+PACKAGED_PREFIX=0
+unsquashfs -cat "$WSQUASHFS_FILE" system.reg >/dev/null 2>&1 && PACKAGED_PREFIX=1
+
+# Prefix packagé : system32/syswow64 de l'upperdir ne contiennent que des
+# liens/copies régénérés à chaque lancement (sync_wine_stubs, DXVK…) et
+# d'anciennes entrées redirect/opaque — effacés. JAMAIS pour un jeu seul
+# (26/09) : son system32 EST le prefix (explorer.exe, services.exe…) ; effacé,
+# Wine échouait au lancement suivant ("failed to start explorer c0000034").
+if [[ "$PACKAGED_PREFIX" == "1" ]]; then
+    rm -rf "${SAVEPOINT}/drive_c/windows/system32" \
+           "${SAVEPOINT}/drive_c/windows/syswow64" 2>/dev/null || true
+fi
 
 # MODE 1 : overlay (squashfuse + fuse-overlayfs)
 if command -v squashfuse &>/dev/null && \
@@ -919,6 +962,10 @@ fi
 # d3d12.dll (l'override ne fait alors simplement rien). Un jeu packagé
 # avec VKD3D=0 explicite dans son autorun.cmd garde la priorité.
 VKD3D=$(getWine_var "$WINEPOINT" "VKD3D" "1")
+if [[ "$VKD3D" == "1" && -z "$(find_vkd3d_dir)" ]]; then
+    echo "Attention : VKD3D-Proton introuvable (/usr/share/vkd3d-proton), Direct3D 12 indisponible"
+    VKD3D=0
+fi
 # d7vk activé par défaut, pour la même raison que DXVK (OpenGL = llvmpipe
 # ici) ; sans effet sur un jeu qui ne charge pas ddraw.dll. D7VK=0 dans
 # l'autorun.cmd ou WSQUASHFS_D7VK=0 pour l'écarter.
@@ -1095,7 +1142,7 @@ else
     export WINEDLLOVERRIDES="${WINEDLLOVERRIDES:+${WINEDLLOVERRIDES};}d3d8,d3d9,d3d10core,d3d11,dxgi=b"
 fi
 if [[ "$VKD3D" == "1" ]]; then
-    export WINEDLLOVERRIDES="${WINEDLLOVERRIDES:+${WINEDLLOVERRIDES};}d3d12=n,b"
+    export WINEDLLOVERRIDES="${WINEDLLOVERRIDES:+${WINEDLLOVERRIDES};}d3d12,d3d12core=n,b"
 fi
 
 # Borne arcade : Wine ne doit rien ouvrir côté Linux. winebrowser ouvrait
@@ -1111,7 +1158,10 @@ export WINEDEBUG="${WINEDEBUG:-fixme-all}"
 [[ -n "$WINE_LANG" ]] && export LC_ALL="$WINE_LANG"
 [[ -n "$WINE_ENV" ]] && apply_wine_env "$WINE_ENV"
 
-if [[ -f "${WINEPOINT}/system.reg" ]] && [[ -d "${WINEPOINT}/drive_c" ]]; then
+# Jeu seul dont le prefix a perdu son system32 (effacé à chaque lancement
+# par les versions du 25-26/09, voir PACKAGED_PREFIX) : réparé par wineboot.
+if [[ -f "${WINEPOINT}/system.reg" ]] && [[ -d "${WINEPOINT}/drive_c" ]] \
+   && { [[ "$PACKAGED_PREFIX" == "1" ]] || [[ -f "${WINEPOINT}/drive_c/windows/system32/explorer.exe" ]]; }; then
     echo "✓ Préfixe Wine détecté (structure Batocera)"
 else
     # .wsquashfs sans prefix (jeu seul : NBA 2K23, Robin Hood...) : prefix
@@ -1119,6 +1169,10 @@ else
     # refusait ("... is not owned by you", confirmé en campagne de test) et
     # le lanceur restait bloqué.
     echo "Initialisation du préfixe Wine ($WINE_ARCH)..."
+    # Réparation : wineboot -u ne réinstalle RIEN tant que .update-timestamp
+    # correspond à la version de Wine (vérifié le 26/09 : 0 fichier recréé,
+    # 816 sans l'horodatage). Sans effet sur un prefix neuf.
+    rm -f "${WINEPOINT}/.update-timestamp"
     as_wine_user env DISPLAY="${DISPLAY:-}" WINEPREFIX="$WINEPOINT" WINEARCH="$WINE_ARCH" \
         WINEDEBUG="$WINEDEBUG" WINEDLLOVERRIDES="mscoree,mshtml=;winemenubuilder.exe=d" \
         "$WINE_BINARY" wineboot -u 2>&1 | grep -v "fixme:" || true
@@ -1144,6 +1198,7 @@ fix_userdata_links
 if [[ "$MOUNT_MODE" == "overlay" ]]; then
     sync_wine_stubs "$WINE_BINARY" "$SAVEPOINT"
     [[ "$DXVK" == "1" ]] && install_dxvk "$SAVEPOINT"
+    [[ "$VKD3D" == "1" ]] && install_vkd3d "$SAVEPOINT"
     [[ "$D7VK" == "1" ]] && install_d7vk "$SAVEPOINT"
     # Les DLLs viennent d'être copiées en root dans l'upperdir — sans ce
     # chown, Wine (relancé en TARGET_USER) verrait un prefix appartenant en
@@ -1162,6 +1217,7 @@ if [[ "$MOUNT_MODE" == "overlay" ]]; then
 else
     sync_wine_stubs "$WINE_BINARY"
     [[ "$DXVK" == "1" ]] && install_dxvk
+    [[ "$VKD3D" == "1" ]] && install_vkd3d
     [[ "$D7VK" == "1" ]] && install_d7vk
     chown_to_target "$WINEPOINT"
 fi
