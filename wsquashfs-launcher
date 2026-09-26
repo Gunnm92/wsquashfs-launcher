@@ -199,6 +199,19 @@ getWine_var() {
     fi
 }
 
+# Retire une paire de guillemets entourant une valeur de chemin de
+# l'autorun.cmd (DIR="Mon Jeu/Bin/", 27/09 : Kingdom Hearts III). Le format
+# Batocera n'en met pas — les espaces passent tels quels —, mais le réflexe
+# est naturel. CMD n'est pas concerné : c'est une ligne de commande, ses
+# guillemets sont interprétés normalement.
+unquote() {
+    local v="$1"
+    if [[ ${#v} -ge 2 && ( ( "${v:0:1}" == '"' && "${v: -1}" == '"' ) || ( "${v:0:1}" == "'" && "${v: -1}" == "'" ) ) ]]; then
+        v="${v:1:${#v}-2}"
+    fi
+    echo "$v"
+}
+
 do_umount() {
     fusermount -u "$1" 2>/dev/null || fusermount3 -u "$1" 2>/dev/null || umount "$1" 2>/dev/null || true
 }
@@ -1003,7 +1016,7 @@ if [[ ! -f "$AUTORUN_FILE" && "$ACTION" != "exec" ]]; then
     exit 1
 fi
 
-DIR=$(getWine_var "$WINEPOINT" "DIR" "")
+DIR=$(unquote "$(getWine_var "$WINEPOINT" "DIR" "")")
 CMD=$(getWine_var "$WINEPOINT" "CMD" "")
 WINE_VERSION=$(getWine_var "$WINEPOINT" "WINE" "")
 PROTON_VERSION=$(getWine_var "$WINEPOINT" "PROTON" "")
@@ -1036,8 +1049,8 @@ fi
 # l'autorun.cmd ou WSQUASHFS_D7VK=0 pour l'écarter.
 D7VK=$(getWine_var "$WINEPOINT" "D7VK" "${WSQUASHFS_D7VK:-1}")
 [[ "$D7VK" == "1" && -z "$(find_d7vk)" ]] && D7VK=0
-SAVEDIR=$(getWine_var "$WINEPOINT" "SAVEDIR" "")
-SAVEFILES=$(getWine_var "$WINEPOINT" "SAVEFILES" "")
+SAVEDIR=$(unquote "$(getWine_var "$WINEPOINT" "SAVEDIR" "")")
+SAVEFILES=$(unquote "$(getWine_var "$WINEPOINT" "SAVEFILES" "")")
 ESYNC=$(getWine_var "$WINEPOINT" "ESYNC" "0")
 FSYNC=$(getWine_var "$WINEPOINT" "FSYNC" "0")
 WINE_LANG=$(getWine_var "$WINEPOINT" "LANG" "")
