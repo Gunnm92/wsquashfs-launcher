@@ -666,13 +666,40 @@ pack_prefix() {
     fi
     command -v mksquashfs &>/dev/null || { echo "Erreur : mksquashfs absent (squashfs-tools)"; return 1; }
     [[ -n "$out" ]] || out="${src%.wine}.wsquashfs"
+    local saves reply reset_saves=false
+    saves="${SAVES_DIR}/$(basename "$out" .wsquashfs)"
+    # Fichier existant : question au terminal (26/09, demande utilisateur),
+    # refus sans terminal (script, frontend) comme avant.
     if [[ -e "$out" ]]; then
-        echo "Erreur : ${out} existe déjà (jamais écrasé)"
-        return 1
+        if [[ ! -t 0 ]]; then
+            echo "Erreur : ${out} existe déjà (jamais écrasé sans confirmation au terminal)"
+            return 1
+        fi
+        read -r -p "${out} existe déjà ($(du -h "$out" | cut -f1), $(date -r "$out" '+%d/%m %H:%M')). L'écraser ? [o/N] " reply
+        [[ "${reply,,}" == o* || "${reply,,}" == y* ]] || { echo "Abandon."; return 1; }
+        # Sauvegardes de l'ancienne image : appliquées par-dessus le nouveau
+        # prefix (overlay), elles peuvent en masquer une partie.
+        if [[ -d "$saves" ]]; then
+            read -r -p "Réinitialiser aussi ses sauvegardes (${saves}) ? [o/N] " reply
+            [[ "${reply,,}" == o* || "${reply,,}" == y* ]] && reset_saves=true
+        fi
     fi
     [[ -f "${src}/autorun.cmd" ]] || echo "Attention : pas d'autorun.cmd dans ${src} (lançable seulement via --exec)"
+    # Construit à côté puis remplace : l'ancienne image reste intacte si
+    # mksquashfs échoue ou est interrompu.
+    local tmp="${out}.part"
+    rm -f "$tmp"
     echo "Création de ${out} depuis ${src}..."
-    mksquashfs "$src" "$out" -comp zstd -noappend -quiet && echo "✓ ${out} ($(du -h "$out" | cut -f1))"
+    if ! mksquashfs "$src" "$tmp" -comp zstd -noappend -quiet; then
+        rm -f "$tmp"
+        echo "Erreur : échec de mksquashfs, ${out} inchangé"
+        return 1
+    fi
+    mv -f "$tmp" "$out"
+    if [[ "$reset_saves" == true ]]; then
+        rm -rf -- "${saves:?}" && echo "Sauvegardes réinitialisées : ${saves}"
+    fi
+    echo "✓ ${out} ($(du -h "$out" | cut -f1))"
 }
 
 MOUNT_MODE=""

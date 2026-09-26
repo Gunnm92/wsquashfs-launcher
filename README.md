@@ -114,6 +114,9 @@ wsquashfs-launcher --umount game.wsquashfs     # ou --umount seul : tous les jeu
 
 # Créer un .wsquashfs (zstd) à partir d'un prefix Wine
 wsquashfs-launcher --pack MonJeu.wine          # → MonJeu.wsquashfs
+# Image existante : confirmation au terminal (et proposition de réinitialiser
+# ses sauvegardes), refus sans terminal. L'ancienne image n'est remplacée
+# qu'une fois la nouvelle construite.
 
 # Supprimer les copies de travail (libère de l'espace)
 wsquashfs-launcher --clean
