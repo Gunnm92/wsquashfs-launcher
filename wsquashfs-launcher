@@ -364,12 +364,28 @@ sync_wine_stubs() {
         fi
         [[ -d "$src_dir" ]] || continue
         mkdir -p "${target_root}/drive_c/windows/${dst_subdir}" 2>/dev/null || true
-        for src in "$src_dir"/*.dll; do
+        # DLL internes de Wine déjà dans le prefix (signature "Wine builtin
+        # DLL" / "Wine placeholder DLL") : remplacées par celles du runner,
+        # comme batocera-wine (27/09). Les prefixes Batocera en embarquent de
+        # vraies copies d'un autre Wine (Virtua Tennis 4 : 619 dans
+        # system32) — gardées, winex11.drv/explorer.exe d'un autre Wine avec
+        # les bibliothèques de celui-ci donnaient "no driver could be
+        # loaded". Seules les DLL natives (sans signature : d3dx9_42,
+        # mscoree... de Microsoft) sont conservées.
+        local -A wine_owned=()
+        local f
+        while IFS= read -r f; do
+            wine_owned["$(basename "$f")"]=1
+        done < <(grep -laE "Wine (builtin|placeholder) DLL" \
+                     "${WINEPOINT}/drive_c/windows/${dst_subdir}"/* 2>/dev/null)
+        # Tous les types de modules (.dll, .exe, .drv, .sys...) : explorer.exe
+        # et winex11.drv n'étaient jamais reliés avec *.dll seul.
+        for src in "$src_dir"/*; do
             [[ -f "$src" ]] || continue
             name=$(basename "$src")
             local overlay_dst="${WINEPOINT}/drive_c/windows/${dst_subdir}/${name}"
             # -f renvoie false pour les symlinks cassés → on ne saute pas, on remplace
-            [[ -f "$overlay_dst" ]] && continue
+            [[ -f "$overlay_dst" && -z "${wine_owned[$name]:-}" ]] && continue
             dst="${target_root}/drive_c/windows/${dst_subdir}/${name}"
             # Lien symbolique, pas copie (25/09) : comme batocera-wine, qui relie
             # les DLL du runner dans le prefix. La copie recopiait ~1 660 DLL
@@ -516,9 +532,16 @@ update_prefix_if_needed() {
     # l'overlay est rechargé ensuite (de toute façon effacées au lancement
     # suivant). Vu le 25/09 : 8 jeux, +4,5 Go après un premier lancement.
     # Prefix packagé seulement : pour un jeu seul, ce system32 EST le prefix.
+    # Rechargement obligatoire (27/09) : sans lui, fuse-overlayfs gardait
+    # sa vue d'avant l'effacement, sync_wine_stubs croyait absentes les DLL
+    # natives du jeu (d3dx9_42, mscoree...) et les remplaçait par des liens
+    # Wine — "d3dx9_42.dll not found", jeu arcade qui ne se lance pas au
+    # premier lancement après chaque changement de Wine (Virtua Tennis 4,
+    # 27/09 : échec avec la mise à jour, lancement normal sans).
     if [[ "$MOUNT_MODE" == "overlay" && "$PACKAGED_PREFIX" == "1" ]]; then
         rm -rf "${SAVEPOINT}/drive_c/windows/system32" \
                "${SAVEPOINT}/drive_c/windows/syswow64" 2>/dev/null || true
+        reload_overlay "après mise à jour du préfixe"
     fi
 }
 
@@ -679,6 +702,20 @@ hidraw_usable() {
         fi
     done
     [[ "$found" == 1 ]] || { HIDRAW_REASON="aucune manette Sony"; return 1; }
+}
+
+# Remonte l'overlay : fuse-overlayfs garde sa vue des dossiers en mémoire
+# et ne voit pas ce qui est modifié directement dans l'upperdir (SAVEPOINT).
+reload_overlay() {
+    do_umount "$WINEPOINT"
+    rm -rf "$WORKPOINT" && mkdir -p "$WORKPOINT"
+    chown_to_target "$WORKPOINT"
+    if ! fuse-overlayfs \
+           -o "lowerdir=${SQUASHFSPOINT},upperdir=${SAVEPOINT},workdir=${WORKPOINT},${OVERLAY_SQUASH_OPT}${ALLOW_OTHER_OPT:+,$ALLOW_OTHER_OPT}" \
+           "$WINEPOINT" 2>/dev/null; then
+        echo "Erreur : échec du rechargement de l'overlay ${1}"
+        exit 1
+    fi
 }
 
 # umu-run (paquet umu-launcher), sinon celui installé par Heroic : lance un
@@ -1462,15 +1499,7 @@ elif [[ "$MOUNT_MODE" == "overlay" ]]; then
     # partie à root une fois l'overlay rechargé.
     chown_to_target "$SAVEPOINT"
     # Recharger l'overlay pour que fuse-overlayfs voie les nouveaux fichiers dans l'upperdir
-    do_umount "$WINEPOINT"
-    rm -rf "$WORKPOINT" && mkdir -p "$WORKPOINT"
-    chown_to_target "$WORKPOINT"
-    if ! fuse-overlayfs \
-           -o "lowerdir=${SQUASHFSPOINT},upperdir=${SAVEPOINT},workdir=${WORKPOINT},${OVERLAY_SQUASH_OPT}${ALLOW_OTHER_OPT:+,$ALLOW_OTHER_OPT}" \
-           "$WINEPOINT" 2>/dev/null; then
-        echo "Erreur : échec du rechargement de l'overlay après sync DLLs"
-        exit 1
-    fi
+    reload_overlay "après sync DLLs"
 else
     sync_wine_stubs "$WINE_BINARY"
     [[ "$DXVK" == "1" ]] && install_dxvk
