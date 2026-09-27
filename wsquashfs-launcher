@@ -6,23 +6,13 @@
 #   overlay  squashfuse + fuse-overlayfs — sauvegardes isolées dans SAVES_DIR
 #   copy     squashfuse ou unsquashfs   — copie de travail persistante (cache)
 
-# Relance automatique en root (26/09) : monter l'image (squashfuse,
-# fuse-overlayfs, allow_other) demande root, comme sous Batocera — ES passe
-# par "sudo -E". Lancé à la main sans sudo, le lanceur ne pouvait pas créer
-# ses points de montage (créés en root par les lancements précédents) et
-# retombait sur une extraction complète (38 Go pour Pinball FX). sudo -E
-# garde HOME/DISPLAY et positionne SUDO_USER (utilisateur du jeu). Seulement
-# si sudo marche sans mot de passe ; --pack et --help restent sans root (le
-# .wsquashfs produit doit appartenir à l'utilisateur).
-case "${1:-}" in
-    --pack|-h|--help) ;;
-    *)
-        if [[ "${EUID}" -ne 0 ]] && command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
-            exec sudo -E "$(readlink -f "$0")" "$@"
-        fi
-        ;;
-esac
-
+# Aucun privilège requis (27/09) : squashfuse et fuse-overlayfs montent
+# l'image en utilisateur (FUSE, comme les AppImage), et les fichiers
+# root:root restrictifs des paquets Batocera se lisent tels quels —
+# vérifié sur Blade Strangers (game/RConfig.exe, root rw-r-----). Lancé en
+# utilisateur, tout (montages, Wine, sauvegardes) lui appartient ; plus de
+# fichiers root dans les sauvegardes ni de dossiers de cache inaccessibles.
+# Toujours utilisable sous sudo (frontends qui l'élèvent) : voir ci-dessous.
 # Lancé par un simple "sudo" (sans -E) : sudo remet HOME=/root et efface
 # XDG_RUNTIME_DIR/WAYLAND_DISPLAY — montages et sauvegardes partaient dans
 # /root, inaccessible à Wine relancé en utilisateur ("wine: cannot use
@@ -52,8 +42,8 @@ SAVES_DIR="${WSQUASHFS_SAVES_DIR:-$HOME/.local/share/wsquashfs/saves}"
 CACHE_DIR="${WSQUASHFS_CACHE:-$HOME/.cache/wsquashfs}"
 
 # Certains paquets Batocera sont root:root avec des permissions parfois
-# restrictives — un frontend (Pegasus...) élève donc souvent ce script via
-# `sudo -E` pour pouvoir les monter/extraire. Mais root n'a pas le cookie
+# restrictives — un frontend peut donc élever ce script via `sudo -E`
+# (inutile : voir en tête de fichier, mais toujours pris en charge). Mais root n'a pas le cookie
 # X11 (~/.Xauthority) de la session graphique de l'utilisateur réel :
 # lancer Wine tel quel donne "Authorization required, but no authorization
 # protocol specified" puis "no driver could be loaded" — confirmé en direct.

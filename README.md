@@ -91,6 +91,12 @@ wsquashfs-launcher --help
 
 ## Utilisation
 
+Aucun privilège requis : l'image est montée en utilisateur par FUSE
+(squashfuse + fuse-overlayfs, comme une AppImage), y compris les paquets
+Batocera dont les fichiers appartiennent à root. Les sauvegardes et le
+prefix appartiennent à l'utilisateur qui lance le jeu. `sudo` reste pris en
+charge (ancien usage de certains frontends), mais n'apporte rien.
+
 ```bash
 # Lancer un jeu (commande de l'autorun.cmd)
 wsquashfs-launcher /path/to/game.wsquashfs
