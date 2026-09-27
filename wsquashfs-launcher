@@ -235,12 +235,24 @@ unmount_all_stale() {
     # $HOME lui-même est un lien, comme /home/arcade -> /config sur
     # SteamBox) : un grep -F sur CACHE_DIR brut ne matcherait alors jamais
     # rien, confirmé en direct (fonction silencieusement no-op).
+    # Seulement les montages ABANDONNÉS (27/09) : démonter aussi ceux d'un
+    # jeu en cours coupait ce jeu dès qu'un autre était lancé — plusieurs
+    # parties interrompues ainsi le 27/09 (Kingdom Hearts III, DBZ).
     local real_cache_dir m
     real_cache_dir=$(readlink -f "$CACHE_DIR" 2>/dev/null || echo "$CACHE_DIR")
     mount 2>/dev/null | grep -F "${real_cache_dir}/wine/" | sed -E 's/^[^ ]+ on (.*) type .*/\1/' \
-        | while IFS= read -r m; do do_umount "$m"; done
+        | while IFS= read -r m; do game_in_use "$(basename "$m")" || do_umount "$m"; done
     mount 2>/dev/null | grep -F "${real_cache_dir}/mnt/" | sed -E 's/^[^ ]+ on (.*) type .*/\1/' \
-        | while IFS= read -r m; do do_umount "$m"; done
+        | while IFS= read -r m; do game_in_use "$(basename "$m")" || do_umount "$m"; done
+}
+
+# Vrai si un processus tourne dans le prefix de ce jeu : WINEPREFIX (Wine,
+# Proton, umu et son runtime l'héritent tous) pointe vers
+# .../wsquashfs/wine/<jeu>, avec ou sans / final (Proton : .../<jeu>/pfx/).
+game_in_use() {
+    local re
+    re=$(printf '%s' "$1" | sed 's/[][\.*^$(){}?+|/]/\\&/g')
+    grep -qszE "^WINEPREFIX=.*/wsquashfs/wine/${re}(/.*)?$" /proc/[0-9]*/environ 2>/dev/null
 }
 
 # Auto-correction de propriété sur le cache : un dossier créé par un autre
@@ -999,6 +1011,13 @@ echo "Fichier       : $WSQUASHFS_FILE"
 # MONTAGE
 # ============================================================
 
+# Ce jeu tourne déjà : ne pas le relancer par-dessus (même montage, même
+# prefix — la partie en cours serait coupée).
+if game_in_use "$GAME_NAME"; then
+    echo "Erreur : ${GAME_NAME} est déjà lancé"
+    exit 1
+fi
+
 # Nettoyer d'éventuels montages orphelins (celui de ce jeu ET ceux d'autres
 # jeux abandonnés en cours de route, voir unmount_all_stale)
 unmount_all_stale
@@ -1206,13 +1225,29 @@ WINE_BINARY=$(find_wine_binary)
 # Prefix créé par Proton (Heroic, Steam) : lancé sous Proton, la même
 # version si elle est installée, plutôt que sous le Wine par défaut.
 PREFIX_PROTON=$(prefix_proton_version)
-if [[ -n "$PREFIX_PROTON" ]]; then
+# Image sans prefix (jeu seul : jeu PC récent emballé à la main, 27/09) :
+# prefix créé par Proton via umu — GE-Proton, sinon proton-cachyos —, les
+# prefixes Batocera (jeux arcade) restant sous wine-tkg. Un prefix Wine
+# déjà créé dans les sauvegardes est gardé tel quel : Proton ne sait pas
+# le convertir (DRAGON BALL Sparking! ZERO, 27/09 : copy_pfx en échec,
+# puis manettes perdues sous Wine avec les DLL de Proton). WINE=tkg dans
+# l'autorun.cmd pour garder wine-tkg.
+AUTO_PROTON=0
+if [[ -z "$PREFIX_PROTON" && "$PACKAGED_PREFIX" == "0" && -z "${RUNNER}${WINE_VERSION}${WINE_OVERRIDE}" ]]; then
+    if [[ -f "${WINEPOINT}/system.reg" ]]; then
+        echo "Attention : prefix Wine déjà créé dans les sauvegardes, gardé sous $(basename "$(dirname "$(dirname "$WINE_BINARY")")") — supprimer ${SAVEPOINT} (sauvegardes du jeu comprises) pour passer sous Proton"
+    else
+        AUTO_PROTON=1
+    fi
+fi
+if [[ -n "$PREFIX_PROTON" || "$AUTO_PROTON" == "1" ]]; then
     if found=$(find_proton_runner "$PREFIX_PROTON") && [[ -n "$found" ]]; then
         WINE_BINARY="${found}/files/bin/wine"
-        proton_runner_is "$found" "$PREFIX_PROTON" || \
+        [[ -z "$PREFIX_PROTON" ]] || proton_runner_is "$found" "$PREFIX_PROTON" || \
             echo "Attention : prefix créé par ${PREFIX_PROTON} (absent), utilisation de $(basename "$found")"
     else
-        echo "Attention : prefix créé par ${PREFIX_PROTON}, aucun Proton installé, utilisation de $(basename "$WINE_BINARY")"
+        echo "Attention : prefix Proton${PREFIX_PROTON:+ (${PREFIX_PROTON})} voulu, aucun Proton installé, utilisation de $(basename "$WINE_BINARY")"
+        AUTO_PROTON=0
     fi
 fi
 
@@ -1263,11 +1298,21 @@ fi
 # prefix, DXVK, VKD3D et NVAPI.
 UMU_RUN=""
 PROTON_DIR=""
-if [[ -n "${PREFIX_PROTON}${PROTON_VERSION}" && -z "${RUNNER}${WINE_VERSION}${WINE_OVERRIDE}" ]]; then
-    if [[ "$WINE_BINARY" == */files/bin/wine ]] && [[ -x "${WINE_BINARY%/files/bin/wine}/proton" ]] \
+if [[ -n "${PREFIX_PROTON}${PROTON_VERSION}" || "$AUTO_PROTON" == "1" ]] \
+   && [[ -z "${RUNNER}${WINE_VERSION}${WINE_OVERRIDE}" ]]; then
+    if [[ -z "$PREFIX_PROTON" && -f "${WINEPOINT}/system.reg" ]]; then
+        # PROTON= sur un prefix Wine existant : conversion impossible (voir
+        # AUTO_PROTON), on reste sur le Wine par défaut.
+        WINE_BINARY=$(find_wine_binary)
+        echo "Attention : PROTON=${PROTON_VERSION} ignoré, prefix Wine existant — Proton ne sait pas le convertir"
+    elif [[ "$WINE_BINARY" == */files/bin/wine ]] && [[ -x "${WINE_BINARY%/files/bin/wine}/proton" ]] \
        && UMU_RUN=$(find_umu_run); then
         PROTON_DIR="${WINE_BINARY%/files/bin/wine}"
         export GAMEID="${GAMEID:-umu-default}" PROTONPATH="$PROTON_DIR"
+    elif [[ "$AUTO_PROTON" == "1" ]]; then
+        UMU_RUN=""
+        WINE_BINARY=$(find_wine_binary)
+        echo "Attention : umu-run absent, prefix créé par $(basename "$(dirname "$(dirname "$WINE_BINARY")")") au lieu de Proton"
     else
         UMU_RUN=""
         echo "Attention : prefix Proton lancé directement par Wine (umu-run ou Proton absent) — rendu ou stabilité possiblement dégradés"
@@ -1367,7 +1412,10 @@ export WINEDEBUG="${WINEDEBUG:-fixme-all}"
 
 # Jeu seul dont le prefix a perdu son system32 (effacé à chaque lancement
 # par les versions du 25-26/09, voir PACKAGED_PREFIX) : réparé par wineboot.
-if [[ -f "${WINEPOINT}/system.reg" ]] && [[ -d "${WINEPOINT}/drive_c" ]] \
+if [[ -n "$UMU_RUN" ]]; then
+    # Prefix créé ou mis à jour par Proton lui-même au lancement.
+    [[ -f "${WINEPOINT}/system.reg" ]] || echo "Initialisation du préfixe par Proton au premier lancement..."
+elif [[ -f "${WINEPOINT}/system.reg" ]] && [[ -d "${WINEPOINT}/drive_c" ]] \
    && { [[ "$PACKAGED_PREFIX" == "1" ]] || [[ -f "${WINEPOINT}/drive_c/windows/system32/explorer.exe" ]]; }; then
     echo "✓ Préfixe Wine détecté (structure Batocera)"
 else

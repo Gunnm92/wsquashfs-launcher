@@ -213,6 +213,11 @@ Sans `WINE`, `PROTON`, `RUNNER` ni `--wine` :
   DXVK, VKD3D et NVAPI. Sans umu, le Wine du Proton est lancé directement (avec
   un avertissement : certains jeux ne s'affichent pas). `WSQUASHFS_UMU=0` pour
   forcer ce mode.
+- **Image sans prefix** (jeu PC emballé seul) : prefix créé par Proton via umu
+  (GE-Proton le plus récent, sinon proton-cachyos). `WINE=tkg` dans l'autorun.cmd
+  pour garder wine-tkg. Un prefix Wine déjà présent dans les sauvegardes est
+  gardé sous Wine (Proton ne sait pas le convertir) : supprimer le dossier de
+  sauvegardes du jeu pour passer sous Proton.
 - **Autres prefixes** (jeux arcade Batocera) : wine-tkg, puis wine-ge/lutris, puis
   wine-proton, puis le Wine du système — les chemins Batocera (`/usr/wine/...`)
   sont pris en charge.
