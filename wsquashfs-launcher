@@ -910,9 +910,8 @@ Variables d'environnement :
   WSQUASHFS_SAVES_DIR        Sauvegardes overlay (défaut: ~/.local/share/wsquashfs/saves)
   WSQUASHFS_CACHE            Cache de travail   (défaut: ~/.cache/wsquashfs)
   WSQUASHFS_DXVK=0           Désactive DXVK (défaut : activé)
-  WSQUASHFS_HIDRAW=0|1       Manettes Sony par hidraw : 0 = toujours XInput (Xbox),
-                             1 = forcé ; défaut : hidraw si une manette Sony est
-                             lisible (aussi par jeu via HIDRAW= dans autorun.cmd)
+  WSQUASHFS_HIDRAW=1         Manettes Sony par hidraw si lisibles (défaut : XInput,
+                             comme Batocera ; aussi par jeu via HIDRAW=1 dans autorun.cmd)
   WSQUASHFS_VIRTUAL_DESKTOP  Bureau virtuel Wine pour tous les jeux (ex: 1920x1080),
                              aussi par jeu via VIRTUAL_DESKTOP= dans autorun.cmd
 HELP
@@ -1519,29 +1518,25 @@ if [[ -d "${WINEPOINT}/regs" ]]; then
     done < <(find "${WINEPOINT}/regs" -maxdepth 1 -type f -iname "*.reg" -print0)
 fi
 
-# Manettes par hidraw dans Wine — option enable_hidraw de batocera-wine.
-# Historique : activée le 24/09, désactivée le 25/09 (défaut Batocera) —
-# la DualSense de Sunshine décalait les touches de SNK Heroines et Sonic &
-# All-Stars Racing. Depuis le 27/09, ACTIVÉE dès qu'une manette Sony est
-# lisible par hidraw (vraie DualSense/DualShock vue par le jeu : icônes,
-# vibrations, gâchettes), repli XInput (manette Xbox via SDL) sinon.
-# Priorité : WSQUASHFS_HIDRAW (environnement) > HIDRAW= de l'autorun.cmd
-# (par jeu, ex. HIDRAW=0 pour un jeu aux touches décalées) > détection.
-# La valeur est imposée dans les deux sens à chaque lancement.
-HIDRAW_WANT="${WSQUASHFS_HIDRAW:-$(getWine_var "$WINEPOINT" "HIDRAW" "")}"
-if [[ "$HIDRAW_WANT" == "1" ]]; then
-    HIDRAW_DISABLE=0 HIDRAW_REASON="forcé"
-elif [[ "$HIDRAW_WANT" == "0" ]]; then
-    HIDRAW_DISABLE=1 HIDRAW_REASON="forcé"
-elif hidraw_usable; then
-    HIDRAW_DISABLE=0 HIDRAW_REASON="détectée"
-else
-    HIDRAW_DISABLE=1
-fi
-if [[ "$HIDRAW_DISABLE" == "0" ]]; then
-    HIDRAW_MSG="DualSense/DualShock en direct (hidraw, ${HIDRAW_REASON})"
-else
-    HIDRAW_MSG="XInput, manette Xbox (${HIDRAW_REASON})"
+# Manettes par hidraw dans Wine — option enable_hidraw de batocera-wine,
+# DÉSACTIVÉE par défaut comme chez Batocera : XInput (manette Xbox via
+# SDL), que tous les jeux comprennent. Essayée par défaut deux fois, deux
+# fois abandonnée avec la DualSense virtuelle de Sunshine (uhid, seule
+# lisible par hidraw) : touches décalées (24/09 : SNK Heroines, Sonic &
+# All-Stars Racing), puis aucune commande reçue par un jeu XInput seul
+# (27/09 : DRAGON BALL Sparking! ZERO, icônes Xbox même en hidraw).
+# HIDRAW=1 dans l'autorun.cmd (par jeu, emballé avec lui) ou
+# WSQUASHFS_HIDRAW=1 (prioritaire) pour un jeu qui gère la DualSense
+# lui-même — seulement si la manette Sony est lisible (hidraw_usable),
+# sinon repli XInput : le jeu n'aurait aucune manette. La valeur est
+# imposée dans les deux sens à chaque lancement.
+HIDRAW_DISABLE=1 HIDRAW_MSG="XInput, manette Xbox"
+if [[ "${WSQUASHFS_HIDRAW:-$(getWine_var "$WINEPOINT" "HIDRAW" "0")}" == "1" ]]; then
+    if hidraw_usable; then
+        HIDRAW_DISABLE=0 HIDRAW_MSG="DualSense/DualShock en direct (hidraw)"
+    else
+        HIDRAW_MSG="XInput, manette Xbox (hidraw demandé : ${HIDRAW_REASON})"
+    fi
 fi
 if ! grep -qs "\"DisableHidraw\"=dword:0000000${HIDRAW_DISABLE}" "${WINEPOINT}/system.reg"; then
     as_wine_user env DISPLAY="${DISPLAY:-}" WINEPREFIX="$WINEPOINT" WINEARCH="$WINE_ARCH" \
