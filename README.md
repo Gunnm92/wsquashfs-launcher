@@ -138,8 +138,9 @@ wsquashfs-launcher --help
 export WSQUASHFS_SAVES_DIR="$HOME/mes-sauvegardes"   # sauvegardes overlay
 export WSQUASHFS_CACHE="$HOME/.cache/mes-jeux"        # cache de travail
 export WSQUASHFS_DXVK=0        # désactive DXVK (activé par défaut)
-export WSQUASHFS_HIDRAW=1      # manettes Wine par hidraw ("DisableHidraw"=0,
-                               # désactivé par défaut, comme Batocera)
+export WSQUASHFS_HIDRAW=0      # manettes Sony toujours en XInput (Xbox) ; par
+                               # défaut hidraw ("DisableHidraw"=0) dès qu'une
+                               # DualSense/DualShock est lisible, XInput sinon
 export WSQUASHFS_D7VK=0        # désactive d7vk (DirectDraw → Vulkan, activé par
                                # défaut si /usr/share/d7vk/x32/ddraw.dll existe)
 export WSQUASHFS_BATOCERA_SAVES=/chemin/saves/<système>   # dossier des
@@ -196,6 +197,7 @@ Le fichier `autorun.cmd` à la racine du `.wsquashfs` configure l'exécution. Ut
 | `ARCH` | Architecture Wine (défaut : `win64`) | `win32`, `win64` |
 | `LANG` | Langue (`LC_ALL`) | `fr_FR.UTF-8` |
 | `ENV` | Variables d'environnement additionnelles | `VAR1=val1 VAR2=val2` |
+| `HIDRAW` | Manettes Sony par hidraw pour ce jeu : `0` = XInput (Xbox), `1` = forcé ; défaut : détection | `0` |
 
 ### Choix du runner Wine
 
