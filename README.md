@@ -206,6 +206,11 @@ Sans `WINE`, `PROTON`, `RUNNER` ni `--wine` :
   `~/.local/share/Steam/compatibilitytools.d`, `~/.steam/root/compatibilitytools.d`
   et `/usr/share/steam/compatibilitytools.d`. Si elle est absente : le GE-Proton le
   plus récent, puis proton-cachyos, puis n'importe quel Proton installé.
+  Le jeu est lancé **via umu** (`umu-run` du paquet umu-launcher, à défaut celui
+  de Heroic) avec le script `proton`, comme Heroic : Proton gère alors le prefix,
+  DXVK, VKD3D et NVAPI. Sans umu, le Wine du Proton est lancé directement (avec
+  un avertissement : certains jeux ne s'affichent pas). `WSQUASHFS_UMU=0` pour
+  forcer ce mode.
 - **Autres prefixes** (jeux arcade Batocera) : wine-tkg, puis wine-ge/lutris, puis
   wine-proton, puis le Wine du système — les chemins Batocera (`/usr/wine/...`)
   sont pris en charge.

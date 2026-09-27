@@ -650,6 +650,19 @@ proton_runner_dirs() {
     done 2>/dev/null | awk '!seen[$0]++'
 }
 
+# umu-run (paquet umu-launcher), sinon celui installé par Heroic : lance un
+# prefix Proton comme Heroic ou Steam, par le script proton complet dans le
+# runtime Steam. WSQUASHFS_UMU=0 pour lancer Wine directement.
+find_umu_run() {
+    local u
+    [[ "${WSQUASHFS_UMU:-1}" == "0" ]] && return 1
+    for u in "$(command -v umu-run 2>/dev/null)" \
+             "$HOME/.config/heroic/tools/runtimes/umu/umu_run.py"; do
+        [[ -n "$u" && -x "$u" ]] && { echo "$u"; return 0; }
+    done
+    return 1
+}
+
 # Version de Proton qui a créé le prefix monté (1re ligne de config_info,
 # écrite par le script proton : "GE-Proton11-5"), vide pour un prefix
 # Batocera ou Wine simple.
@@ -987,13 +1000,23 @@ rm -f "${SAVEPOINT}"/reg*.tmp 2>/dev/null || true
 # lancement) ? Lu directement dans l'image (< 0,1 s, même sur 38 Go).
 PACKAGED_PREFIX=0
 unsquashfs -cat "$WSQUASHFS_FILE" system.reg >/dev/null 2>&1 && PACKAGED_PREFIX=1
+# Prefix créé par Proton (config_info) : ses DLL sont gérées par Proton.
+PROTON_PREFIX=0
+unsquashfs -cat "$WSQUASHFS_FILE" config_info >/dev/null 2>&1 && PROTON_PREFIX=1
 
 # Prefix packagé : system32/syswow64 de l'upperdir ne contiennent que des
 # liens/copies régénérés à chaque lancement (sync_wine_stubs, DXVK…) et
 # d'anciennes entrées redirect/opaque — effacés. JAMAIS pour un jeu seul
 # (26/09) : son system32 EST le prefix (explorer.exe, services.exe…) ; effacé,
 # Wine échouait au lancement suivant ("failed to start explorer c0000034").
-if [[ "$PACKAGED_PREFIX" == "1" ]]; then
+# Prefix Proton (27/09) : Proton y met à jour ses propres DLL (copies) quand
+# sa version change — effacées, le prefix garderait la nouvelle version
+# annoncée avec les DLL de l'ancienne. Seuls les liens posés par ce lanceur
+# (sync_wine_stubs, DXVK... d'un lancement sans umu) sont retirés.
+if [[ "$PACKAGED_PREFIX" == "1" && "$PROTON_PREFIX" == "1" ]]; then
+    find "${SAVEPOINT}/drive_c/windows/system32" "${SAVEPOINT}/drive_c/windows/syswow64" \
+        -maxdepth 1 -type l -delete 2>/dev/null || true
+elif [[ "$PACKAGED_PREFIX" == "1" ]]; then
     rm -rf "${SAVEPOINT}/drive_c/windows/system32" \
            "${SAVEPOINT}/drive_c/windows/syswow64" 2>/dev/null || true
 fi
@@ -1212,6 +1235,30 @@ if [[ -n "$WINE_OVERRIDE" ]]; then
     fi
 fi
 
+# Prefix Proton (ou PROTON= dans l'autorun.cmd) sans runner Wine imposé :
+# lancé via umu avec le script proton, comme Heroic (27/09, Kingdom Hearts
+# III : écran noir puis LowLevelFatalError avec le seul binaire wine de
+# GE-Proton, menu du jeu atteint via umu). Proton gère alors lui-même le
+# prefix, DXVK, VKD3D et NVAPI.
+UMU_RUN=""
+PROTON_DIR=""
+if [[ -n "${PREFIX_PROTON}${PROTON_VERSION}" && -z "${RUNNER}${WINE_VERSION}${WINE_OVERRIDE}" ]]; then
+    if [[ "$WINE_BINARY" == */files/bin/wine ]] && [[ -x "${WINE_BINARY%/files/bin/wine}/proton" ]] \
+       && UMU_RUN=$(find_umu_run); then
+        PROTON_DIR="${WINE_BINARY%/files/bin/wine}"
+        export GAMEID="${GAMEID:-umu-default}" PROTONPATH="$PROTON_DIR"
+    else
+        UMU_RUN=""
+        echo "Attention : prefix Proton lancé directement par Wine (umu-run ou Proton absent) — rendu ou stabilité possiblement dégradés"
+    fi
+fi
+
+# Outils Wine lancés sur le prefix (regedit, reg) : par umu pour un prefix
+# Proton — lancés par un autre wine, ils mettraient le prefix à jour pour
+# ce wine, hors de Proton.
+WINE_TOOL=("$WINE_BINARY")
+[[ -n "$UMU_RUN" ]] && WINE_TOOL=("$UMU_RUN")
+
 # ============================================================
 # CONFIGURATION WINE
 # ============================================================
@@ -1265,6 +1312,10 @@ fi
 [[ "$ESYNC" == "1" ]] && export WINEESYNC=1
 [[ "$FSYNC" == "1" ]] && export WINEFSYNC=1
 
+if [[ -n "$UMU_RUN" ]]; then
+    # Proton pose lui-même DXVK/VKD3D/NVAPI dans le prefix.
+    DXVK=0 VKD3D=0 D7VK=0
+else
 if [[ "$D7VK" == "1" ]]; then
     export WINEDLLOVERRIDES="${WINEDLLOVERRIDES:+${WINEDLLOVERRIDES};}ddraw=n,b"
 fi
@@ -1277,6 +1328,7 @@ else
 fi
 if [[ "$VKD3D" == "1" ]]; then
     export WINEDLLOVERRIDES="${WINEDLLOVERRIDES:+${WINEDLLOVERRIDES};}d3d12,d3d12core=n,b"
+fi
 fi
 
 # Borne arcade : Wine ne doit rien ouvrir côté Linux. winebrowser ouvrait
@@ -1321,7 +1373,7 @@ else
     fi
 fi
 
-update_prefix_if_needed
+[[ -z "$UMU_RUN" ]] && update_prefix_if_needed
 fix_userdata_links
 
 # Synchroniser les DLLs Wine manquantes (compatibilité prefixes Batocera / Wine 10+).
@@ -1329,7 +1381,9 @@ fix_userdata_links
 # les répertoires root-owned (system32, syswow64) par fuse-overlayfs non-privilégié.
 # Après écriture dans l'upperdir, on recharge l'overlay pour que les DLLs soient visibles
 # (fuse-overlayfs cache les listdir au montage et ne voit pas les fichiers ajoutés après).
-if [[ "$MOUNT_MODE" == "overlay" ]]; then
+if [[ -n "$UMU_RUN" ]]; then
+    :   # prefix géré par Proton
+elif [[ "$MOUNT_MODE" == "overlay" ]]; then
     sync_wine_stubs "$WINE_BINARY" "$SAVEPOINT"
     [[ "$DXVK" == "1" ]] && install_dxvk "$SAVEPOINT"
     [[ "$VKD3D" == "1" ]] && install_vkd3d "$SAVEPOINT"
@@ -1362,7 +1416,8 @@ if [[ -d "${WINEPOINT}/regs" ]]; then
         echo "  → $(basename "$regfile")"
         as_wine_user env DISPLAY="${DISPLAY:-}" WINEPREFIX="$WINEPOINT" WINEARCH="$WINE_ARCH" \
             WINEDEBUG="$WINEDEBUG" WINEDLLOVERRIDES="$WINEDLLOVERRIDES" \
-            "$WINE_BINARY" regedit "//?/unix${regfile}" 2>/dev/null || true
+            GAMEID="${GAMEID:-}" PROTONPATH="${PROTONPATH:-}" \
+            "${WINE_TOOL[@]}" regedit "//?/unix${regfile}" 2>/dev/null || true
     done < <(find "${WINEPOINT}/regs" -maxdepth 1 -type f -iname "*.reg" -print0)
 fi
 
@@ -1382,7 +1437,8 @@ if ! grep -qs "\"DisableHidraw\"=dword:0000000${HIDRAW_DISABLE}" "${WINEPOINT}/s
     echo "Manettes      : winebus DisableHidraw=${HIDRAW_DISABLE}"
     as_wine_user env DISPLAY="${DISPLAY:-}" WINEPREFIX="$WINEPOINT" WINEARCH="$WINE_ARCH" \
         WINEDEBUG="$WINEDEBUG" WINEDLLOVERRIDES="$WINEDLLOVERRIDES" \
-        "$WINE_BINARY" reg add 'HKLM\System\CurrentControlSet\Services\winebus' \
+        GAMEID="${GAMEID:-}" PROTONPATH="${PROTONPATH:-}" \
+        "${WINE_TOOL[@]}" reg add 'HKLM\System\CurrentControlSet\Services\winebus' \
         /v DisableHidraw /t REG_DWORD /d "${HIDRAW_DISABLE}" /f >/dev/null 2>&1 || true
     as_wine_user env WINEPREFIX="$WINEPOINT" wineserver -k 2>/dev/null || true
     as_wine_user env WINEPREFIX="$WINEPOINT" wineserver -w 2>/dev/null || true
@@ -1397,7 +1453,11 @@ apply_savedir "$SAVEDIR" "$SAVEFILES"
 echo "-----------------------------------------"
 echo "Exécutable    : $EXEC_PATH"
 echo "Arguments     : ${EXEC_ARGS:-<aucun>}"
-echo "Wine          : $WINE_BINARY ($WINE_ARCH)"
+if [[ -n "$UMU_RUN" ]]; then
+    echo "Proton        : $(basename "$PROTON_DIR") via umu ($PROTON_DIR)"
+else
+    echo "Wine          : $WINE_BINARY ($WINE_ARCH)"
+fi
 echo "Préfixe       : $WINEPREFIX"
 [[ -n "$WINEUSERNAME" ]] && echo "Utilisateur   : $WINEUSERNAME (adapté au prefix)"
 if [[ "$RUN_AS_ROOT" == true ]]; then
@@ -1443,6 +1503,9 @@ elif [[ "$EXT" == "bat" ]]; then
 else
     RUN_CMD=("$WINE_BINARY" "$EXEC_PATH" "${EXEC_ARGS_ARR[@]}")
 fi
+# umu-run prend la place de wine : même ligne de commande (exécutable Unix,
+# explorer, cmd /c...), transmise au script proton.
+[[ -n "$UMU_RUN" ]] && RUN_CMD[0]="$UMU_RUN"
 
 if [[ "$RUN_AS_ROOT" == true ]] && [[ -n "$TARGET_USER" ]]; then
     # SDL_* : winebus (manettes Wine) lit les manettes via SDL — sans ces
@@ -1464,6 +1527,8 @@ if [[ "$RUN_AS_ROOT" == true ]] && [[ -n "$TARGET_USER" ]]; then
         WINEUSERNAME="${WINEUSERNAME:-}" \
         LC_ALL="${LC_ALL:-}" \
         WINEDEBUG="${WINEDEBUG:-}" \
+        GAMEID="${GAMEID:-}" \
+        PROTONPATH="${PROTONPATH:-}" \
         SDL_GAMECONTROLLERCONFIG="${SDL_GAMECONTROLLERCONFIG:-}" \
         SDL_JOYSTICK_DISABLE_UDEV="${SDL_JOYSTICK_DISABLE_UDEV:-}" \
         "${RUN_CMD[@]}"
