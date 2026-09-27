@@ -109,8 +109,9 @@ wsquashfs-launcher --exec game.wsquashfs drive_c/teknoparrot/TeknoParrotUi.exe
 wsquashfs-launcher --exec game.wsquashfs winecfg
 
 # Forcer un runner Wine/Proton (nom ou partie du nom d'un runner installé
-# dans /opt, /usr/wine ou ~/.local/share/wsquashfs/wine, chemin d'un
-# binaire wine, ou "system") — combinable avec --exec
+# dans /opt, /usr/wine, ~/.local/share/wsquashfs/wine ou un dossier Proton
+# de Heroic/Steam, chemin d'un binaire wine, ou "system") — combinable
+# avec --exec
 wsquashfs-launcher --wine GE-Proton9 game.wsquashfs
 
 # Monter le jeu et le laisser monté pour le modifier à la main (les
@@ -190,11 +191,24 @@ Le fichier `autorun.cmd` à la racine du `.wsquashfs` configure l'exécution. Ut
 | Variable | Description | Exemples |
 |---|---|---|
 | `WINE` | Version Wine dans `/opt/wine-<VERSION>/bin/wine` | `9.0`, `lutris-7.2` |
-| `PROTON` | Proton via `/usr/local/bin/proton` | `GE-Proton8-25` |
+| `PROTON` | Runner Proton de Heroic/Steam (nom du dossier ou version), à défaut le GE-Proton le plus récent | `GE-Proton8-25` |
 | `RUNNER` | Chemin absolu vers un runner personnalisé | `/opt/wine-custom/bin/wine` |
 | `ARCH` | Architecture Wine (défaut : `win64`) | `win32`, `win64` |
 | `LANG` | Langue (`LC_ALL`) | `fr_FR.UTF-8` |
 | `ENV` | Variables d'environnement additionnelles | `VAR1=val1 VAR2=val2` |
+
+### Choix du runner Wine
+
+Sans `WINE`, `PROTON`, `RUNNER` ni `--wine` :
+
+- **Prefix créé par Proton** (Heroic, Steam : fichier `config_info` à la racine) :
+  la même version de Proton, cherchée dans `~/.config/heroic/tools/proton`,
+  `~/.local/share/Steam/compatibilitytools.d`, `~/.steam/root/compatibilitytools.d`
+  et `/usr/share/steam/compatibilitytools.d`. Si elle est absente : le GE-Proton le
+  plus récent, puis proton-cachyos, puis n'importe quel Proton installé.
+- **Autres prefixes** (jeux arcade Batocera) : wine-tkg, puis wine-ge/lutris, puis
+  wine-proton, puis le Wine du système — les chemins Batocera (`/usr/wine/...`)
+  sont pris en charge.
 
 ### Sauvegardes (comme Batocera)
 

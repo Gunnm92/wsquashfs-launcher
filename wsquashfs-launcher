@@ -95,31 +95,30 @@ detect_env() {
     fi
 }
 
-# Retourne le chemin du binaire Wine le plus compatible avec les prefixes Batocera.
-# Priorité : wine-ge → wine-proton → wine-tkg → wine système.
-# wine-ge (GloriousEggroll) offre une meilleure compatibilité jeux que wine-tkg.
+# Wine par défaut (prefix non Proton : jeux arcade Batocera). Priorité
+# (27/09) : wine-tkg → wine-ge/lutris → wine-proton → wine système. wine-tkg
+# d'abord, comme le runner par défaut de Batocera : meilleure compatibilité
+# avec les jeux arcade. Les prefixes créés par Proton (Heroic, Steam) ont
+# leur propre choix de runner, voir find_proton_runner.
 find_wine_binary() {
-    local candidates=(
-        "/usr/wine/ge-custom/bin/wine"
-        "/usr/wine/wine-proton/bin/wine"
-        "/usr/wine/wine-tkg/bin/wine"
-    )
-    # Chemins installés par notre installeur ou manuellement — wine-ge en premier
-    for d in \
-        "$HOME/.local/share/wsquashfs/wine" \
-        "/opt"; do
+    local candidates=("/usr/wine/wine-tkg/bin/wine") d w
+    # Chemins installés par notre installeur ou manuellement
+    for d in "$HOME/.local/share/wsquashfs/wine" "/opt"; do
         [[ -d "$d" ]] || continue
-        # wine-ge en priorité (installé par notre script sous wine-ge-*, ou variantes)
-        while IFS= read -r -d '' w; do
-            [[ -x "$w" ]] && candidates+=("$w")
-        done < <(find "$d" -maxdepth 3 -name "wine" -path "*/bin/wine" -print0 2>/dev/null \
-            | grep -z -iE '/(wine-ge|lutris-|wine-lutris)')
-        # wine-tkg ensuite
         while IFS= read -r -d '' w; do
             [[ -x "$w" ]] && candidates+=("$w")
         done < <(find "$d" -maxdepth 3 -name "wine" -path "*/bin/wine" -print0 2>/dev/null \
             | grep -z -i 'tkg')
     done
+    candidates+=("/usr/wine/ge-custom/bin/wine")
+    for d in "$HOME/.local/share/wsquashfs/wine" "/opt"; do
+        [[ -d "$d" ]] || continue
+        while IFS= read -r -d '' w; do
+            [[ -x "$w" ]] && candidates+=("$w")
+        done < <(find "$d" -maxdepth 3 -name "wine" -path "*/bin/wine" -print0 2>/dev/null \
+            | grep -z -iE '/(wine-ge|lutris-|wine-lutris)')
+    done
+    candidates+=("/usr/wine/wine-proton/bin/wine")
     for c in "${candidates[@]}"; do
         [[ -x "$c" ]] || continue
         # Vérifier que l'interpréteur ELF est présent (wine est souvent un stub 32-bit
@@ -632,6 +631,58 @@ list_wine_runners() {
     for d in /opt/* /usr/wine/* "$HOME/.local/share/wsquashfs/wine"/*; do
         [[ -x "${d}/bin/wine" || -x "${d}/files/bin/wine" ]] && echo "$d"
     done 2>/dev/null
+    proton_runner_dirs
+}
+
+# Runners Proton installés hors de nos dossiers (27/09) : Heroic, Steam et
+# paquets proton-cachyos/umu. Leur Wine est dans files/bin/wine. Un même
+# dossier vu deux fois (~/.steam/root → ~/.local/share/Steam) n'est listé
+# qu'une fois.
+proton_runner_dirs() {
+    local base d
+    for base in "$HOME/.config/heroic/tools/proton" \
+                "$HOME/.local/share/Steam/compatibilitytools.d" \
+                "$HOME/.steam/root/compatibilitytools.d" \
+                /usr/share/steam/compatibilitytools.d; do
+        for d in "$base"/*; do
+            [[ -x "${d}/files/bin/wine" ]] && readlink -f "$d"
+        done
+    done 2>/dev/null | awk '!seen[$0]++'
+}
+
+# Version de Proton qui a créé le prefix monté (1re ligne de config_info,
+# écrite par le script proton : "GE-Proton11-5"), vide pour un prefix
+# Batocera ou Wine simple.
+prefix_proton_version() {
+    [[ -f "${WINEPOINT}/config_info" ]] || return 0
+    head -1 "${WINEPOINT}/config_info" 2>/dev/null | tr -d '\r'
+}
+
+# Vrai si le dossier de runner Proton correspond à cette version : même nom
+# de dossier ou même version (fichier version : "<horodatage> GE-Proton11-5",
+# Heroic installe sous GE-Proton-latest).
+proton_runner_is() {
+    [[ "$(basename "$1")" == "$2" ]] || \
+    [[ "$(awk '{print $NF}' "${1}/version" 2>/dev/null)" == "$2" ]]
+}
+
+# Dossier du runner Proton pour une version voulue, sinon le plus récent des
+# GE-Proton puis proton-cachyos, puis n'importe quel Proton : un prefix
+# Proton ne doit pas retomber sur le Wine système (27/09, Kingdom Hearts III,
+# prefix Heroic GE-Proton11-5 : écran noir sous wine-staging).
+find_proton_runner() {
+    local want="$1" d dirs
+    dirs=$(proton_runner_dirs)
+    [[ -n "$dirs" ]] || return 1
+    if [[ -n "$want" ]]; then
+        while IFS= read -r d; do
+            proton_runner_is "$d" "$want" && { echo "$d"; return 0; }
+        done <<< "$dirs"
+    fi
+    d=$(grep -i '/GE-Proton' <<< "$dirs" | sort -V | tail -1)
+    [[ -n "$d" ]] || d=$(grep -i 'proton-cachyos' <<< "$dirs" | sort -V | tail -1)
+    [[ -n "$d" ]] || d=$(head -1 <<< "$dirs")
+    echo "$d"
 }
 
 # --wine <version|chemin> : binaire wine explicite, dossier de runner, nom
@@ -1108,6 +1159,19 @@ EXT="${EXT,,}"
 # Base : Wine le plus compatible avec les prefixes Batocera
 WINE_BINARY=$(find_wine_binary)
 
+# Prefix créé par Proton (Heroic, Steam) : lancé sous Proton, la même
+# version si elle est installée, plutôt que sous le Wine par défaut.
+PREFIX_PROTON=$(prefix_proton_version)
+if [[ -n "$PREFIX_PROTON" ]]; then
+    if found=$(find_proton_runner "$PREFIX_PROTON") && [[ -n "$found" ]]; then
+        WINE_BINARY="${found}/files/bin/wine"
+        proton_runner_is "$found" "$PREFIX_PROTON" || \
+            echo "Attention : prefix créé par ${PREFIX_PROTON} (absent), utilisation de $(basename "$found")"
+    else
+        echo "Attention : prefix créé par ${PREFIX_PROTON}, aucun Proton installé, utilisation de $(basename "$WINE_BINARY")"
+    fi
+fi
+
 # Surcharge via autorun.cmd
 if [[ -n "$RUNNER" ]]; then
     if [[ -x "$RUNNER" ]]; then
@@ -1116,7 +1180,9 @@ if [[ -n "$RUNNER" ]]; then
         echo "Attention : runner ${RUNNER} non exécutable, utilisation de $(basename "$WINE_BINARY")"
     fi
 elif [[ -n "$PROTON_VERSION" ]]; then
-    if [[ -x "/usr/local/bin/proton" ]]; then
+    if found=$(find_proton_runner "$PROTON_VERSION") && [[ -n "$found" ]]; then
+        WINE_BINARY="${found}/files/bin/wine"
+    elif [[ -x "/usr/local/bin/proton" ]]; then
         WINE_BINARY="/usr/local/bin/proton"
     else
         echo "Attention : Proton absent, utilisation de $(basename "$WINE_BINARY")"
