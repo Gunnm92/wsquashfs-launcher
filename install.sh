@@ -121,6 +121,16 @@ check_dependencies() {
             || print_info "fuse-overlayfs indisponible — mode copy utilisé (fonctionnel)"
     fi
 
+    # --- MangoHud (optionnel, MANGOHUD=1) ---
+    if _dpkg_installed mangohud; then
+        print_success "mangohud déjà installé"
+    else
+        print_info "Installation de mangohud (facultatif)..."
+        _apt_install mangohud mangohud:i386 \
+            || _apt_install mangohud \
+            || print_info "mangohud indisponible — overlay MangoHud non disponible"
+    fi
+
     echo ""
     if [[ "$has_error" == true ]]; then
         return 1

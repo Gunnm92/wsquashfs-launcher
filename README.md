@@ -53,7 +53,8 @@ curl -fsSL https://raw.githubusercontent.com/Gunnm92/wsquashfs-launcher/main/ins
 ```
 
 `install.sh` (Debian/Ubuntu) installe `wine32:i386`, `libxkbcommon0:i386`,
-`squashfuse`, `squashfs-tools`, `xz-utils` et `fuse-overlayfs`, puis propose :
+`squashfuse`, `squashfs-tools`, `xz-utils`, `fuse-overlayfs` et, si disponibles,
+`mangohud` / `mangohud:i386` (facultatifs), puis propose :
 
 - **wine-tkg / wine-ge** (jeux arcade Batocera) dans `~/.local/share/wsquashfs/wine`
 - **umu-run** (zipapp umu-launcher, lien dans le dossier d'installation) et
@@ -76,6 +77,8 @@ sudo pacman -S squashfuse wine
 sudo pacman -S umu-launcher        # + GE-Proton ou proton-cachyos
 # wine-tkg (Kron4ek, non WoW64) : jeux 32 bits
 sudo pacman -S lib32-libxkbcommon
+# MangoHud (facultatif, MANGOHUD=1)
+sudo pacman -S mangohud lib32-mangohud
 ```
 
 ### Installation du script
@@ -151,6 +154,8 @@ wsquashfs-launcher --help
 export WSQUASHFS_SAVES_DIR="$HOME/mes-sauvegardes"   # sauvegardes overlay
 export WSQUASHFS_CACHE="$HOME/.cache/mes-jeux"        # cache de travail
 export WSQUASHFS_DXVK=0        # désactive DXVK (activé par défaut)
+export MANGOHUD=1              # affiche MangoHud (FPS, charge CPU/GPU) : jeux
+                               # Vulkan, DXVK ou VKD3D ; 32 bits : lib32-mangohud
 export WSQUASHFS_HIDRAW=1      # manettes Sony par hidraw ("DisableHidraw"=0)
                                # si lisibles ; défaut XInput (Xbox), comme
                                # Batocera — jeux gérant la DualSense seulement
