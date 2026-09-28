@@ -26,6 +26,10 @@ print_error()   { echo -e "${RED}✗${NC} $1"; }
 print_info()    { echo -e "${YELLOW}→${NC} $1"; }
 
 WINE_INSTALL_DIR="$HOME/.local/share/wsquashfs/wine"
+UMU_INSTALL_DIR="$HOME/.local/share/wsquashfs/umu"
+# Emplacement standard des Proton de Steam : le lanceur, Steam et Heroic
+# les y trouvent tous.
+PROTON_INSTALL_DIR="$HOME/.local/share/Steam/compatibilitytools.d"
 
 check_root() {
     if [[ $EUID -eq 0 ]]; then
@@ -78,6 +82,18 @@ check_dependencies() {
         $SUDO dpkg --add-architecture i386 && $SUDO apt-get update \
             && _apt_install wine32:i386 \
             || has_error=true
+    fi
+
+    # --- libxkbcommon0:i386 ---
+    # wine-tkg (Kron4ek, non WoW64) fait tourner les jeux 32 bits avec de
+    # vraies bibliothèques 32 bits : sans elle, winewayland.drv 32 bits ne se
+    # charge pas et un jeu 32 bits n'a aucun pilote d'affichage ("no driver
+    # could be loaded", constaté sur Virtua Tennis 4).
+    if _dpkg_installed libxkbcommon0:i386; then
+        print_success "libxkbcommon0:i386 déjà installé"
+    else
+        print_info "Installation de libxkbcommon0:i386..."
+        _apt_install libxkbcommon0:i386 || has_error=true
     fi
 
     # --- squashfuse + squashfs-tools ---
@@ -288,6 +304,116 @@ check_wine_batocera() {
     esac
 }
 
+# --- Proton + umu ---------------------------------------------------------
+# Les .wsquashfs sans prefix (jeux PC emballés seuls) et les prefixes créés
+# par Proton (Heroic, Steam) sont lancés via umu-run et un Proton, comme
+# Heroic : le Wine de Proton lancé seul donnait écran noir ou plantage.
+
+# Un Proton déjà installé là où le lanceur le cherche ?
+find_proton() {
+    local base d
+    for base in "$PROTON_INSTALL_DIR" "$HOME/.steam/root/compatibilitytools.d" \
+                "$HOME/.config/heroic/tools/proton" /usr/share/steam/compatibilitytools.d; do
+        for d in "$base"/*; do
+            [[ -x "${d}/proton" && -x "${d}/files/bin/wine" ]] && { echo "$d"; return 0; }
+        done
+    done 2>/dev/null
+    return 1
+}
+
+download_umu() {
+    local tag
+    if ! command -v python3 &>/dev/null; then
+        print_error "python3 requis pour umu-run"
+        return 1
+    fi
+    print_info "Recherche de la dernière version d'umu-launcher..."
+    tag=$(_github_latest_tag "Open-Wine-Components/umu-launcher" "1.4.4")
+    local filename="umu-launcher-${tag}-zipapp.tar"
+    local url="https://github.com/Open-Wine-Components/umu-launcher/releases/download/${tag}/${filename}"
+    local tmp; tmp=$(mktemp -d)
+    print_info "Téléchargement de $filename (< 1 Mo)..."
+    if _download "$url" "${tmp}/${filename}" && tar -xf "${tmp}/${filename}" -C "$tmp" \
+       && [[ -f "${tmp}/umu/umu-run" ]]; then
+        rm -rf "$UMU_INSTALL_DIR" && mkdir -p "$UMU_INSTALL_DIR" "$INSTALL_DIR"
+        cp "${tmp}/umu/umu-run" "${UMU_INSTALL_DIR}/umu-run"
+        chmod +x "${UMU_INSTALL_DIR}/umu-run"
+        ln -sfn "${UMU_INSTALL_DIR}/umu-run" "${INSTALL_DIR}/umu-run"
+        rm -rf "$tmp"
+        print_success "umu-run ${tag} installé : ${INSTALL_DIR}/umu-run"
+        return 0
+    fi
+    print_error "Téléchargement ou extraction échoué : $url"
+    rm -rf "$tmp"
+    return 1
+}
+
+download_ge_proton() {
+    local tag
+    print_info "Recherche de la dernière version de GE-Proton..."
+    tag=$(_github_latest_tag "GloriousEggroll/proton-ge-custom" "GE-Proton11-7")
+    local base="https://github.com/GloriousEggroll/proton-ge-custom/releases/download/${tag}"
+    local tmp; tmp=$(mktemp -d)
+    print_info "Téléchargement de ${tag}-x86_64.tar.gz (~540 Mo)..."
+    if ! _download "${base}/${tag}-x86_64.tar.gz" "${tmp}/${tag}-x86_64.tar.gz" \
+       || ! _download "${base}/${tag}-x86_64.sha512sum" "${tmp}/${tag}-x86_64.sha512sum"; then
+        print_error "Téléchargement échoué : ${base}"
+        rm -rf "$tmp"; return 1
+    fi
+    if ! (cd "$tmp" && sha512sum -c --quiet "${tag}-x86_64.sha512sum" >/dev/null 2>&1); then
+        print_error "Somme de contrôle SHA-512 incorrecte, archive ignorée"
+        rm -rf "$tmp"; return 1
+    fi
+    # Extraction en local (/tmp) puis copie, comme _extract_wine : pas de
+    # liens durs sur les systèmes de fichiers réseau (shfs Unraid, CIFS…).
+    # Dossier racine lu dans l'archive (GE-Proton11-7-x86_64/, pas le tag seul).
+    local top_dir
+    top_dir=$(tar -tzf "${tmp}/${tag}-x86_64.tar.gz" 2>/dev/null | head -1 | cut -d/ -f1) || true
+    if [[ -n "$top_dir" ]] && tar -xzf "${tmp}/${tag}-x86_64.tar.gz" -C "$tmp" \
+       && [[ -x "${tmp}/${top_dir}/proton" ]]; then
+        mkdir -p "$PROTON_INSTALL_DIR"
+        rm -rf "${PROTON_INSTALL_DIR:?}/${top_dir}"
+        if cp -rp "${tmp}/${top_dir}" "${PROTON_INSTALL_DIR}/${top_dir}"; then
+            rm -rf "$tmp"
+            print_success "${tag} installé : ${PROTON_INSTALL_DIR}/${top_dir}"
+            return 0
+        fi
+    fi
+    print_error "Extraction échouée (archive corrompue ?)"
+    rm -rf "$tmp"
+    return 1
+}
+
+check_proton() {
+    echo ""
+    print_info "Vérification de Proton et umu (jeux PC récents)..."
+    echo ""
+
+    local found_umu found_proton
+    found_umu=$(command -v umu-run 2>/dev/null) || true
+    found_proton=$(find_proton) || true
+    [[ -n "$found_umu"    ]] && print_success "umu-run trouvé : $found_umu"
+    [[ -n "$found_proton" ]] && print_success "Proton trouvé  : $found_proton"
+    [[ -n "$found_umu" && -n "$found_proton" ]] && return 0
+
+    echo ""
+    print_info "Les .wsquashfs sans prefix (jeux PC emballés seuls) et les prefixes"
+    echo "    créés par Proton (Heroic, Steam) se lancent via umu et Proton."
+    echo "    Inutile pour les seuls jeux arcade Batocera (wine-tkg)."
+    echo ""
+    [[ -z "$found_umu"    ]] && echo "    umu-run   manquant  (umu-launcher, < 1 Mo)"
+    [[ -z "$found_proton" ]] && echo "    Proton    manquant  (GE-Proton, ~540 Mo)"
+    echo ""
+    read -p "  Installer ce qui manque ? [o/N] " -n 1 -r
+    echo ""
+    if [[ $REPLY =~ ^[OoYy]$ ]]; then
+        [[ -z "$found_umu"    ]] && { download_umu       || true; }
+        [[ -z "$found_proton" ]] && { download_ge_proton || true; }
+    else
+        print_info "Sans umu, ces jeux seront lancés par le Wine de Proton seul (écran noir possible)"
+    fi
+}
+
 install_script() {
     echo ""
     print_info "Installation de wsquashfs-launcher..."
@@ -402,6 +528,12 @@ uninstall() {
         print_info "Script non trouvé dans $INSTALL_DIR"
     fi
 
+    if [[ -L "$INSTALL_DIR/umu-run" && "$(readlink "$INSTALL_DIR/umu-run")" == "$UMU_INSTALL_DIR/umu-run" ]]; then
+        rm -f "$INSTALL_DIR/umu-run"
+        rm -rf "$UMU_INSTALL_DIR"
+        print_success "umu-run supprimé"
+    fi
+
     if [[ -f "$HOME/.local/share/mime/packages/wsquashfs.xml" ]]; then
         rm "$HOME/.local/share/mime/packages/wsquashfs.xml"
         command -v update-mime-database &>/dev/null && \
@@ -413,6 +545,9 @@ uninstall() {
     print_info "Les sauvegardes et caches sont conservés :"
     echo "  ~/.local/share/wsquashfs/saves/"
     echo "  ~/.cache/wsquashfs/"
+    echo ""
+    echo "GE-Proton est conservé (partagé avec Steam et Heroic) :"
+    echo "  $PROTON_INSTALL_DIR/"
     echo ""
     echo "Pour tout supprimer :"
     echo "  rm -rf ~/.local/share/wsquashfs/ ~/.cache/wsquashfs/"
@@ -426,6 +561,7 @@ main() {
 
     check_dependencies  || exit 1
     check_wine_batocera
+    check_proton
     install_script      || exit 1
     create_mime_type
     check_path

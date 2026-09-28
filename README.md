@@ -52,6 +52,15 @@ curl -fsSL https://raw.githubusercontent.com/Gunnm92/wsquashfs-launcher/main/wsq
 curl -fsSL https://raw.githubusercontent.com/Gunnm92/wsquashfs-launcher/main/install.sh | bash
 ```
 
+`install.sh` (Debian/Ubuntu) installe `wine32:i386`, `libxkbcommon0:i386`,
+`squashfuse`, `squashfs-tools`, `xz-utils` et `fuse-overlayfs`, puis propose :
+
+- **wine-tkg / wine-ge** (jeux arcade Batocera) dans `~/.local/share/wsquashfs/wine`
+- **umu-run** (zipapp umu-launcher, lien dans le dossier d'installation) et
+  **GE-Proton** (empreinte SHA-512 vérifiée) dans
+  `~/.local/share/Steam/compatibilitytools.d` — nécessaires aux jeux PC récents
+  (images sans prefix, prefixes créés par Proton), inutiles pour l'arcade seule.
+
 ### Prérequis
 
 ```bash
@@ -63,6 +72,10 @@ sudo apt install squashfs-tools wine
 
 # Arch Linux
 sudo pacman -S squashfuse wine
+# jeux PC récents (images sans prefix, prefixes Proton) : umu + un Proton
+sudo pacman -S umu-launcher        # + GE-Proton ou proton-cachyos
+# wine-tkg (Kron4ek, non WoW64) : jeux 32 bits
+sudo pacman -S lib32-libxkbcommon
 ```
 
 ### Installation du script
