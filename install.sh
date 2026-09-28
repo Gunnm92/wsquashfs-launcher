@@ -121,7 +121,7 @@ check_dependencies() {
             || print_info "fuse-overlayfs indisponible — mode copy utilisé (fonctionnel)"
     fi
 
-    # --- MangoHud (optionnel, MANGOHUD=1) ---
+    # --- MangoHud (optionnel : mangohud wsquashfs-launcher jeu.wsquashfs) ---
     if _dpkg_installed mangohud; then
         print_success "mangohud déjà installé"
     else

@@ -912,7 +912,8 @@ Variables d'environnement :
   WSQUASHFS_DXVK=0           Désactive DXVK (défaut : activé)
   WSQUASHFS_HIDRAW=1         Manettes Sony par hidraw si lisibles (défaut : XInput,
                              comme Batocera ; aussi par jeu via HIDRAW=1 dans autorun.cmd)
-  MANGOHUD=1                 Affiche MangoHud (FPS, charge...) — jeux Vulkan/DXVK/VKD3D
+  (MangoHud, gamemode... : outils extérieurs, ex. "mangohud wsquashfs-launcher jeu.wsquashfs" —
+   leurs variables sont transmises au jeu, y compris lancé en root)
   WSQUASHFS_VIRTUAL_DESKTOP  Bureau virtuel Wine pour tous les jeux (ex: 1920x1080),
                              aussi par jeu via VIRTUAL_DESKTOP= dans autorun.cmd
 HELP
