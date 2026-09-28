@@ -837,6 +837,46 @@ pack_prefix() {
     echo "✓ ${out} ($(du -h "$out" | cut -f1))"
 }
 
+# --install <jeu.wsquashfs> [dossier] (29/09) : l'inverse de --pack —
+# extrait l'image dans <dossier>/<Jeu> (défaut : à côté de l'image), pour
+# jouer sans FUSE ; le dossier se lance ensuite directement
+# (wsquashfs-launcher <dossier>/<Jeu>). Part de l'image d'origine : la couche
+# de sauvegardes du .wsquashfs n'est pas reprise, l'image est conservée.
+install_game() {
+    local img="$1" parent="${2:-}" name dest tmp
+    if [[ -z "$img" || ! -f "$img" || "${img##*.}" != "wsquashfs" ]]; then
+        echo "Usage : $0 --install <jeu.wsquashfs> [dossier de destination]"
+        return 1
+    fi
+    command -v unsquashfs &>/dev/null || { echo "Erreur : unsquashfs absent (squashfs-tools)"; return 1; }
+    name=$(basename "$img" .wsquashfs)
+    [[ -n "$parent" ]] || parent=$(dirname "$(realpath "$img")")
+    mkdir -p "$parent" || { echo "Erreur : impossible de créer ${parent}"; return 1; }
+    dest="${parent%/}/${name}"
+    if [[ -e "$dest" ]]; then
+        echo "Erreur : ${dest} existe déjà (jamais écrasé)"
+        return 1
+    fi
+    # Extrait à côté puis renomme : pas de dossier à moitié rempli si
+    # unsquashfs échoue (place insuffisante...) ou est interrompu.
+    tmp="${dest}.part"
+    rm -rf -- "$tmp"
+    echo "Installation de ${name} dans ${dest}..."
+    if ! unsquashfs -no-xattrs -d "$tmp" "$img"; then
+        rm -rf -- "$tmp"
+        echo "Erreur : échec de l'extraction, rien n'a été installé"
+        return 1
+    fi
+    mv -- "$tmp" "$dest"
+    # Lancé en root : le dossier doit appartenir à l'utilisateur qui lancera
+    # Wine, sinon Wine refuse le prefix.
+    if [[ "$RUN_AS_ROOT" == true && -n "$TARGET_USER" ]]; then
+        chown -R "${WINE_UID}:${WINE_GID}" "$dest"
+    fi
+    echo "✓ ${dest} ($(du -sh "$dest" | cut -f1))"
+    echo "  Lancement : $0 \"${dest}\""
+}
+
 MOUNT_MODE=""
 MOUNTED=false
 SQUASHFSPOINT=""
@@ -893,6 +933,12 @@ Usage :
         Démonte un jeu (ou tous les jeux montés).
   wsquashfs-launcher --pack <Jeu.wine> [sortie.wsquashfs]
         Crée un .wsquashfs (zstd) à partir d'un prefix Wine.
+  wsquashfs-launcher --install <jeu.wsquashfs> [dossier]
+        Extrait le jeu dans <dossier>/<Jeu> (défaut : à côté de l'image), pour
+        jouer sans FUSE ; l'image est conservée, ses sauvegardes non reprises.
+  wsquashfs-launcher [--wine <version>] <dossier du jeu>
+        Lance un jeu installé (dossier contenant autorun.cmd) sur place, sans
+        montage : le jeu écrit directement dans son dossier.
   wsquashfs-launcher --clean
         Supprime les copies de travail (cache), les sauvegardes sont gardées.
 
@@ -905,6 +951,7 @@ Options :
 Modes de montage (automatique) :
   overlay   squashfuse + fuse-overlayfs (sauvegardes isolées, idéal)
   copy      squashfuse ou unsquashfs + cache persistant
+  dossier   jeu installé (--install) lancé sur place, sans FUSE
 
 Variables d'environnement :
   WSQUASHFS_SAVES_DIR        Sauvegardes overlay (défaut: ~/.local/share/wsquashfs/saves)
@@ -955,6 +1002,10 @@ while [[ $# -gt 0 ]]; do
             pack_prefix "${2:-}" "${3:-}"
             exit $?
             ;;
+        --install)
+            install_game "${2:-}" "${3:-}"
+            exit $?
+            ;;
         --wine)
             [[ -n "${2:-}" ]] || { echo "Erreur : --wine attend une version ou un chemin"; exit 1; }
             WINE_OVERRIDE="$2"
@@ -994,8 +1045,8 @@ done
 # ============================================================
 
 if [[ -z "$GAME_ARG" ]]; then
-    echo "Erreur : fichier .wsquashfs requis"
-    echo "Usage : $0 <fichier.wsquashfs>  |  $0 --help"
+    echo "Erreur : fichier .wsquashfs ou dossier de jeu requis"
+    echo "Usage : $0 <fichier.wsquashfs | dossier du jeu>  |  $0 --help"
     exit 1
 fi
 
@@ -1004,12 +1055,22 @@ WSQUASHFS_FILE=$(realpath "$GAME_ARG" 2>/dev/null) || {
     exit 1
 }
 
-if [[ "${WSQUASHFS_FILE##*.}" != "wsquashfs" ]]; then
-    echo "Erreur : extension .wsquashfs attendue"
+# Jeu installé (--install) : dossier lancé sur place, sans montage.
+DIR_MODE=0
+if [[ -d "$WSQUASHFS_FILE" ]]; then
+    if [[ ! -f "${WSQUASHFS_FILE}/autorun.cmd" && "$ACTION" != "exec" ]]; then
+        echo "Erreur : pas d'autorun.cmd dans ${WSQUASHFS_FILE}"
+        exit 1
+    fi
+    if [[ "$ACTION" == "mount" ]]; then
+        echo "Erreur : --mount sert aux .wsquashfs ; un dossier installé se modifie directement"
+        exit 1
+    fi
+    DIR_MODE=1
+elif [[ "${WSQUASHFS_FILE##*.}" != "wsquashfs" ]]; then
+    echo "Erreur : extension .wsquashfs attendue (ou dossier de jeu installé)"
     exit 1
-fi
-
-if [[ ! -f "$WSQUASHFS_FILE" ]]; then
+elif [[ ! -f "$WSQUASHFS_FILE" ]]; then
     echo "Erreur : fichier introuvable : $WSQUASHFS_FILE"
     exit 1
 fi
@@ -1019,7 +1080,7 @@ if ! command -v wine &>/dev/null && [[ -z "$(find_wine_binary)" ]]; then
     exit 1
 fi
 
-if ! command -v squashfuse &>/dev/null && ! command -v unsquashfs &>/dev/null; then
+if [[ "$DIR_MODE" == "0" ]] && ! command -v squashfuse &>/dev/null && ! command -v unsquashfs &>/dev/null; then
     echo "Erreur : ni squashfuse ni unsquashfs ne sont disponibles"
     echo "  → apt-get install squashfuse squashfs-tools"
     exit 1
@@ -1049,13 +1110,32 @@ echo "Fichier       : $WSQUASHFS_FILE"
 # MONTAGE
 # ============================================================
 
+if [[ "$DIR_MODE" == "1" ]]; then
+    # Jeu installé : le dossier est lui-même le prefix, rien à monter.
+    WINEPOINT="$WSQUASHFS_FILE"
+    SQUASHFSPOINT="" SAVEPOINT="" WORKPOINT=""
+    if grep -qszE "^WINEPREFIX=$(printf '%s' "$WINEPOINT" | sed 's/[][\.*^$(){}?+|/]/\\&/g')(/.*)?$" /proc/[0-9]*/environ 2>/dev/null; then
+        echo "Erreur : ${GAME_NAME} est déjà lancé"
+        exit 1
+    fi
+    unmount_all_stale
+    PACKAGED_PREFIX=0
+    [[ -f "${WINEPOINT}/system.reg" ]] && PACKAGED_PREFIX=1
+    PROTON_PREFIX=0
+    [[ -f "${WINEPOINT}/config_info" ]] && PROTON_PREFIX=1
+    rm -f "${WINEPOINT}/.wineserver-lock" "${WINEPOINT}"/reg*.tmp 2>/dev/null || true
+    MOUNT_MODE="dir"
+    echo "Mode          : dossier (jeu installé, sans FUSE)"
+fi
+
 # Ce jeu tourne déjà : ne pas le relancer par-dessus (même montage, même
 # prefix — la partie en cours serait coupée).
-if game_in_use "$GAME_NAME"; then
+if [[ "$DIR_MODE" == "0" ]] && game_in_use "$GAME_NAME"; then
     echo "Erreur : ${GAME_NAME} est déjà lancé"
     exit 1
 fi
 
+if [[ "$DIR_MODE" == "0" ]]; then
 # Nettoyer d'éventuels montages orphelins (celui de ce jeu ET ceux d'autres
 # jeux abandonnés en cours de route, voir unmount_all_stale)
 unmount_all_stale
@@ -1135,6 +1215,7 @@ if [[ -z "$MOUNT_MODE" ]]; then
         MOUNTED=true
     fi
 fi
+fi  # DIR_MODE == 0
 
 # --mount : le jeu reste monté (cleanup ne démonte pas), pour le modifier à
 # la main — fichiers de config, sauvegardes, remplacement d'un fichier.
@@ -1273,7 +1354,11 @@ PREFIX_PROTON=$(prefix_proton_version)
 AUTO_PROTON=0
 if [[ -z "$PREFIX_PROTON" && "$PACKAGED_PREFIX" == "0" && -z "${RUNNER}${WINE_VERSION}${WINE_OVERRIDE}" ]]; then
     if [[ -f "${WINEPOINT}/system.reg" ]]; then
-        echo "Attention : prefix Wine déjà créé dans les sauvegardes, gardé sous $(basename "$(dirname "$(dirname "$WINE_BINARY")")") — supprimer ${SAVEPOINT} (sauvegardes du jeu comprises) pour passer sous Proton"
+        if [[ "$DIR_MODE" == "1" ]]; then
+            echo "Attention : prefix Wine déjà créé dans ${WINEPOINT}, gardé sous $(basename "$(dirname "$(dirname "$WINE_BINARY")")") (Proton ne sait pas le convertir)"
+        else
+            echo "Attention : prefix Wine déjà créé dans les sauvegardes, gardé sous $(basename "$(dirname "$(dirname "$WINE_BINARY")")") — supprimer ${SAVEPOINT} (sauvegardes du jeu comprises) pour passer sous Proton"
+        fi
     else
         AUTO_PROTON=1
     fi

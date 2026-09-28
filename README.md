@@ -140,6 +140,16 @@ mangohud wsquashfs-launcher game.wsquashfs
 wsquashfs-launcher --mount game.wsquashfs
 wsquashfs-launcher --umount game.wsquashfs     # ou --umount seul : tous les jeux
 
+# Installer un jeu (l'inverse de --pack) : extrait l'image dans un dossier,
+# pour jouer sans FUSE. Défaut : à côté de l'image (MonJeu.wsquashfs →
+# MonJeu/). L'image est conservée ; ses sauvegardes ne sont pas reprises ;
+# un dossier existant n'est jamais écrasé.
+wsquashfs-launcher --install MonJeu.wsquashfs [dossier]
+# Lancer le jeu installé, sur place (même choix de Wine/Proton, sans
+# montage : le jeu écrit directement dans son dossier) — hors
+# EmulationStation, qui n'affiche que les .wsquashfs
+wsquashfs-launcher /chemin/MonJeu
+
 # Créer un .wsquashfs (zstd) à partir d'un prefix Wine
 wsquashfs-launcher --pack MonJeu.wine          # → MonJeu.wsquashfs
 # Image existante : confirmation au terminal (et proposition de réinitialiser
