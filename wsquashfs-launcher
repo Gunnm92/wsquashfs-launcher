@@ -201,6 +201,22 @@ unquote() {
     echo "$v"
 }
 
+# Version du jeu packagé : GAME_VERSION= de l'autorun.cmd (29/09). Batocera
+# ne lit que les clés qu'il connaît (grep "^CLE=" dans batocera-wine), une
+# clé en plus y est ignorée — l'image reste compatible. Lue dans l'image
+# même (unsquashfs -cat, sans montage : une modification de l'autorun.cmd
+# restée dans les sauvegardes ne compte pas) ou dans un dossier installé.
+game_version() {
+    local v
+    if [[ -d "$1" ]]; then
+        v=$(grep -m1 '^GAME_VERSION=' "${1}/autorun.cmd" 2>/dev/null)
+    else
+        v=$(unsquashfs -cat "$1" autorun.cmd 2>/dev/null | grep -m1 '^GAME_VERSION=')
+    fi
+    v="${v#GAME_VERSION=}"
+    unquote "${v%$'\r'}"
+}
+
 do_umount() {
     fusermount -u "$1" 2>/dev/null || fusermount3 -u "$1" 2>/dev/null || umount "$1" 2>/dev/null || true
 }
@@ -835,6 +851,53 @@ pack_prefix() {
         rm -rf -- "${saves:?}" && echo "Sauvegardes réinitialisées : ${saves}"
     fi
     echo "✓ ${out} ($(du -h "$out" | cut -f1))"
+    local version
+    version=$(game_version "$src")
+    if [[ -n "$version" ]]; then
+        echo "  Version : ${version}"
+    elif [[ -f "${src}/autorun.cmd" ]]; then
+        echo "  Version non renseignée (GAME_VERSION=... dans l'autorun.cmd, voir --info)"
+    fi
+}
+
+# --info <jeu.wsquashfs | dossier> (29/09) : version et type du jeu, lus
+# dans l'image sans la monter.
+show_info() {
+    local src="$1" autorun type version proton
+    if [[ -z "$src" || ! -e "$src" ]]; then
+        echo "Usage : $0 --info <jeu.wsquashfs | dossier du jeu>"
+        return 1
+    fi
+    src=$(realpath "$src")
+    if [[ -d "$src" ]]; then
+        autorun=$(cat "${src}/autorun.cmd" 2>/dev/null)
+        [[ -f "${src}/system.reg" ]] && type=prefix
+        proton=$(head -1 "${src}/config_info" 2>/dev/null)
+    else
+        command -v unsquashfs &>/dev/null || { echo "Erreur : unsquashfs absent (squashfs-tools)"; return 1; }
+        autorun=$(unsquashfs -cat "$src" autorun.cmd 2>/dev/null)
+        unsquashfs -cat "$src" system.reg >/dev/null 2>&1 && type=prefix
+        proton=$(unsquashfs -cat "$src" config_info 2>/dev/null | head -1)
+    fi
+    proton="${proton%$'\r'}"
+    version=$(game_version "$src")
+    if [[ -n "$proton" ]]; then
+        type="prefix Proton (${proton})"
+    elif [[ "$type" == prefix ]]; then
+        type="prefix Wine (Batocera)"
+    else
+        type="jeu seul (prefix créé au premier lancement)"
+    fi
+    echo "Jeu           : $(basename "$src" .wsquashfs)"
+    [[ -n "$version" ]] || version="non renseignée (GAME_VERSION= dans l'autorun.cmd)"
+    echo "Version       : ${version}"
+    echo "Type          : ${type}"
+    if [[ -n "$autorun" ]]; then
+        echo "Commande      : $(grep -m1 '^CMD=' <<< "$autorun" | sed 's/^CMD=//' | tr -d '\r')"
+    else
+        echo "Commande      : aucun autorun.cmd"
+    fi
+    echo "Taille        : $(du -sh "$src" | cut -f1)"
 }
 
 # --install <jeu.wsquashfs> [dossier] (29/09) : l'inverse de --pack —
@@ -874,6 +937,9 @@ install_game() {
         chown -R "${WINE_UID}:${WINE_GID}" "$dest"
     fi
     echo "✓ ${dest} ($(du -sh "$dest" | cut -f1))"
+    local version
+    version=$(game_version "$dest")
+    [[ -n "$version" ]] && echo "  Version : ${version}"
     echo "  Lancement : $0 \"${dest}\""
 }
 
@@ -936,6 +1002,9 @@ Usage :
   wsquashfs-launcher --install <jeu.wsquashfs> [dossier]
         Extrait le jeu dans <dossier>/<Jeu> (défaut : à côté de l'image), pour
         jouer sans FUSE ; l'image est conservée, ses sauvegardes non reprises.
+  wsquashfs-launcher --info <jeu.wsquashfs | dossier>
+        Affiche la version du jeu (GAME_VERSION= de l'autorun.cmd), son type
+        de prefix, sa commande et sa taille, sans monter l'image.
   wsquashfs-launcher [--wine <version>] <dossier du jeu>
         Lance un jeu installé (dossier contenant autorun.cmd) sur place, sans
         montage : le jeu écrit directement dans son dossier.
@@ -1004,6 +1073,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --install)
             install_game "${2:-}" "${3:-}"
+            exit $?
+            ;;
+        --info)
+            show_info "${2:-}"
             exit $?
             ;;
         --wine)
@@ -1103,6 +1176,8 @@ echo "WSquashFS Launcher"
 echo "========================================="
 echo "Environnement : $ENV_TYPE"
 echo "Jeu           : $GAME_NAME"
+GAME_VERSION=$(game_version "$WSQUASHFS_FILE")
+[[ -n "$GAME_VERSION" ]] && echo "Version       : $GAME_VERSION"
 echo "Fichier       : $WSQUASHFS_FILE"
 [[ "$ACTION" != "run" ]] && echo "Action        : ${ACTION}${EXEC_CMD[0]:+ (${EXEC_CMD[0]})}"
 

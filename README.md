@@ -150,6 +150,10 @@ wsquashfs-launcher --install MonJeu.wsquashfs [dossier]
 # EmulationStation, qui n'affiche que les .wsquashfs
 wsquashfs-launcher /chemin/MonJeu
 
+# Version du jeu (GAME_VERSION= de l'autorun.cmd), type de prefix, commande
+# et taille — lus dans l'image sans la monter (aussi sur un dossier installé)
+wsquashfs-launcher --info MonJeu.wsquashfs
+
 # Créer un .wsquashfs (zstd) à partir d'un prefix Wine
 wsquashfs-launcher --pack MonJeu.wine          # → MonJeu.wsquashfs
 # Image existante : confirmation au terminal (et proposition de réinitialiser
@@ -217,6 +221,7 @@ Le fichier `autorun.cmd` à la racine du `.wsquashfs` configure l'exécution. Ut
 |---|---|---|
 | `CMD` | ✅ | Exécutable et arguments (`game.exe -fullscreen` ou `"My Game.exe" -fullscreen`) |
 | `DIR` | — | Chemin vers le dossier de l'exécutable (relatif à la racine du wsquashfs) |
+| `GAME_VERSION` | — | Version du jeu packagé (`1.04`, `v2.1.0 GOG`…), affichée au lancement, par `--info`, `--pack` et `--install`. Ignorée par Batocera, qui ne lit que les clés qu'il connaît : l'image reste compatible |
 
 ### Variables Wine
 

@@ -18,6 +18,13 @@ REM   CMD=launcher.exe --windowed --language=fr
 CMD=game.exe -fullscreen
 
 
+REM === INFORMATIONS (OPTIONNEL) ===
+
+REM Version du jeu packagé (wsquashfs-launcher --info jeu.wsquashfs)
+REM Ignorée par Batocera : l'image reste compatible
+REM GAME_VERSION=1.04
+
+
 REM === CONFIGURATION WINE/PROTON (OPTIONNEL) ===
 
 REM Version de Wine à utiliser (si disponible)
