@@ -227,7 +227,7 @@ Le fichier `autorun.cmd` à la racine du `.wsquashfs` configure l'exécution. Ut
 
 | Variable | Description | Exemples |
 |---|---|---|
-| `WINE` | Version Wine dans `/opt/wine-<VERSION>/bin/wine` | `9.0`, `lutris-7.2` |
+| `WINE` | Version Wine dans `/opt/wine-<VERSION>/bin/wine`, ou `system` pour le Wine du système | `9.0`, `tkg`, `system` |
 | `PROTON` | Runner Proton de Heroic/Steam (nom du dossier ou version), à défaut le GE-Proton le plus récent | `GE-Proton8-25` |
 | `RUNNER` | Chemin absolu vers un runner personnalisé | `/opt/wine-custom/bin/wine` |
 | `ARCH` | Architecture Wine (défaut : `win64`) | `win32`, `win64` |
@@ -256,7 +256,9 @@ Sans `WINE`, `PROTON`, `RUNNER` ni `--wine` :
   sauvegardes du jeu pour passer sous Proton.
 - **Autres prefixes** (jeux arcade Batocera) : wine-tkg, puis wine-ge/lutris, puis
   wine-proton, puis le Wine du système — les chemins Batocera (`/usr/wine/...`)
-  sont pris en charge.
+  sont pris en charge. Certains jeux 32 bits échouent sous wine-tkg (non WoW64)
+  mais passent avec le Wine WoW64 du système : `WINE=system` dans leur
+  autorun.cmd (GTI Club – Supermini Festa). Batocera ignore cette valeur.
 
 ### Sauvegardes (comme Batocera)
 

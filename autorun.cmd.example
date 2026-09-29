@@ -28,8 +28,10 @@ REM GAME_VERSION=1.04
 REM === CONFIGURATION WINE/PROTON (OPTIONNEL) ===
 
 REM Version de Wine à utiliser (si disponible)
-REM Exemples : 8.0, 9.0, lutris-7.2, etc.
+REM Exemples : 8.0, 9.0, lutris-7.2, tkg, etc.
+REM system = Wine du système (WoW64) : jeux 32 bits qui échouent sous wine-tkg
 REM WINE=9.0
+REM WINE=system
 
 REM Version de Proton à utiliser (Steam Proton)
 REM Exemples : 8.0, 9.0, GE-Proton8-25, etc.

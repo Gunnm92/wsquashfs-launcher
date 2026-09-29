@@ -1466,7 +1466,15 @@ elif [[ -n "$PROTON_VERSION" ]]; then
     fi
 elif [[ -n "$WINE_VERSION" ]]; then
     found=""
+    # WINE=system (30/09) : le Wine du système, comme --wine system. Jeux
+    # 32 bits qui échouent sous wine-tkg (non WoW64) mais passent en WoW64 :
+    # GTI Club (réservation de 450 Mo refusée), Castlevania (mmap du son).
+    # Valeur ignorée par Batocera, qui choisit son runner dans ES.
+    if [[ "${WINE_VERSION,,}" == "system" ]]; then
+        found=$(command -v wine)
+    fi
     for d in "/opt/wine-${WINE_VERSION}" "$HOME/.local/share/wsquashfs/wine/wine-${WINE_VERSION}"; do
+        [[ -n "$found" ]] && break
         [[ -x "${d}/bin/wine" ]] && found="${d}/bin/wine" && break
     done
     if [[ -n "$found" ]]; then
