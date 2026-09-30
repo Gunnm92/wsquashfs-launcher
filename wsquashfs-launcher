@@ -764,9 +764,12 @@ proton_runner_is() {
 }
 
 # Dossier du runner Proton pour une version voulue, sinon le plus récent des
-# GE-Proton puis proton-cachyos, puis n'importe quel Proton : un prefix
-# Proton ne doit pas retomber sur le Wine système (27/09, Kingdom Hearts III,
-# prefix Heroic GE-Proton11-5 : écran noir sous wine-staging).
+# UMU-Proton, puis proton-cachyos, puis GE-Proton, puis n'importe quel
+# Proton : un prefix Proton ne doit pas retomber sur le Wine système (27/09,
+# Kingdom Hearts III, prefix Heroic GE-Proton11-5 : écran noir sous
+# wine-staging). UMU-Proton d'abord (30/09) : Proton de Valve, sa SDL gère la
+# DualSense en XInput avec la vibration (evdev, hid-playstation) ; GE la
+# force en hidraw et sa conversion XInput ne transmet pas la vibration.
 find_proton_runner() {
     local want="$1" d dirs
     dirs=$(proton_runner_dirs)
@@ -776,8 +779,9 @@ find_proton_runner() {
             proton_runner_is "$d" "$want" && { echo "$d"; return 0; }
         done <<< "$dirs"
     fi
-    d=$(grep -i '/GE-Proton' <<< "$dirs" | sort -V | tail -1)
+    d=$(grep -i '/UMU-Proton' <<< "$dirs" | sort -V | tail -1)
     [[ -n "$d" ]] || d=$(grep -i 'proton-cachyos' <<< "$dirs" | sort -V | tail -1)
+    [[ -n "$d" ]] || d=$(grep -i '/GE-Proton' <<< "$dirs" | sort -V | tail -1)
     [[ -n "$d" ]] || d=$(head -1 <<< "$dirs")
     echo "$d"
 }
@@ -1435,7 +1439,8 @@ fi
 FORCED_WINE="${RUNNER}${WINE_VERSION}"
 [[ -n "$WINE_OVERRIDE" && -z "$OVERRIDE_PROTON" ]] && FORCED_WINE+="$WINE_OVERRIDE"
 # Image sans prefix (jeu seul : jeu PC récent emballé à la main, 27/09) :
-# prefix créé par Proton via umu — GE-Proton, sinon proton-cachyos —, les
+# prefix créé par Proton via umu — UMU-Proton, sinon proton-cachyos, sinon
+# GE-Proton —, les
 # prefixes Batocera (jeux arcade) restant sous wine-tkg. Un prefix Wine
 # déjà créé dans les sauvegardes est gardé tel quel : Proton ne sait pas
 # le convertir (DRAGON BALL Sparking! ZERO, 27/09 : copy_pfx en échec,

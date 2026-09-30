@@ -320,11 +320,15 @@ check_wine_batocera() {
 # Heroic : le Wine de Proton lancé seul donnait écran noir ou plantage.
 
 # Un Proton déjà installé là où le lanceur le cherche ?
+# UMU-Proton recherché en particulier (30/09) : le lanceur le préfère aux
+# autres Proton pour les nouveaux prefixes — Proton de Valve, sa SDL gère la
+# DualSense en manette XInput avec la vibration ; GE-Proton la force en
+# hidraw, sans vibration en mode XInput.
 find_proton() {
     local base d
     for base in "$PROTON_INSTALL_DIR" "$HOME/.steam/root/compatibilitytools.d" \
                 "$HOME/.config/heroic/tools/proton" /usr/share/steam/compatibilitytools.d; do
-        for d in "$base"/*; do
+        for d in "$base"/UMU-Proton*; do
             [[ -x "${d}/proton" && -x "${d}/files/bin/wine" ]] && { echo "$d"; return 0; }
         done
     done 2>/dev/null
@@ -358,28 +362,28 @@ download_umu() {
     return 1
 }
 
-download_ge_proton() {
+download_umu_proton() {
     local tag
-    print_info "Recherche de la dernière version de GE-Proton..."
-    tag=$(_github_latest_tag "GloriousEggroll/proton-ge-custom" "GE-Proton11-7")
-    local base="https://github.com/GloriousEggroll/proton-ge-custom/releases/download/${tag}"
+    print_info "Recherche de la dernière version d'UMU-Proton..."
+    tag=$(_github_latest_tag "Open-Wine-Components/umu-proton" "UMU-Proton-10.0-4")
+    local base="https://github.com/Open-Wine-Components/umu-proton/releases/download/${tag}"
     local tmp; tmp=$(mktemp -d)
-    print_info "Téléchargement de ${tag}-x86_64.tar.gz (~540 Mo)..."
-    if ! _download "${base}/${tag}-x86_64.tar.gz" "${tmp}/${tag}-x86_64.tar.gz" \
-       || ! _download "${base}/${tag}-x86_64.sha512sum" "${tmp}/${tag}-x86_64.sha512sum"; then
+    print_info "Téléchargement de ${tag}.tar.gz (~470 Mo)..."
+    if ! _download "${base}/${tag}.tar.gz" "${tmp}/${tag}.tar.gz" \
+       || ! _download "${base}/${tag}.sha512sum" "${tmp}/${tag}.sha512sum"; then
         print_error "Téléchargement échoué : ${base}"
         rm -rf "$tmp"; return 1
     fi
-    if ! (cd "$tmp" && sha512sum -c --quiet "${tag}-x86_64.sha512sum" >/dev/null 2>&1); then
+    if ! (cd "$tmp" && sha512sum -c --quiet "${tag}.sha512sum" >/dev/null 2>&1); then
         print_error "Somme de contrôle SHA-512 incorrecte, archive ignorée"
         rm -rf "$tmp"; return 1
     fi
     # Extraction en local (/tmp) puis copie, comme _extract_wine : pas de
     # liens durs sur les systèmes de fichiers réseau (shfs Unraid, CIFS…).
-    # Dossier racine lu dans l'archive (GE-Proton11-7-x86_64/, pas le tag seul).
+    # Dossier racine lu dans l'archive.
     local top_dir
-    top_dir=$(tar -tzf "${tmp}/${tag}-x86_64.tar.gz" 2>/dev/null | head -1 | cut -d/ -f1) || true
-    if [[ -n "$top_dir" ]] && tar -xzf "${tmp}/${tag}-x86_64.tar.gz" -C "$tmp" \
+    top_dir=$(tar -tzf "${tmp}/${tag}.tar.gz" 2>/dev/null | head -1 | cut -d/ -f1) || true
+    if [[ -n "$top_dir" ]] && tar -xzf "${tmp}/${tag}.tar.gz" -C "$tmp" \
        && [[ -x "${tmp}/${top_dir}/proton" ]]; then
         mkdir -p "$PROTON_INSTALL_DIR"
         rm -rf "${PROTON_INSTALL_DIR:?}/${top_dir}"
@@ -403,7 +407,7 @@ check_proton() {
     found_umu=$(command -v umu-run 2>/dev/null) || true
     found_proton=$(find_proton) || true
     [[ -n "$found_umu"    ]] && print_success "umu-run trouvé : $found_umu"
-    [[ -n "$found_proton" ]] && print_success "Proton trouvé  : $found_proton"
+    [[ -n "$found_proton" ]] && print_success "UMU-Proton trouvé : $found_proton"
     [[ -n "$found_umu" && -n "$found_proton" ]] && return 0
 
     echo ""
@@ -412,13 +416,13 @@ check_proton() {
     echo "    Inutile pour les seuls jeux arcade Batocera (wine-tkg)."
     echo ""
     [[ -z "$found_umu"    ]] && echo "    umu-run   manquant  (umu-launcher, < 1 Mo)"
-    [[ -z "$found_proton" ]] && echo "    Proton    manquant  (GE-Proton, ~540 Mo)"
+    [[ -z "$found_proton" ]] && echo "    UMU-Proton manquant (Proton de Valve, ~470 Mo — gère la vibration DualSense)"
     echo ""
     read -p "  Installer ce qui manque ? [o/N] " -n 1 -r
     echo ""
     if [[ $REPLY =~ ^[OoYy]$ ]]; then
         [[ -z "$found_umu"    ]] && { download_umu       || true; }
-        [[ -z "$found_proton" ]] && { download_ge_proton || true; }
+        [[ -z "$found_proton" ]] && { download_umu_proton || true; }
     else
         print_info "Sans umu, ces jeux seront lancés par le Wine de Proton seul (écran noir possible)"
     fi
@@ -556,7 +560,7 @@ uninstall() {
     echo "  ~/.local/share/wsquashfs/saves/"
     echo "  ~/.cache/wsquashfs/"
     echo ""
-    echo "GE-Proton est conservé (partagé avec Steam et Heroic) :"
+    echo "UMU-Proton est conservé (partagé avec Steam et Heroic) :"
     echo "  $PROTON_INSTALL_DIR/"
     echo ""
     echo "Pour tout supprimer :"
