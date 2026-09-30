@@ -34,6 +34,17 @@ if [[ "${EUID}" -eq 0 && -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" ]]; the
     unset _sudo_home _sudo_runtime
 fi
 
+# Pile limitée à 8 Mo si elle est illimitée (30/09) — cas de Docker sur
+# Unraid. Pile illimitée, Linux passe à la disposition mémoire « legacy »
+# (bibliothèques vers 0x14… au lieu de 0x7f…) : proton-cachyos ne démarrait
+# pas (son émulation seccomp tue les processus enfants chargés sous
+# 0x7001_0000_0000 : wineboot en SIGSYS), et les jeux 32 bits sous wine-tkg
+# n'obtenaient plus leurs grosses réservations (GTI Club, 450 Mo refusés).
+# Limite souple seulement : toujours permise, héritée par Wine et Proton.
+if [[ "$(ulimit -s)" == "unlimited" ]]; then
+    ulimit -S -s 8192 2>/dev/null || true
+fi
+
 # ============================================================
 # CONFIGURATION
 # ============================================================
@@ -764,14 +775,13 @@ proton_runner_is() {
 }
 
 # Dossier du runner Proton pour une version voulue, sinon le plus récent des
-# UMU-Proton, puis GE-Proton, puis proton-cachyos, puis n'importe quel
+# proton-cachyos, puis UMU-Proton, puis GE-Proton, puis n'importe quel
 # Proton : un prefix Proton ne doit pas retomber sur le Wine système (27/09,
 # Kingdom Hearts III, prefix Heroic GE-Proton11-5 : écran noir sous
-# wine-staging). UMU-Proton d'abord (30/09) : Proton de Valve, sa SDL gère la
-# DualSense en XInput avec la vibration (evdev, hid-playstation) ; GE la
-# force en hidraw et sa conversion XInput ne transmet pas la vibration.
-# proton-cachyos en dernier (30/09) : son émulation des appels système
-# (seccomp) échoue sous SteamBox, wineboot ne démarre pas.
+# wine-staging). proton-cachyos puis UMU-Proton d'abord (30/09) : leur SDL
+# gère la DualSense en XInput avec la vibration (evdev, hid-playstation) ;
+# GE la force en hidraw et sa conversion XInput ne transmet pas la vibration.
+# proton-cachyos exige une pile limitée (voir « Pile limitée » plus haut).
 find_proton_runner() {
     local want="$1" d dirs
     dirs=$(proton_runner_dirs)
@@ -781,9 +791,9 @@ find_proton_runner() {
             proton_runner_is "$d" "$want" && { echo "$d"; return 0; }
         done <<< "$dirs"
     fi
-    d=$(grep -i '/UMU-Proton' <<< "$dirs" | sort -V | tail -1)
+    d=$(grep -i 'proton-cachyos' <<< "$dirs" | sort -V | tail -1)
+    [[ -n "$d" ]] || d=$(grep -i '/UMU-Proton' <<< "$dirs" | sort -V | tail -1)
     [[ -n "$d" ]] || d=$(grep -i '/GE-Proton' <<< "$dirs" | sort -V | tail -1)
-    [[ -n "$d" ]] || d=$(grep -i 'proton-cachyos' <<< "$dirs" | sort -V | tail -1)
     [[ -n "$d" ]] || d=$(head -1 <<< "$dirs")
     echo "$d"
 }
@@ -1441,8 +1451,8 @@ fi
 FORCED_WINE="${RUNNER}${WINE_VERSION}"
 [[ -n "$WINE_OVERRIDE" && -z "$OVERRIDE_PROTON" ]] && FORCED_WINE+="$WINE_OVERRIDE"
 # Image sans prefix (jeu seul : jeu PC récent emballé à la main, 27/09) :
-# prefix créé par Proton via umu — UMU-Proton, sinon GE-Proton, sinon
-# proton-cachyos —, les
+# prefix créé par Proton via umu — proton-cachyos, sinon UMU-Proton, sinon
+# GE-Proton —, les
 # prefixes Batocera (jeux arcade) restant sous wine-tkg. Un prefix Wine
 # déjà créé dans les sauvegardes est gardé tel quel : Proton ne sait pas
 # le convertir (DRAGON BALL Sparking! ZERO, 27/09 : copy_pfx en échec,
