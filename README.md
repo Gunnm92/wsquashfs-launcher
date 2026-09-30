@@ -74,7 +74,7 @@ sudo apt install squashfs-tools wine
 # Arch Linux
 sudo pacman -S squashfuse wine
 # jeux PC récents (images sans prefix, prefixes Proton) : umu + un Proton
-sudo pacman -S umu-launcher        # + UMU-Proton (conseillé), proton-cachyos ou GE-Proton
+sudo pacman -S umu-launcher        # + UMU-Proton (conseillé) ou GE-Proton
 # wine-tkg (Kron4ek, non WoW64) : jeux 32 bits
 sudo pacman -S lib32-libxkbcommon
 # MangoHud (facultatif : mangohud wsquashfs-launcher jeu.wsquashfs)
@@ -245,14 +245,14 @@ Sans `WINE`, `PROTON`, `RUNNER` ni `--wine` :
   la même version de Proton, cherchée dans `~/.config/heroic/tools/proton`,
   `~/.local/share/Steam/compatibilitytools.d`, `~/.steam/root/compatibilitytools.d`
   et `/usr/share/steam/compatibilitytools.d`. Si elle est absente : l'UMU-Proton le
-  plus récent, puis proton-cachyos, puis GE-Proton, puis n'importe quel Proton installé.
+  plus récent, puis GE-Proton, puis proton-cachyos, puis n'importe quel Proton installé.
   Le jeu est lancé **via umu** (`umu-run` du paquet umu-launcher, à défaut celui
   de Heroic) avec le script `proton`, comme Heroic : Proton gère alors le prefix,
   DXVK, VKD3D et NVAPI. Sans umu, le Wine du Proton est lancé directement (avec
   un avertissement : certains jeux ne s'affichent pas). `WSQUASHFS_UMU=0` pour
   forcer ce mode.
 - **Image sans prefix** (jeu PC emballé seul) : prefix créé par Proton via umu
-  (UMU-Proton le plus récent, sinon proton-cachyos, sinon GE-Proton). UMU-Proton
+  (UMU-Proton le plus récent, sinon GE-Proton, sinon proton-cachyos). UMU-Proton
   (Proton de Valve) d'abord : sa SDL gère la DualSense en manette XInput, vibration
   comprise ; GE-Proton la force en hidraw, sans vibration en mode XInput. `WINE=tkg` dans l'autorun.cmd
   pour garder wine-tkg. Un prefix Wine déjà présent dans les sauvegardes est
