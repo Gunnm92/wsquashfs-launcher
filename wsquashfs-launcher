@@ -1708,7 +1708,25 @@ if [[ "${WSQUASHFS_HIDRAW:-$(getWine_var "$WINEPOINT" "HIDRAW" "0")}" == "1" ]];
         HIDRAW_MSG="XInput, manette Xbox (hidraw demandé : ${HIDRAW_REASON})"
     fi
 fi
-if ! grep -qs "\"DisableHidraw\"=dword:0000000${HIDRAW_DISABLE}" "${WINEPOINT}/system.reg"; then
+# GE-Proton (30/09) : sa SDL ignore TOUJOURS les manettes Sony ("ignoring SDL
+# DualSense device; hidraw handles native reports") et les laisse au backend
+# hidraw. Hidraw coupé (mode XInput par défaut), la DualSense n'était gérée
+# par personne : aucune manette dans Kena, The Devil in Me, Like a Dragon...
+# quand Pinball FX (wine-tkg, prefix Batocera) marchait. En mode XInput, on
+# garde donc hidraw et GE-Proton présente la manette Sony en XInput
+# (PROTON_SONY_HIDRAW_XINPUT). Les Proton de Valve (UMU-Proton,
+# proton-cachyos) n'ont pas ce correctif : leur SDL gère la DualSense.
+PROTON_ROOT=""
+[[ "$WINE_BINARY" == */files/bin/wine ]] && PROTON_ROOT="${WINE_BINARY%/files/bin/wine}"
+if [[ "$HIDRAW_DISABLE" == "1" && -n "$PROTON_ROOT" ]] \
+   && grep -aqs "hidraw handles native reports" "${PROTON_ROOT}/files/lib/wine/x86_64-unix/winebus.so" \
+   && hidraw_usable; then
+    HIDRAW_DISABLE=0
+    export PROTON_SONY_HIDRAW_XINPUT=1
+    HIDRAW_MSG="XInput, manette Xbox (manette Sony par hidraw, convertie par GE-Proton)"
+fi
+# Prefix Proton : registre dans pfx/ (sinon reg add à chaque lancement).
+if ! grep -qs "\"DisableHidraw\"=dword:0000000${HIDRAW_DISABLE}" "${WINEPOINT}/system.reg" "${WINEPOINT}/pfx/system.reg"; then
     as_wine_user env DISPLAY="${DISPLAY:-}" WINEPREFIX="$WINEPOINT" WINEARCH="$WINE_ARCH" \
         WINEDEBUG="$WINEDEBUG" WINEDLLOVERRIDES="$WINEDLLOVERRIDES" \
         GAMEID="${GAMEID:-}" PROTONPATH="${PROTONPATH:-}" \
@@ -1806,6 +1824,7 @@ if [[ "$RUN_AS_ROOT" == true ]] && [[ -n "$TARGET_USER" ]]; then
         PROTONPATH="${PROTONPATH:-}" \
         SDL_GAMECONTROLLERCONFIG="${SDL_GAMECONTROLLERCONFIG:-}" \
         SDL_JOYSTICK_DISABLE_UDEV="${SDL_JOYSTICK_DISABLE_UDEV:-}" \
+        PROTON_SONY_HIDRAW_XINPUT="${PROTON_SONY_HIDRAW_XINPUT:-}" \
         MANGOHUD="${MANGOHUD:-}" \
         MANGOHUD_CONFIG="${MANGOHUD_CONFIG:-}" \
         MANGOHUD_CONFIGFILE="${MANGOHUD_CONFIGFILE:-}" \

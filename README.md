@@ -233,7 +233,7 @@ Le fichier `autorun.cmd` à la racine du `.wsquashfs` configure l'exécution. Ut
 | `ARCH` | Architecture Wine (défaut : `win64`) | `win32`, `win64` |
 | `LANG` | Langue (`LC_ALL`) | `fr_FR.UTF-8` |
 | `ENV` | Variables d'environnement additionnelles | `VAR1=val1 VAR2=val2` |
-| `HIDRAW` | `1` : manettes Sony par hidraw pour ce jeu s'il gère la DualSense (repli XInput si illisible) ; défaut XInput | `1` |
+| `HIDRAW` | `1` : manettes Sony par hidraw pour ce jeu s'il gère la DualSense **lui-même**, sans Steam Input (repli XInput si illisible) ; défaut XInput. Sous GE-Proton, le mode XInput passe aussi par hidraw : GE confie toujours les manettes Sony à hidraw et les convertit en XInput (`PROTON_SONY_HIDRAW_XINPUT=1`, posé par le lanceur) | `1` |
 
 ### Choix du runner Wine
 
