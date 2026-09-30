@@ -1015,7 +1015,8 @@ Options :
   --wine <version>  Runner Wine/Proton à utiliser : nom (ou partie du nom) d'un
                     runner installé dans /opt, /usr/wine ou
                     ~/.local/share/wsquashfs/wine, chemin d'un binaire wine,
-                    ou "system".
+                    ou "system". Un Proton (Heroic, Steam) est lancé via umu
+                    sur un jeu à prefix Proton ou sans prefix.
 
 Modes de montage (automatique) :
   overlay   squashfuse + fuse-overlayfs (sauvegardes isolées, idéal)
@@ -1419,6 +1420,20 @@ WINE_BINARY=$(find_wine_binary)
 # Prefix créé par Proton (Heroic, Steam) : lancé sous Proton, la même
 # version si elle est installée, plutôt que sous le Wine par défaut.
 PREFIX_PROTON=$(prefix_proton_version)
+# --wine <Proton> (30/09) : sur un prefix Proton ou un jeu sans prefix, lancé
+# par umu comme PROTON= de l'autorun.cmd — auparavant seul le binaire wine du
+# Proton était pris, sans umu ni script proton (mode dégradé, écran noir de
+# Kingdom Hearts III). Sur un prefix Wine (Batocera), inchangé : Wine du
+# Proton lancé directement, Proton ne sachant pas convertir ces prefixes.
+# FORCED_WINE : runner Wine imposé (autorun.cmd ou --wine hors ce cas).
+OVERRIDE_PROTON=""
+if [[ -n "$WINE_OVERRIDE" ]] && found=$(resolve_wine_override "$WINE_OVERRIDE") \
+   && [[ "$found" == */files/bin/wine && -x "${found%/files/bin/wine}/proton" ]] \
+   && [[ -n "$PREFIX_PROTON" || ! -f "${WINEPOINT}/system.reg" ]]; then
+    OVERRIDE_PROTON="${found%/files/bin/wine}"
+fi
+FORCED_WINE="${RUNNER}${WINE_VERSION}"
+[[ -n "$WINE_OVERRIDE" && -z "$OVERRIDE_PROTON" ]] && FORCED_WINE+="$WINE_OVERRIDE"
 # Image sans prefix (jeu seul : jeu PC récent emballé à la main, 27/09) :
 # prefix créé par Proton via umu — GE-Proton, sinon proton-cachyos —, les
 # prefixes Batocera (jeux arcade) restant sous wine-tkg. Un prefix Wine
@@ -1427,7 +1442,7 @@ PREFIX_PROTON=$(prefix_proton_version)
 # puis manettes perdues sous Wine avec les DLL de Proton). WINE=tkg dans
 # l'autorun.cmd pour garder wine-tkg.
 AUTO_PROTON=0
-if [[ -z "$PREFIX_PROTON" && "$PACKAGED_PREFIX" == "0" && -z "${RUNNER}${WINE_VERSION}${WINE_OVERRIDE}" ]]; then
+if [[ -z "$PREFIX_PROTON" && "$PACKAGED_PREFIX" == "0" && -z "$FORCED_WINE" ]]; then
     if [[ -f "${WINEPOINT}/system.reg" ]]; then
         if [[ "$DIR_MODE" == "1" ]]; then
             echo "Attention : prefix Wine déjà créé dans ${WINEPOINT}, gardé sous $(basename "$(dirname "$(dirname "$WINE_BINARY")")") (Proton ne sait pas le convertir)"
@@ -1504,8 +1519,8 @@ fi
 # prefix, DXVK, VKD3D et NVAPI.
 UMU_RUN=""
 PROTON_DIR=""
-if [[ -n "${PREFIX_PROTON}${PROTON_VERSION}" || "$AUTO_PROTON" == "1" ]] \
-   && [[ -z "${RUNNER}${WINE_VERSION}${WINE_OVERRIDE}" ]]; then
+if [[ -n "${PREFIX_PROTON}${PROTON_VERSION}${OVERRIDE_PROTON}" || "$AUTO_PROTON" == "1" ]] \
+   && [[ -z "$FORCED_WINE" ]]; then
     if [[ -z "$PREFIX_PROTON" && -f "${WINEPOINT}/system.reg" ]]; then
         # PROTON= sur un prefix Wine existant : conversion impossible (voir
         # AUTO_PROTON), on reste sur le Wine par défaut.

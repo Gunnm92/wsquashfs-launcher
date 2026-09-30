@@ -127,7 +127,9 @@ wsquashfs-launcher --exec game.wsquashfs winecfg
 # Forcer un runner Wine/Proton (nom ou partie du nom d'un runner installé
 # dans /opt, /usr/wine, ~/.local/share/wsquashfs/wine ou un dossier Proton
 # de Heroic/Steam, chemin d'un binaire wine, ou "system") — combinable
-# avec --exec
+# avec --exec. Un Proton sur un jeu à prefix Proton ou sans prefix est lancé
+# via umu, comme PROTON= dans l'autorun.cmd ; sur un prefix Wine (Batocera),
+# son Wine est lancé directement.
 wsquashfs-launcher --wine GE-Proton9 game.wsquashfs
 
 # Outils extérieurs (MangoHud, gamemode...) : placés devant la commande,
