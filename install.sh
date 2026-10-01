@@ -120,6 +120,8 @@ check_dependencies() {
         _apt_install fuse-overlayfs \
             || print_info "fuse-overlayfs indisponible — mode copy utilisé (fonctionnel)"
     fi
+    # getfattr : --clean lit les dossiers opaques de l'overlay
+    _dpkg_installed attr || _apt_install attr || true
 
     # --- MangoHud (optionnel : mangohud wsquashfs-launcher jeu.wsquashfs) ---
     if _dpkg_installed mangohud; then
@@ -521,7 +523,8 @@ show_usage() {
     echo -e "${GREEN}╚════════════════════════════════════════╝${NC}"
     echo ""
     echo "  wsquashfs-launcher /path/to/game.wsquashfs"
-    echo "  wsquashfs-launcher --clean"
+    echo "  wsquashfs-launcher --clean            (cache + doublons des sauvegardes)"
+    echo "  wsquashfs-launcher --clear [jeu]      (ne garde que drive_c/users)"
     echo "  wsquashfs-launcher --help"
     echo ""
     echo "Variables d'environnement :"

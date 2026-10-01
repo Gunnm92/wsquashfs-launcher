@@ -823,6 +823,158 @@ umount_game() {
     echo "✓ Démonté : ${name}"
 }
 
+# Vrai si rel (chemin relatif dans l'upperdir) est sous un dossier opaque :
+# le dossier de l'image y est masqué, le fichier de l'upperdir est alors le
+# seul visible, même identique. fuse-overlayfs marque les dossiers opaques
+# par l'attribut user.fuseoverlayfs.opaque ou un fichier .wh..wh..opq.
+declare -A OPAQUE_CACHE=()
+under_opaque() {
+    local upper="$1" d="$2"
+    while [[ "$d" == */* ]]; do
+        d="${d%/*}"
+        if [[ -z "${OPAQUE_CACHE[$d]:-}" ]]; then
+            OPAQUE_CACHE[$d]=n
+            if [[ -e "${upper}/${d}/.wh..wh..opq" ]] \
+               || getfattr --only-values -n user.fuseoverlayfs.opaque "${upper}/${d}" 2>/dev/null | grep -q y; then
+                OPAQUE_CACHE[$d]=y
+            fi
+        fi
+        [[ "${OPAQUE_CACHE[$d]}" == y ]] && return 0
+    done
+    return 1
+}
+
+# Vrai si le jeu est monté ou en cours : ses sauvegardes sont l'upperdir
+# actif de l'overlay, on n'y touche pas.
+saves_busy() {
+    game_in_use "$1" || mountpoint -q "${CACHE_DIR}/wine/${1}" 2>/dev/null
+}
+
+# --clean (01/10) : retire des sauvegardes de chaque jeu les doublons
+# certains, régénérés ou relus ailleurs ; tout ce que le jeu a écrit reste.
+# 1. Fichiers identiques à ceux de l'image — copy-up d'un fichier que le
+#    jeu ouvre en écriture sans le modifier (Streets of Rage 4 : 2,7 Go de
+#    textures, Trouble Witches : 870 Mo de .PACK) ; ils redeviennent lus
+#    depuis l'image. Image retrouvée par saves/.images/<jeu>, écrit à chaque
+#    lancement. Seuls les fichiers de même taille sont comparés (cmp).
+#    Gardés : ceux d'un dossier opaque (voir under_opaque) et ceux qui
+#    portent des attributs Wine (DOS, sécurité) absents de l'image.
+# 2. Prefix Proton : DXVK, vkd3d-proton et nvapi, recopiés par Proton à
+#    CHAQUE lancement (setup_prefix) — ~65 Mo par jeu. Pas le FSR4 de
+#    proton-cachyos (amdxcffx64.dll), téléchargé par protonfixes.
+# Manuel et jamais au démontage : le jeu recopierait ces fichiers à chaque
+# partie.
+clean_saves() {
+    local name="$1" saves="${SAVES_DIR}/${1}" img="" mnt f rel lower n=0 bytes=0 size lib b c
+    if saves_busy "$name"; then
+        echo "  ${name} : monté ou en cours, ignoré"
+        return 0
+    fi
+    [[ -f "${SAVES_DIR}/.images/${name}" ]] && img=$(< "${SAVES_DIR}/.images/${name}")
+    if [[ -z "$img" || ! -f "$img" ]]; then
+        echo "  ${name} : image inconnue (lancer le jeu une fois), fichiers du jeu gardés"
+    elif ! command -v getfattr &>/dev/null; then
+        # Sans getfattr, les dossiers opaques ne seraient pas tous reconnus.
+        echo "  ${name} : getfattr absent (paquet attr), fichiers du jeu gardés"
+    else
+        mkdir -p "$CACHE_DIR"
+        mnt=$(mktemp -d "${CACHE_DIR}/purge.XXXXXX") || return 0
+        if squashfuse "$img" "$mnt" 2>/dev/null; then
+            OPAQUE_CACHE=()
+            while IFS= read -r -d '' f; do
+                rel="${f#"$saves"/}"
+                [[ "${rel##*/}" == .wh.* ]] && continue
+                lower="${mnt}/${rel}"
+                [[ -f "$lower" && ! -L "$lower" ]] || continue
+                size=$(stat -c %s "$f")
+                [[ "$size" == "$(stat -c %s "$lower")" ]] || continue
+                under_opaque "$saves" "$rel" && continue
+                getfattr -d -m '^user\.(wine|DOSATTRIB)' "$f" 2>/dev/null | grep -q . && continue
+                cmp -s "$f" "$lower" || continue
+                rm -f -- "$f" && { n=$((n + 1)); bytes=$((bytes + size)); }
+            done < <(find "$saves" -xdev -type f -print0 2>/dev/null)
+            umount_retry "$mnt"
+        else
+            echo "  ${name} : montage de l'image impossible, fichiers du jeu gardés"
+        fi
+        rmdir "$mnt" 2>/dev/null || true
+    fi
+    # 3e ligne de config_info : lib/ du Proton qui a configuré le prefix.
+    lib=$(sed -n 3p "${saves}/config_info" 2>/dev/null)
+    if [[ -n "$lib" && -d "${lib}wine" ]]; then
+        while IFS= read -r -d '' f; do
+            b=$(basename "$f")
+            for c in "${lib}wine"/{dxvk,vkd3d-proton,nvapi}/{x86_64,i386}-windows/"$b"; do
+                [[ -f "$c" ]] && cmp -s "$f" "$c" || continue
+                size=$(stat -c %s "$f")
+                rm -f -- "$f" && { n=$((n + 1)); bytes=$((bytes + size)); }
+                break
+            done
+        done < <(find "${saves}/drive_c/windows/system32" "${saves}/drive_c/windows/syswow64" \
+                     -maxdepth 1 -type f -print0 2>/dev/null)
+    fi
+    [[ "$n" -gt 0 ]] && echo "  ${name} : ${n} doublon(s) retiré(s), $((bytes / 1048576)) Mo libérés"
+    return 0
+}
+
+# --clear (01/10) : ne garde que drive_c/users de chaque jeu (sauvegardes
+# des jeux PC récents : Documents, AppData, Saved Games). Tout le reste est
+# supprimé : prefix créé dans les saves (recréé au lancement suivant —
+# par Proton pour un jeu seul, même s'il tournait sous Wine), registre, et
+# ce que le jeu a écrit dans son dossier : scores et réglages des jeux
+# arcade/TeknoParrot, sauvegardes à côté de l'exe. Dossiers opaques et
+# fichiers supprimés (whiteouts) disparaissent aussi : l'image redevient
+# visible telle quelle, sauf sous users.
+clear_saves() {
+    local name="$1" saves="${SAVES_DIR}/${1}"
+    if saves_busy "$name"; then
+        echo "  ${name} : monté ou en cours, ignoré"
+        return 0
+    fi
+    find "$saves" -mindepth 1 -maxdepth 1 ! -name drive_c -exec rm -rf -- {} + 2>/dev/null
+    if [[ -d "${saves}/drive_c" ]]; then
+        # drive_c recréé : opaque (prefix créé dans les saves), il masquerait
+        # le drive_c de l'image. users déplacé, même système de fichiers.
+        if [[ -d "${saves}/drive_c/users" ]]; then
+            rm -rf -- "${saves}/.users"
+            mv -- "${saves}/drive_c/users" "${saves}/.users" || return 0
+        fi
+        rm -rf -- "${saves}/drive_c"
+        if [[ -d "${saves}/.users" ]]; then
+            mkdir -p "${saves}/drive_c" && mv -- "${saves}/.users" "${saves}/drive_c/users"
+        fi
+    fi
+    rmdir "$saves" 2>/dev/null
+    if [[ -d "$saves" ]]; then
+        echo "  ${name} : gardé $(du -sh "$saves" 2>/dev/null | cut -f1) (drive_c/users)"
+    else
+        echo "  ${name} : rien à garder, supprimé"
+    fi
+}
+
+# Cache de travail (mnt, wine, work) des jeux qui ne tournent pas.
+# unmount_all_stale garde les jeux en cours (27/09) : leurs dossiers sont
+# épargnés, sinon rm -rf effaçait leurs sauvegardes à travers l'overlay.
+clean_cache() {
+    local d g
+    local -A kept=()
+    # Démonter avant de supprimer : rm -rf sur un point de montage FUSE
+    # actif tente de supprimer les fichiers du jeu À TRAVERS le montage
+    # plutôt que le point de montage lui-même (destructif/imprévisible).
+    unmount_all_stale
+    for d in "${CACHE_DIR}/mnt"/* "${CACHE_DIR}/wine"/* "${CACHE_DIR}/work"/*; do
+        [[ -e "$d" ]] || continue
+        g=$(basename "$d")
+        if saves_busy "$g" || mountpoint -q "${CACHE_DIR}/mnt/${g}" 2>/dev/null; then
+            [[ -n "${kept[$g]:-}" ]] || echo "  ${g} : en cours, gardé"
+            kept[$g]=1
+            continue
+        fi
+        rm -rf -- "$d" 2>/dev/null || true
+    done
+    echo "✓ Copies de travail supprimées"
+}
+
 # --pack <Jeu.wine> [sortie] : prefix Wine (dossier) → .wsquashfs, comme
 # wine2squashfs de batocera-wine (mksquashfs, compression zstd).
 pack_prefix() {
@@ -1025,7 +1177,13 @@ Usage :
         Lance un jeu installé (dossier contenant autorun.cmd) sur place, sans
         montage : le jeu écrit directement dans son dossier.
   wsquashfs-launcher --clean
-        Supprime les copies de travail (cache), les sauvegardes sont gardées.
+        Supprime les copies de travail (cache) et les doublons des sauvegardes :
+        fichiers identiques à l'image du jeu, DLL que Proton recopie à chaque
+        lancement. Tout ce que le jeu a écrit est gardé ; jeux en cours exceptés.
+  wsquashfs-launcher --clear [jeu]
+        Ne garde que drive_c/users des sauvegardes (de tous les jeux, ou d'un
+        seul) : le reste (prefix, registre, scores et réglages écrits dans le
+        dossier du jeu) est supprimé. Confirmation au terminal.
 
 Options :
   --wine <version>  Runner Wine/Proton à utiliser : nom (ou partie du nom) d'un
@@ -1059,14 +1217,30 @@ declare -a EXEC_CMD=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --clean)
-            echo "Nettoyage des copies de travail wsquashfs..."
-            # Démonter avant de supprimer : rm -rf sur un point de montage FUSE
-            # actif tente de supprimer les fichiers du jeu À TRAVERS le montage
-            # plutôt que le point de montage lui-même (destructif/imprévisible).
-            unmount_all_stale
-            rm -rf "${CACHE_DIR:?}/mnt" "${CACHE_DIR:?}/wine" "${CACHE_DIR:?}/work" 2>/dev/null || true
-            echo "✓ Copies de travail supprimées"
-            echo "  Les sauvegardes overlay sont préservées dans : ${SAVES_DIR}"
+            echo "Nettoyage des copies de travail et des doublons des sauvegardes..."
+            clean_cache
+            for g in "${SAVES_DIR}"/*/; do
+                [[ -d "$g" ]] && clean_saves "$(basename "$g")"
+            done
+            echo "✓ Sauvegardes gardées dans : ${SAVES_DIR}"
+            exit 0
+            ;;
+        --clear)
+            if [[ -n "${2:-}" ]]; then
+                targets=("$(basename "$2" .wsquashfs)")
+                [[ -d "${SAVES_DIR}/${targets[0]}" ]] || { echo "Aucune sauvegarde pour ${targets[0]}"; exit 0; }
+            else
+                targets=()
+                for g in "${SAVES_DIR}"/*/; do [[ -d "$g" ]] && targets+=("$(basename "$g")"); done
+            fi
+            echo "--clear ne garde que drive_c/users de ${#targets[@]} jeu(x) : scores et réglages"
+            echo "  enregistrés ailleurs (jeux arcade, dossier du jeu, registre) seront perdus."
+            if [[ -t 0 ]]; then
+                read -r -p "Continuer ? [o/N] " reply
+                [[ "${reply,,}" == o* || "${reply,,}" == y* ]] || { echo "Abandon."; exit 1; }
+            fi
+            clean_cache
+            for g in "${targets[@]}"; do clear_saves "$g"; done
             exit 0
             ;;
         --help|-h)
@@ -1232,7 +1406,10 @@ if [[ "$DIR_MODE" == "0" ]]; then
 # jeux abandonnés en cours de route, voir unmount_all_stale)
 unmount_all_stale
 
-mkdir -p "$SQUASHFSPOINT" "$SAVEPOINT" "$WINEPOINT"
+mkdir -p "$SQUASHFSPOINT" "$SAVEPOINT" "$WINEPOINT" "${SAVES_DIR}/.images"
+# Image d'origine des sauvegardes, pour --clean (fichiers identiques).
+printf '%s\n' "$WSQUASHFS_FILE" > "${SAVES_DIR}/.images/${GAME_NAME}" 2>/dev/null || true
+chown_to_target "${SAVES_DIR}/.images"
 # WORKPOINT doit être vide avant chaque montage overlay (évite l'état obsolète)
 rm -rf "$WORKPOINT" && mkdir -p "$WORKPOINT"
 chown_to_target "$SQUASHFSPOINT"

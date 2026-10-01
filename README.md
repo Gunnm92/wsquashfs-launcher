@@ -162,8 +162,16 @@ wsquashfs-launcher --pack MonJeu.wine          # → MonJeu.wsquashfs
 # ses sauvegardes), refus sans terminal. L'ancienne image n'est remplacée
 # qu'une fois la nouvelle construite.
 
-# Supprimer les copies de travail (libère de l'espace)
+# Supprimer les copies de travail et les doublons des sauvegardes : fichiers
+# du jeu recopiés sans modification (jeu qui ouvre ses données en écriture :
+# 2,7 Go pour Streets of Rage 4), DLL que Proton recopie à chaque lancement.
+# Tout ce que le jeu a écrit est gardé ; jeux en cours exceptés.
 wsquashfs-launcher --clean
+
+# Radical : ne garder que drive_c/users (sauvegardes des jeux PC récents) de
+# tous les jeux, ou d'un seul. Prefix recréé au lancement suivant ; scores et
+# réglages écrits ailleurs (jeux arcade, dossier du jeu, registre) perdus.
+wsquashfs-launcher --clear ["Nom du jeu"]
 
 # Afficher l'aide
 wsquashfs-launcher --help

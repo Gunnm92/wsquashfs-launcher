@@ -29,6 +29,7 @@ RUN dpkg --add-architecture i386 && \
     squashfuse \
     fuse \
     fuse-overlayfs \
+    attr \
     dos2unix \
     # Wine et dépendances
     wine \
