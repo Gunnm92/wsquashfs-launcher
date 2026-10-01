@@ -1623,6 +1623,14 @@ if [[ -n "$UMU_RUN" ]]; then
     # reçue par le jeu après correction).
     [[ "$DXVK" == "0" ]] && export PROTON_USE_WINED3D=1
     DXVK=0 VKD3D=0 D7VK=0
+    # Proton COPIE ~560 DLL de son default_pfx (d3dx9, msvcp, xaudio...,
+    # motifs builtin_dll_copy) dans chaque prefix au lieu de les lier :
+    # ~190 Mo identiques par jeu, 5 Go sur 27 jeux dans les saves (01/10).
+    # PROTON_DLL_COPY vide → liens, comme ses autres DLL Wine. Proton
+    # convertit lui-même les copies existantes (changement de config_info)
+    # et gère les liens vers un Proton supprimé. Surchargeable (ENV= de
+    # l'autorun.cmd) pour un jeu qui doit remplacer ces DLL.
+    export PROTON_DLL_COPY="${PROTON_DLL_COPY-}"
 else
 if [[ "$D7VK" == "1" ]]; then
     export WINEDLLOVERRIDES="${WINEDLLOVERRIDES:+${WINEDLLOVERRIDES};}ddraw=n,b"
@@ -1861,6 +1869,8 @@ if [[ "$RUN_AS_ROOT" == true ]] && [[ -n "$TARGET_USER" ]]; then
         SDL_GAMECONTROLLERCONFIG="${SDL_GAMECONTROLLERCONFIG:-}" \
         SDL_JOYSTICK_DISABLE_UDEV="${SDL_JOYSTICK_DISABLE_UDEV:-}" \
         PROTON_SONY_HIDRAW_XINPUT="${PROTON_SONY_HIDRAW_XINPUT:-}" \
+        ${PROTON_USE_WINED3D:+PROTON_USE_WINED3D=$PROTON_USE_WINED3D} \
+        PROTON_DLL_COPY="${PROTON_DLL_COPY-}" \
         MANGOHUD="${MANGOHUD:-}" \
         MANGOHUD_CONFIG="${MANGOHUD_CONFIG:-}" \
         MANGOHUD_CONFIGFILE="${MANGOHUD_CONFIGFILE:-}" \

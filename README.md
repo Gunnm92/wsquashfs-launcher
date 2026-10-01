@@ -250,7 +250,10 @@ Sans `WINE`, `PROTON`, `RUNNER` ni `--wine` :
   de Heroic) avec le script `proton`, comme Heroic : Proton gère alors le prefix,
   DXVK, VKD3D et NVAPI. Sans umu, le Wine du Proton est lancé directement (avec
   un avertissement : certains jeux ne s'affichent pas). `WSQUASHFS_UMU=0` pour
-  forcer ce mode.
+  forcer ce mode. Les DLL que Proton copie d'ordinaire dans chaque prefix
+  (d3dx9, msvcp, xaudio… ~190 Mo par jeu) y sont des liens vers Proton
+  (`PROTON_DLL_COPY` vide) ; `ENV=PROTON_DLL_COPY=<motifs>` dans l'autorun.cmd
+  pour un jeu qui doit les remplacer.
 - **Image sans prefix** (jeu PC emballé seul) : prefix créé par Proton via umu
   (proton-cachyos, sinon l'UMU-Proton le plus récent, sinon GE-Proton).
   proton-cachyos et UMU-Proton d'abord : leur SDL gère la DualSense en manette
