@@ -173,7 +173,6 @@ rm -rf ~/.local/share/wsquashfs/prefix/
 ## 📚 Documentation complète
 
 - [README.md](README.md) - Documentation complète
-- [pegasus-example/README.md](pegasus-example/README.md) - Guide Pegasus détaillé
 - [autorun.cmd.example](autorun.cmd.example) - Exemples de configuration
 - [CONTRIBUTING.md](CONTRIBUTING.md) - Guide de contribution
 

@@ -365,7 +365,6 @@ $HOME/
 wsquashfs-launcher/
 ├── wsquashfs-launcher          # Script principal
 ├── autorun.cmd.example         # Exemple de configuration
-├── pegasus-example/            # Intégration Pegasus Frontend
 ├── Dockerfile                  # Image Docker
 ├── docker-compose.yml
 ├── run-docker.sh

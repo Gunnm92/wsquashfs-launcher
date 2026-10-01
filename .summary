@@ -28,13 +28,11 @@ sudo cp wsquashfs-run /usr/local/bin/
 wsquashfs-run game.wsquashfs
 
 ## 🎮 Intégration Pegasus
-Voir: pegasus-example/README.md
 Commande: wsquashfs-run "{file.path}"
 
 ## 📖 Documentation
 - QUICKSTART.md       - Démarrage rapide
 - README.md           - Documentation complète
-- pegasus-example/    - Config Pegasus
 - autorun.cmd.example - Exemples config
 
 ## ✅ Basé sur
