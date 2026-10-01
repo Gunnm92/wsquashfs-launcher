@@ -1617,7 +1617,11 @@ fi
 [[ "$FSYNC" == "1" ]] && export WINEFSYNC=1
 
 if [[ -n "$UMU_RUN" ]]; then
-    # Proton pose lui-même DXVK/VKD3D/NVAPI dans le prefix.
+    # Proton pose lui-même DXVK/VKD3D/NVAPI dans le prefix. DXVK=0 (autorun
+    # ou WSQUASHFS_DXVK=0) passe par son équivalent Proton : sans lui, Proton
+    # gardait DXVK et DXVK=0 était ignoré (constaté le 01/10, variable bien
+    # reçue par le jeu après correction).
+    [[ "$DXVK" == "0" ]] && export PROTON_USE_WINED3D=1
     DXVK=0 VKD3D=0 D7VK=0
 else
 if [[ "$D7VK" == "1" ]]; then
