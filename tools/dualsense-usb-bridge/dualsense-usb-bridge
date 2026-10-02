@@ -1,0 +1,261 @@
+#!/usr/bin/env python3
+# dualsense-usb-bridge — présente une DualSense Bluetooth (celle de Sunshine)
+# comme une DualSense USB, via uhid.
+#
+# Pourquoi (02/10/2026, F1 22) : la DualSense virtuelle de Sunshine est
+# toujours en Bluetooth (bus 0005). Les libScePad de 2022 (F1 22, The Devil in
+# Me, KOF XV) l'énumèrent sans jamais l'ouvrir : aucune écriture, aucun
+# rapport feature lu, le jeu ne réagit à aucune touche. Une DualSense USB est
+# initialisée aussitôt (calibration, firmware, puis rapports de sortie 0x02).
+#
+# Pour chaque DualSense Bluetooth (054c:0ce6, bus 0005) :
+#   entrée  BT 0x31 (78 octets) → USB 0x01 (64 octets) : même bloc commun,
+#           sans l'octet d'étiquette BT ;
+#   sortie  USB 0x02 (48 octets) → BT 0x31 (78 octets) : même bloc commun de
+#           47 octets (vibration, barre lumineuse, gâchettes adaptatives),
+#           précédé de la séquence/étiquette BT et suivi du CRC32 ;
+#   feature lues sur la DualSense Bluetooth (0x05, 0x09, 0x20 : mêmes tailles
+#           qu'en USB) ; écritures acquittées sans être transmises.
+# Pas d'haptiques : en USB, les jeux les jouent en audio sur la carte son de
+# la manette, qui n'existe pas ici.
+#
+# --hide rend la DualSense Bluetooth illisible (chmod 600, sudo -n si besoin)
+# tant que le pont tourne : Wine ne voit que la manette USB, sans doublon. Les
+# accès déjà ouverts (Steam, Sunshine) ne sont pas touchés.
+import argparse, errno, fcntl, os, select, signal, struct, subprocess, sys, time, zlib
+
+HID_ID_BT = "HID_ID=0005:0000054C:00000CE6"
+UHID_DESTROY, UHID_OUTPUT = 1, 6
+UHID_GET_REPORT, UHID_GET_REPORT_REPLY = 9, 10
+UHID_CREATE2, UHID_INPUT2 = 11, 12
+UHID_SET_REPORT, UHID_SET_REPORT_REPLY = 13, 14
+UHID_EVENT_SIZE = 4 + 4372
+
+# Descripteur HID d'une DualSense USB (libvirtualhid, d'après inputtino).
+USB_DESCRIPTOR = bytes.fromhex(
+    "05010905a1018501093009310932093509330934150026ff0075089506810206"
+    "00ff09209501810205010939150025073500463b016514750495018142650005"
+    "091901290f150025017501950f81020600ff0921950d81020600ff0922150026"
+    "ff0075089534810285020923952f9102850509339528b10285080934952fb102"
+    "850909249513b102850a0925951ab10285200926953fb102852109279504b102"
+    "85220940953fb10285800928953fb10285810929953fb1028582092a9509b102"
+    "8583092b953fb1028584092c953fb1028585092d9502b10285a0092e9501b102"
+    "85e0092f953fb10285f00930953fb10285f10931953fb10285f20932950fb102"
+    "85f40935953fb10285f509369503b102c0"
+)
+FEATURE_SIZES = {0x05: 41, 0x09: 20, 0x20: 64}
+
+
+def log(msg):
+    print("dualsense-usb-bridge: " + msg, file=sys.stderr, flush=True)
+
+
+def hidiocgfeature(size):
+    return (3 << 30) | (size << 16) | (ord("H") << 8) | 0x07
+
+
+def uhid_event(kind, payload=b""):
+    data = struct.pack("<I", kind) + payload
+    return data + b"\0" * (UHID_EVENT_SIZE - len(data))
+
+
+def bt_sources():
+    """Nœuds /dev/hidrawN des DualSense Bluetooth présentes."""
+    found = []
+    for name in sorted(os.listdir("/sys/class/hidraw")):
+        try:
+            with open("/sys/class/hidraw/%s/device/uevent" % name) as f:
+                uevent = f.read()
+        except OSError:
+            continue
+        if HID_ID_BT in uevent.splitlines():
+            found.append("/dev/" + name)
+    return found
+
+
+def set_mode(node, mode):
+    try:
+        os.chmod(node, mode)
+        return True
+    except PermissionError:
+        return subprocess.run(["sudo", "-n", "chmod", "%o" % mode, node],
+                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
+    except OSError:
+        return False
+
+
+class Bridge:
+    """Une DualSense USB virtuelle, alimentée par une DualSense Bluetooth."""
+
+    def __init__(self, index):
+        self.index = index
+        self.uhid = os.open("/dev/uhid", os.O_RDWR | os.O_CLOEXEC)
+        self.source = None
+        self.node = None
+        self.hidden = None
+        self.out_seq = 0
+        self.mac = bytes([0x02, 0, 0, 0, 0, 0x50 + index])
+        create = (b"Sony Interactive Entertainment Wireless Controller".ljust(128, b"\0")
+                  + ("dualsense-usb-bridge/%d" % index).encode().ljust(64, b"\0")
+                  + ":".join("%02x" % b for b in self.mac).encode().ljust(64, b"\0")
+                  + struct.pack("<HHIIII", len(USB_DESCRIPTOR), 0x03, 0x054C, 0x0CE6, 0x8111, 0)
+                  + USB_DESCRIPTOR)
+        os.write(self.uhid, uhid_event(UHID_CREATE2, create))
+
+    def attach(self, node, hide):
+        try:
+            self.source = os.open(node, os.O_RDWR | os.O_NONBLOCK | os.O_CLOEXEC)
+        except OSError as e:
+            log("%s illisible (%s)" % (node, e.strerror))
+            return False
+        self.node = node
+        log("%s → DualSense USB n°%d" % (node, self.index + 1))
+        if hide:
+            st = os.stat(node)
+            if set_mode(node, 0o600):
+                self.hidden = (node, st.st_rdev, st.st_mode & 0o777)
+            else:
+                log("impossible de masquer %s (ni root ni sudo -n) : le jeu verra aussi la manette Bluetooth" % node)
+        return True
+
+    def restore(self):
+        if self.hidden:
+            node, rdev, mode = self.hidden
+            self.hidden = None
+            try:
+                if os.stat(node).st_rdev == rdev:
+                    set_mode(node, mode)
+            except OSError:
+                pass  # manette débranchée : le nœud n'existe plus
+
+    def detach(self):
+        self.restore()
+        if self.source is not None:
+            os.close(self.source)
+            log("%s perdue, DualSense USB n°%d en attente" % (self.node, self.index + 1))
+        self.source = self.node = None
+
+    def close(self):
+        self.detach()
+        try:
+            os.write(self.uhid, uhid_event(UHID_DESTROY))
+        except OSError:
+            pass
+        os.close(self.uhid)
+
+    def on_source(self):
+        try:
+            data = os.read(self.source, 128)
+        except BlockingIOError:
+            return
+        except OSError:
+            self.detach()
+            return
+        if len(data) >= 65 and data[0] == 0x31:
+            report = b"\x01" + data[2:65]
+            os.write(self.uhid, uhid_event(UHID_INPUT2, struct.pack("<H", len(report)) + report))
+
+    def on_uhid(self):
+        event = os.read(self.uhid, UHID_EVENT_SIZE)
+        kind = struct.unpack_from("<I", event)[0]
+        if kind == UHID_OUTPUT:
+            size = struct.unpack_from("<H", event, 4 + 4096)[0]
+            data = event[4:4 + size]
+            if self.source is None or size < 48 or data[0] != 0x02:
+                return
+            report = bytearray(78)
+            report[0] = 0x31
+            report[1] = (self.out_seq << 4) & 0xF0
+            report[2] = 0x10
+            report[3:50] = data[1:48]
+            struct.pack_into("<I", report, 74, zlib.crc32(b"\xa2" + bytes(report[:74])) & 0xFFFFFFFF)
+            self.out_seq = (self.out_seq + 1) & 0x0F
+            try:
+                os.write(self.source, report)
+            except OSError:
+                self.detach()
+        elif kind == UHID_GET_REPORT:
+            request, number = struct.unpack_from("<IB", event, 4)
+            reply = b""
+            if self.source is not None and number in FEATURE_SIZES:
+                buf = bytearray(64)
+                buf[0] = number
+                try:
+                    length = fcntl.ioctl(self.source, hidiocgfeature(len(buf)), buf, True)
+                    reply = bytearray(buf[:min(length, FEATURE_SIZES[number])])
+                except OSError:
+                    pass
+                # hid-playstation refuse une 2e manette de même adresse MAC
+                # (même DualSense en USB et en Bluetooth) : la manette USB
+                # prend la sienne, celle de son uniq (octets en ordre inverse).
+                if number == 0x09 and len(reply) >= 7:
+                    reply[1:7] = bytes(reversed(self.mac))
+                reply = bytes(reply)
+            err = 0 if reply else errno.EIO
+            os.write(self.uhid, uhid_event(UHID_GET_REPORT_REPLY,
+                                           struct.pack("<IHH", request, err, len(reply)) + reply))
+        elif kind == UHID_SET_REPORT:
+            request = struct.unpack_from("<I", event, 4)[0]
+            os.write(self.uhid, uhid_event(UHID_SET_REPORT_REPLY, struct.pack("<IH", request, 0)))
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Présente les DualSense Bluetooth (Sunshine) comme des DualSense USB (uhid).")
+    parser.add_argument("--hide", action="store_true",
+                        help="rendre les DualSense Bluetooth illisibles tant que le pont tourne")
+    parser.add_argument("--ready-file", help="fichier créé une fois les manettes USB en place")
+    parser.add_argument("--parent", type=int, help="s'arrêter quand ce processus se termine")
+    args = parser.parse_args()
+
+    stop = []
+    for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+        signal.signal(sig, lambda *_: stop.append(True))
+
+    bridges = []
+    try:
+        for node in bt_sources():
+            bridge = Bridge(len(bridges))
+            bridges.append(bridge)
+            if not bridge.attach(node, args.hide):
+                bridges.pop().close()
+        if not bridges:
+            log("aucune DualSense Bluetooth")
+            return 1
+        if args.ready_file:
+            time.sleep(0.5)  # le noyau crée le nœud hidraw de la manette USB
+            open(args.ready_file, "w").close()
+        last_scan, failed = time.monotonic(), set()
+        while not stop:
+            fds = {b.uhid: b.on_uhid for b in bridges}
+            fds.update({b.source: b.on_source for b in bridges if b.source is not None})
+            try:
+                ready, _, _ = select.select(list(fds), [], [], 1.0)
+            except InterruptedError:
+                continue
+            for fd in ready:
+                fds[fd]()
+            if time.monotonic() - last_scan >= 1.0:
+                last_scan = time.monotonic()
+                if args.parent and not os.path.exists("/proc/%d" % args.parent):
+                    break
+                # Moonlight reconnecté : nouvelle DualSense Bluetooth, même
+                # manette USB (le jeu ne la perd pas).
+                used = {b.node for b in bridges} | failed
+                for node in bt_sources():
+                    if node in used:
+                        continue
+                    idle = next((b for b in bridges if b.source is None), None)
+                    if idle is None:
+                        idle = Bridge(len(bridges))
+                        bridges.append(idle)
+                    if not idle.attach(node, args.hide):
+                        failed.add(node)
+    finally:
+        for bridge in bridges:
+            bridge.close()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

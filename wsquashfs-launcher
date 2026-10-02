@@ -731,6 +731,36 @@ hidraw_usable() {
     [[ "$found" == 1 ]] || { HIDRAW_REASON="aucune manette Sony"; return 1; }
 }
 
+# DualSense Bluetooth (Sunshine) présentée en DualSense USB pendant le jeu,
+# l'originale masquée à Wine (voir HIDRAW plus bas). Faux s'il n'y a pas de
+# DualSense Bluetooth (une DualSense USB passe en direct) ou pas de pont.
+DS_BRIDGE_PID=""
+start_dualsense_bridge() {
+    local bridge ready i
+    grep -qsx 'HID_ID=0005:0000054C:00000CE6' "${HIDRAW_SYSFS:-/sys/class/hidraw}"/*/device/uevent || return 1
+    bridge=$(command -v dualsense-usb-bridge) \
+        || bridge="$(dirname "$(readlink -f "$0")")/tools/dualsense-usb-bridge/dualsense-usb-bridge"
+    [[ -x "$bridge" ]] || { echo "Attention : dualsense-usb-bridge introuvable, DualSense Bluetooth en direct"; return 1; }
+    ready=$(mktemp -u "${TMPDIR:-/tmp}/dualsense-usb-bridge.XXXXXX")
+    "$bridge" --hide --parent $$ --ready-file "$ready" &
+    DS_BRIDGE_PID=$!
+    for i in $(seq 30); do
+        [[ -e "$ready" ]] && { rm -f "$ready"; return 0; }
+        kill -0 "$DS_BRIDGE_PID" 2>/dev/null || break
+        sleep 0.1
+    done
+    stop_dualsense_bridge
+    rm -f "$ready"
+    return 1
+}
+
+stop_dualsense_bridge() {
+    [[ -n "$DS_BRIDGE_PID" ]] || return 0
+    kill "$DS_BRIDGE_PID" 2>/dev/null
+    wait "$DS_BRIDGE_PID" 2>/dev/null
+    DS_BRIDGE_PID=""
+}
+
 # Remonte l'overlay : fuse-overlayfs garde sa vue des dossiers en mémoire
 # et ne voit pas ce qui est modifié directement dans l'upperdir (SAVEPOINT).
 reload_overlay() {
@@ -1125,6 +1155,7 @@ cleanup() {
     # sortir, son propre CWD rend l'overlay "busy" et le démontage échouait
     # à chaque fois — d'où les montages orphelins (confirmé en direct).
     cd / || true
+    stop_dualsense_bridge
     if [[ "$MOUNTED" == true ]]; then
         stop_wineserver
         case "$MOUNT_MODE" in
@@ -1202,7 +1233,9 @@ Variables d'environnement :
   WSQUASHFS_CACHE            Cache de travail   (défaut: ~/.cache/wsquashfs)
   WSQUASHFS_DXVK=0           Désactive DXVK (défaut : activé)
   WSQUASHFS_HIDRAW=1         Manettes Sony par hidraw si lisibles (défaut : XInput,
-                             comme Batocera ; aussi par jeu via HIDRAW=1 dans autorun.cmd)
+                             comme Batocera ; aussi par jeu via HIDRAW=1 dans autorun.cmd) ;
+                             DualSense Bluetooth présentée en USB (dualsense-usb-bridge)
+  WSQUASHFS_HIDRAW=bt        Idem, DualSense Bluetooth en direct (haptiques Bluetooth)
   (MangoHud, gamemode... : outils extérieurs, ex. "mangohud wsquashfs-launcher jeu.wsquashfs" —
    leurs variables sont transmises au jeu, y compris lancé en root)
   WSQUASHFS_VIRTUAL_DESKTOP  Bureau virtuel Wine pour tous les jeux (ex: 1920x1080),
@@ -1921,10 +1954,18 @@ fi
 # lui-même — seulement si la manette Sony est lisible (hidraw_usable),
 # sinon repli XInput : le jeu n'aurait aucune manette. La valeur est
 # imposée dans les deux sens à chaque lancement.
+# HIDRAW=1 (02/10) : une DualSense Bluetooth (celle de Sunshine) est
+# présentée au jeu en DualSense USB par dualsense-usb-bridge — les libScePad
+# de 2022 (F1 22) refusent la Bluetooth, aucune touche reçue. HIDRAW=bt garde
+# la DualSense Bluetooth en direct : ses haptiques passent en rapports HID
+# (Until Dawn), alors qu'en USB les jeux les jouent en audio, non transmis.
 HIDRAW_DISABLE=1 HIDRAW_MSG="XInput, manette Xbox"
-if [[ "${WSQUASHFS_HIDRAW:-$(getWine_var "$WINEPOINT" "HIDRAW" "0")}" == "1" ]]; then
+HIDRAW_MODE="${WSQUASHFS_HIDRAW:-$(getWine_var "$WINEPOINT" "HIDRAW" "0")}"
+if [[ "$HIDRAW_MODE" == "1" || "$HIDRAW_MODE" == "bt" ]]; then
     if hidraw_usable; then
         HIDRAW_DISABLE=0 HIDRAW_MSG="DualSense/DualShock en direct (hidraw)"
+        [[ "$HIDRAW_MODE" == "1" ]] && start_dualsense_bridge \
+            && HIDRAW_MSG="DualSense USB (dualsense-usb-bridge, depuis la DualSense Bluetooth)"
     else
         HIDRAW_MSG="XInput, manette Xbox (hidraw demandé : ${HIDRAW_REASON})"
     fi

@@ -39,7 +39,7 @@ Tableau, une ligne par image :
 | Version | `GAME_VERSION=` de l'autorun (lu sans monter : `unsquashfs -cat`) |
 | Type | prefix Wine (Batocera), prefix Proton (`config_info` + version), jeu seul |
 | Runner | `WINE=` / `PROTON=` / `RUNNER=`, sinon « défaut » |
-| Manettes | `HIDRAW=1` ou XInput |
+| Manettes | `HIDRAW=1` (DualSense USB par le pont), `HIDRAW=bt` (DualSense Bluetooth en direct) ou XInput |
 | Commande | `CMD=` |
 | Extras | `.keys` présent, relais `fakeping`, `DllOverrides` particuliers |
 | Sauvegardes | taille de `saves/<jeu>`, type du prefix qui s'y trouve |
@@ -151,8 +151,9 @@ ajouter, ou un simple avertissement. Règles de départ, issues des cas réels :
 | import `ddraw` | `D7VK=1` (défaut) | jeux DirectDraw |
 | import `opengl32` seul | rien (DXVK sans effet) | — |
 | import `xinput1_*` | mode XInput (pas de `HIDRAW`) | défaut |
-| `libScePad*.dll` ou chaînes Sony/DualSense dans l'exécutable, sans `steam_api` | proposer `HIDRAW=1` (confiance moyenne) | Until Dawn |
-| `steam_api*.dll` présent | ne **pas** proposer `HIDRAW=1` : support DualSense probablement via Steam Input | The Devil in Me, Street Fighter V |
+| import de `libScePad*.dll` (ou chaînes `scePadOpen`) | proposer `HIDRAW=1` (confiance haute), même avec `steam_api` : le jeu gère la DualSense lui-même (F1 22, 02/10) | F1 22, Until Dawn |
+| haptiques en rapports Bluetooth (jeu qui en a avec `HIDRAW=bt`) | proposer `HIDRAW=bt` : en USB, les haptiques partent en audio, non transmis | Until Dawn |
+| chaînes Sony/DualSense sans `libScePad` et `steam_api*.dll` présent | ne **pas** proposer `HIDRAW=1` : support DualSense probablement via Steam Input | Street Fighter V |
 | exécutable 32 bits sans « large address aware » | rien de spécial depuis la correction de la pile ; noter la limite de 2 Go | GTI Club |
 | `libavs-win32.dll` (Konami e-amusement) | ajouter le relais `fakeping` (`dinput8.dll` + `DllOverrides`) si l'exécutable importe `DINPUT8` ; sinon avertir | Yu-Gi-Oh! DT6, GTI Club |
 | TeknoParrot + `d3dx9_43` natif (Microsoft) dans le prefix | `"*d3dx9_43"="builtin"` dans le registre | Yu-Gi-Oh! DT6 |

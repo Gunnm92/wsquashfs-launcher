@@ -458,6 +458,27 @@ install_script() {
 
     [[ "$src" == /tmp/* ]] && rm -f "$src"
     print_success "Script installé : $INSTALL_DIR/wsquashfs-launcher"
+    install_dualsense_bridge
+}
+
+# Pont DualSense Bluetooth → USB, démarré par le lanceur en HIDRAW=1 (F1 22 :
+# les libScePad de 2022 refusent la DualSense Bluetooth de Sunshine).
+install_dualsense_bridge() {
+    local rel="tools/dualsense-usb-bridge/dualsense-usb-bridge" src tmp=""
+    src="$rel"
+    if [[ ! -f "$src" ]]; then
+        tmp=$(mktemp)
+        if command -v curl &>/dev/null; then
+            curl -fsSL "$REPO_RAW/$rel" -o "$tmp"
+        else
+            wget -q "$REPO_RAW/$rel" -O "$tmp"
+        fi || { rm -f "$tmp"; print_error "Téléchargement de dualsense-usb-bridge impossible"; return 0; }
+        src="$tmp"
+    fi
+    cp "$src" "$INSTALL_DIR/dualsense-usb-bridge"
+    chmod +x "$INSTALL_DIR/dualsense-usb-bridge"
+    [[ -n "$tmp" ]] && rm -f "$tmp"
+    print_success "Pont DualSense installé : $INSTALL_DIR/dualsense-usb-bridge"
 }
 
 create_mime_type() {
@@ -544,6 +565,7 @@ uninstall() {
     else
         print_info "Script non trouvé dans $INSTALL_DIR"
     fi
+    rm -f "$INSTALL_DIR/dualsense-usb-bridge"
 
     if [[ -L "$INSTALL_DIR/umu-run" && "$(readlink "$INSTALL_DIR/umu-run")" == "$UMU_INSTALL_DIR/umu-run" ]]; then
         rm -f "$INSTALL_DIR/umu-run"
