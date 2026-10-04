@@ -188,8 +188,24 @@ detect_wine_username() {
     done
 }
 
+# Surcharge de l'autorun (04/10, wsquashfs-manager) : <jeu>.wsquashfs.autorun
+# à côté de l'image, même format que l'autorun.cmd. Une clé qui y figure
+# l'emporte sur celle de l'image (CLÉ= vide : retour au défaut du lanceur) ;
+# les autres clés viennent de l'image. Sert à essayer un réglage tout de
+# suite, avant de l'inscrire dans l'image — Batocera ne lit pas ce fichier.
+override_var() {
+    local file="$1" winevar="$2"
+    [[ -n "$file" && -f "$file" ]] || return 1
+    grep -q "^${winevar}=" "$file" || return 1
+    grep "^${winevar}=" "$file" | sed "s/^${winevar}=//" | head -1 | tr -d '\r'
+}
+
 getWine_var() {
-    local winepoint="$1" winevar="$2" default="$3"
+    local winepoint="$1" winevar="$2" default="$3" val
+    if val=$(override_var "${AUTORUN_OVERRIDE:-}" "$winevar"); then
+        echo "${val:-$default}"
+        return
+    fi
     if [[ -e "${winepoint}/autorun.cmd" ]]; then
         local val
         val=$(grep "^${winevar}=" "${winepoint}/autorun.cmd" | sed "s/^${winevar}=//" | head -1 | tr -d '\r')
@@ -219,6 +235,10 @@ unquote() {
 # restée dans les sauvegardes ne compte pas) ou dans un dossier installé.
 game_version() {
     local v
+    if v=$(override_var "${1%/}.autorun" GAME_VERSION); then
+        unquote "$v"
+        return
+    fi
     if [[ -d "$1" ]]; then
         v=$(grep -m1 '^GAME_VERSION=' "${1}/autorun.cmd" 2>/dev/null)
     else
@@ -1090,10 +1110,16 @@ show_info() {
     [[ -n "$version" ]] || version="non renseignée (GAME_VERSION= dans l'autorun.cmd)"
     echo "Version       : ${version}"
     echo "Type          : ${type}"
-    if [[ -n "$autorun" ]]; then
+    local cmd
+    if cmd=$(override_var "${src%/}.autorun" CMD); then
+        echo "Commande      : ${cmd}"
+    elif [[ -n "$autorun" ]]; then
         echo "Commande      : $(grep -m1 '^CMD=' <<< "$autorun" | sed 's/^CMD=//' | tr -d '\r')"
     else
         echo "Commande      : aucun autorun.cmd"
+    fi
+    if [[ -f "${src%/}.autorun" ]]; then
+        echo "Surcharge     : $(basename "${src%/}.autorun") ($(grep -o '^[A-Za-z_][A-Za-z0-9_]*=' "${src%/}.autorun" | tr -d '=' | paste -sd ' ')) — non lue par Batocera"
     fi
     echo "Taille        : $(du -sh "$src" | cut -f1)"
 }
@@ -1388,6 +1414,8 @@ fi
 # ============================================================
 
 GAME_NAME=$(basename "$WSQUASHFS_FILE" .wsquashfs)
+AUTORUN_OVERRIDE="${WSQUASHFS_FILE%/}.autorun"
+[[ -f "$AUTORUN_OVERRIDE" ]] || AUTORUN_OVERRIDE=""
 ENV_TYPE=$(detect_env)
 
 SQUASHFSPOINT="${CACHE_DIR}/mnt/${GAME_NAME}"
@@ -1403,6 +1431,9 @@ echo "Jeu           : $GAME_NAME"
 GAME_VERSION=$(game_version "$WSQUASHFS_FILE")
 [[ -n "$GAME_VERSION" ]] && echo "Version       : $GAME_VERSION"
 echo "Fichier       : $WSQUASHFS_FILE"
+if [[ -n "$AUTORUN_OVERRIDE" ]]; then
+    echo "Surcharge     : $(basename "$AUTORUN_OVERRIDE") ($(grep -o '^[A-Za-z_][A-Za-z0-9_]*=' "$AUTORUN_OVERRIDE" | tr -d '=' | paste -sd ' '))"
+fi
 [[ "$ACTION" != "run" ]] && echo "Action        : ${ACTION}${EXEC_CMD[0]:+ (${EXEC_CMD[0]})}"
 
 # ============================================================

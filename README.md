@@ -298,6 +298,23 @@ Sans `WINE`, `PROTON`, `RUNNER` ni `--wine` :
 | `ESYNC` | Event synchronization | `0` / `1` |
 | `FSYNC` | Futex synchronization | `0` / `1` |
 
+### Surcharge sans reconstruction (`<jeu>.wsquashfs.autorun`)
+
+Un fichier `<jeu>.wsquashfs.autorun` posé **à côté de l'image** (même format
+que l'`autorun.cmd`) permet d'essayer un réglage tout de suite, sans
+reconstruire l'image : une clé qui y figure l'emporte sur celle de l'image,
+`CLÉ=` vide la ramène au défaut du lanceur, les autres clés viennent de
+l'image. Le lancement et `--info` l'annoncent (« Surcharge : … »).
+
+```
+# Le Jeu.wsquashfs.autorun
+GAME_VERSION=1.2.0
+HIDRAW=1
+```
+
+Batocera ne lit pas ce fichier : une fois le réglage validé, l'inscrire dans
+l'image (wsquashfs-manager le fait en une action) et supprimer la surcharge.
+
 ### Exemples
 
 ```cmd
