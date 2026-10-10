@@ -1398,8 +1398,11 @@ elif [[ ! -f "$WSQUASHFS_FILE" ]]; then
     exit 1
 fi
 
-if ! command -v wine &>/dev/null && [[ -z "$(find_wine_binary)" ]]; then
-    echo "Erreur : aucun binaire Wine trouvé"
+# Sans Wine, un Proton lancé par umu suffit (jeu seul ou prefix Proton) : cas
+# d'un système sans wine, les runners étant dans compatibilitytools.d.
+if ! command -v wine &>/dev/null && [[ -z "$(find_wine_binary)" ]] \
+   && ! { find_umu_run >/dev/null && [[ -n "$(find_proton_runner "")" ]]; }; then
+    echo "Erreur : aucun binaire Wine ni Proton (avec umu-run) trouvé"
     exit 1
 fi
 
