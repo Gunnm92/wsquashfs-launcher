@@ -1586,6 +1586,9 @@ WINE_ARCH=$(getWine_var "$WINEPOINT" "ARCH" "")
 # alors que Vulkan voit bien le GPU. DXVK=0 dans autorun.cmd (par jeu) ou
 # WSQUASHFS_DXVK=0 (global) pour revenir aux DLL intégrées de Wine.
 DXVK=$(getWine_var "$WINEPOINT" "DXVK" "${WSQUASHFS_DXVK:-1}")
+# Choix demandé, avant le repli faute de DXVK local : sous Proton, qui a son
+# propre DXVK, seul un DXVK=0 voulu passe en wined3d.
+DXVK_WANTED="$DXVK"
 if [[ "$DXVK" == "1" && -z "$(find_dxvk_dir)" ]]; then
     echo "Attention : DXVK introuvable (/usr/share/dxvk), rendu via wined3d"
     DXVK=0
@@ -1865,7 +1868,9 @@ if [[ -n "$UMU_RUN" ]]; then
     # ou WSQUASHFS_DXVK=0) passe par son équivalent Proton : sans lui, Proton
     # gardait DXVK et DXVK=0 était ignoré (constaté le 01/10, variable bien
     # reçue par le jeu après correction).
-    [[ "$DXVK" == "0" ]] && export PROTON_USE_WINED3D=1
+    # DXVK_WANTED et non DXVK : sans /usr/share/dxvk, DXVK valait 0 et tout
+    # jeu Proton passait en wined3d (Ride 6, 10/10 : image qui clignote).
+    [[ "$DXVK_WANTED" == "0" ]] && export PROTON_USE_WINED3D=1
     DXVK=0 VKD3D=0 D7VK=0
     # Proton COPIE ~560 DLL de son default_pfx (d3dx9, msvcp, xaudio...,
     # motifs builtin_dll_copy) dans chaque prefix au lieu de les lier :
