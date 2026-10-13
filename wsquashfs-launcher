@@ -1,38 +1,134 @@
-#!/bin/bash
-
-# wsquashfs-launcher — Lance un jeu .wsquashfs sur machine physique ou Docker
+#!/usr/bin/env bash
 #
-# Modes de montage (sélection automatique) :
-#   overlay  squashfuse + fuse-overlayfs — sauvegardes isolées dans SAVES_DIR
-#   copy     squashfuse ou unsquashfs   — copie de travail persistante (cache)
-
+# wsquashfs-launcher — lance un jeu Windows .wsquashfs (format Batocera) sur
+# n'importe quel Linux, machine physique ou conteneur Docker.
+#
+# Usage : wsquashfs-launcher --help
+#
+# Modes de montage (choisis automatiquement) :
+#   overlay  squashfuse + fuse-overlayfs : l'image reste intacte, ce que le
+#            jeu écrit va dans SAVES_DIR/<jeu> (couche de sauvegardes)
+#   copy     squashfuse ou unsquashfs : copie de travail persistante (cache)
+#   dir      jeu installé (--install) : dossier lancé sur place, sans FUSE
+#
 # Aucun privilège requis (27/09) : squashfuse et fuse-overlayfs montent
 # l'image en utilisateur (FUSE, comme les AppImage), et les fichiers
-# root:root restrictifs des paquets Batocera se lisent tels quels —
-# vérifié sur Blade Strangers (game/RConfig.exe, root rw-r-----). Lancé en
-# utilisateur, tout (montages, Wine, sauvegardes) lui appartient ; plus de
-# fichiers root dans les sauvegardes ni de dossiers de cache inaccessibles.
-# Toujours utilisable sous sudo (frontends qui l'élèvent) : voir ci-dessous.
+# root:root restrictifs des paquets Batocera se lisent tels quels — vérifié
+# sur Blade Strangers (game/RConfig.exe, root rw-r-----). Lancé en
+# utilisateur, tout (montages, Wine, sauvegardes) lui appartient. Toujours
+# utilisable sous sudo (frontends qui l'élèvent) : voir init_config.
+#
+# Organisation du fichier :
+#    1. Configuration et environnement d'exécution
+#    2. Utilitaires
+#    3. Lecture de l'autorun.cmd
+#    4. Montages FUSE et cache
+#    5. Runners Wine / Proton
+#    6. Préparation du prefix (DLL, DXVK, registre, sauvegardes)
+#    7. Manettes
+#    8. Commandes de maintenance (--clean, --clear, --pack, --info...)
+#    9. Lancement d'un jeu (étapes appelées dans l'ordre par launch_game)
+#   10. Point d'entrée
+#
+# Conventions :
+#   - MAJUSCULES : variables globales (configuration, état du lancement),
+#     toutes déclarées en section 1 ; minuscules : variables locales.
+#   - Pas de « set -euo pipefail » : le lanceur est volontairement
+#     tolérant (démontages, chown, nettoyages peuvent échouer sans gêner la
+#     partie) et plusieurs pipelines s'arrêtent tôt (head -1, grep -q).
+#     Chaque erreur bloquante est testée explicitement et passe par die().
+#   - Les dates (JJ/MM) dans les commentaires renvoient aux constats qui ont
+#     motivé un comportement : à relire avant de le modifier.
+
+# ════════════════════════════════════════════════════════════════════════
+# 1. CONFIGURATION ET ENVIRONNEMENT D'EXÉCUTION
+# ════════════════════════════════════════════════════════════════════════
+
+# ── Configuration (figée par init_config) ──────────────────────────────
+SAVES_DIR=""            # couches de sauvegardes (upperdir overlay), une par jeu
+CACHE_DIR=""            # montages et copies de travail
+RUN_AS_ROOT=false       # true : lancé en root (sudo)
+TARGET_USER=""          # utilisateur qui lance Wine quand on est root (SUDO_USER)
+ALLOW_OTHER_OPT=""      # option FUSE allow_other, en root seulement
+WINE_UID="" WINE_GID="" # propriétaire de tout ce que Wine doit pouvoir écrire
+OVERLAY_SQUASH_OPT=""   # options fuse-overlayfs squash_to_uid/gid
+
+# ── Ligne de commande (parse_args) ─────────────────────────────────────
+ACTION="run"            # run | mount | exec | help, ou une commande de maintenance
+                        # (clean, clear, umount, pack, install, info, backup, list, doctor)
+GAME_ARG=""             # jeu demandé (.wsquashfs ou dossier installé)
+WINE_OVERRIDE=""        # --wine <version|chemin>
+EXEC_CMD=()             # --exec : programme et ses arguments
+CMD_ARGS=()             # arguments d'une commande de maintenance
+
+# ── Jeu et montage ─────────────────────────────────────────────────────
+WSQUASHFS_FILE=""       # chemin absolu du .wsquashfs (ou du dossier installé)
+DIR_MODE=0              # 1 : jeu installé, lancé sur place
+GAME_NAME=""
+AUTORUN_OVERRIDE=""     # <jeu>.wsquashfs.autorun s'il existe
+MOUNT_MODE=""           # overlay | copy | dir
+MOUNTED=false           # true : cleanup() doit arrêter Wine et démonter
+SQUASHFSPOINT=""        # image montée (lowerdir)
+WINEPOINT=""            # prefix vu par Wine (overlay, copie ou dossier)
+SAVEPOINT=""            # couche de sauvegardes du jeu (upperdir)
+WORKPOINT=""            # workdir de fuse-overlayfs, à côté de SAVEPOINT
+PACKAGED_PREFIX=0       # 1 : l'image contient un prefix (system.reg)
+PROTON_PREFIX=0         # 1 : prefix créé par Proton (config_info)
+LOCK_FD=""              # descripteur du verrou du jeu (acquire_game_lock)
+LOCKED_GAME=""          # jeu dont ce lancement tient le verrou
+
+# ── autorun.cmd (read_autorun) ─────────────────────────────────────────
+DIR="" CMD="" WINE_VERSION="" PROTON_VERSION="" RUNNER="" WINE_ARCH=""
+DXVK="" DXVK_WANTED="" VKD3D="" D7VK="" SAVEDIR="" SAVEFILES=""
+ESYNC="" FSYNC="" WINE_LANG="" WINE_ENV="" VIRTUAL_DESKTOP=""
+
+# ── Exécutable (resolve_executable) ────────────────────────────────────
+EXEC_PATH=""            # chemin Unix de l'exécutable, ou outil Wine (--exec)
+EXEC_ARGS=""            # arguments, pour l'affichage (CMD tel qu'écrit, ou --exec)
+EXEC_ARGS_ARR=()
+EXT=""                  # extension de l'exécutable, en minuscules
+RUN_CMD=()              # ligne de commande finale (build_run_command)
+
+# ── Runner (select_runner) ─────────────────────────────────────────────
+WINE_BINARY=""
+PREFIX_PROTON=""        # version de Proton qui a créé le prefix
+OVERRIDE_PROTON=""      # Proton demandé par --wine, lancé par umu
+FORCED_WINE=""          # runner Wine imposé (autorun.cmd ou --wine)
+AUTO_PROTON=0           # 1 : jeu seul, prefix à créer par Proton
+UMU_RUN=""              # umu-run utilisé, vide si Wine lancé directement
+PROTON_DIR=""
+WINE_TOOL=()            # lanceur des outils Wine (regedit, reg) : configure_wine
+
+# ── Manettes (configure_controllers) ───────────────────────────────────
+HIDRAW_DISABLE=1
+HIDRAW_MSG=""
+HIDRAW_REASON=""
+DS_BRIDGE_PID=""
+
+# Cache de under_opaque (--clean) : dossier relatif → y/n.
+declare -A OPAQUE_CACHE=()
+
 # Lancé par un simple "sudo" (sans -E) : sudo remet HOME=/root et efface
 # XDG_RUNTIME_DIR/WAYLAND_DISPLAY — montages et sauvegardes partaient dans
 # /root, inaccessible à Wine relancé en utilisateur ("wine: cannot use
 # directory /root/.cache/wsquashfs/…: Permission denied", 26/09). On repart
 # de l'utilisateur d'origine (SUDO_USER) ; une valeur conservée par sudo -E
 # n'est jamais remplacée.
-if [[ "${EUID}" -eq 0 && -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" ]]; then
-    _sudo_home=$(getent passwd "${SUDO_USER}" | cut -d: -f6)
-    if [[ -n "${_sudo_home}" && "${HOME:-/root}" == "/root" ]]; then
-        export HOME="${_sudo_home}"
+restore_sudo_user_session() {
+    [[ "${EUID}" -eq 0 && -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" ]] || return 0
+    local home runtime
+    home=$(getent passwd "${SUDO_USER}" | cut -d: -f6)
+    if [[ -n "$home" && "${HOME:-/root}" == "/root" ]]; then
+        export HOME="$home"
     fi
-    _sudo_runtime="/run/user/$(id -u "${SUDO_USER}")"
-    if [[ -z "${XDG_RUNTIME_DIR:-}" && -d "${_sudo_runtime}" ]]; then
-        export XDG_RUNTIME_DIR="${_sudo_runtime}"
+    runtime="/run/user/$(id -u "${SUDO_USER}")"
+    if [[ -z "${XDG_RUNTIME_DIR:-}" && -d "$runtime" ]]; then
+        export XDG_RUNTIME_DIR="$runtime"
     fi
     if [[ -z "${WAYLAND_DISPLAY:-}" && -n "${XDG_RUNTIME_DIR:-}" && -S "${XDG_RUNTIME_DIR}/wayland-0" ]]; then
         export WAYLAND_DISPLAY=wayland-0
     fi
-    unset _sudo_home _sudo_runtime
-fi
+}
 
 # Pile limitée à 8 Mo si elle est illimitée (30/09) — cas de Docker sur
 # Unraid. Pile illimitée, Linux passe à la disposition mémoire « legacy »
@@ -41,62 +137,65 @@ fi
 # 0x7001_0000_0000 : wineboot en SIGSYS), et les jeux 32 bits sous wine-tkg
 # n'obtenaient plus leurs grosses réservations (GTI Club, 450 Mo refusés).
 # Limite souple seulement : toujours permise, héritée par Wine et Proton.
-if [[ "$(ulimit -s)" == "unlimited" ]]; then
-    ulimit -S -s 8192 2>/dev/null || true
-fi
+limit_stack_size() {
+    if [[ "$(ulimit -s)" == "unlimited" ]]; then
+        ulimit -S -s 8192 2>/dev/null || true
+    fi
+}
 
-# ============================================================
-# CONFIGURATION
-# ============================================================
+init_config() {
+    SAVES_DIR="${WSQUASHFS_SAVES_DIR:-$HOME/.local/share/wsquashfs/saves}"
+    CACHE_DIR="${WSQUASHFS_CACHE:-$HOME/.cache/wsquashfs}"
 
-SAVES_DIR="${WSQUASHFS_SAVES_DIR:-$HOME/.local/share/wsquashfs/saves}"
-CACHE_DIR="${WSQUASHFS_CACHE:-$HOME/.cache/wsquashfs}"
+    # Un frontend peut élever ce script via `sudo -E` (inutile, voir l'en-tête,
+    # mais toujours pris en charge). Root n'a pas le cookie X11 (~/.Xauthority)
+    # de la session graphique : lancer Wine tel quel donne "Authorization
+    # required, but no authorization protocol specified" puis "no driver could
+    # be loaded" — confirmé en direct. Montage et extraction restent donc en
+    # root, mais Wine est relancé en SUDO_USER (voir as_wine_user).
+    # allow_other n'est utile que dans ce cas : sans lui, un montage fait en
+    # root reste invisible à SUDO_USER (FUSE : seul le monteur ou root peut y
+    # accéder), d'où des "Permission denied" au lancement suivant.
+    RUN_AS_ROOT=false
+    if [[ "$(id -u)" -eq 0 ]]; then
+        RUN_AS_ROOT=true
+        ALLOW_OTHER_OPT="allow_other"
+    fi
+    TARGET_USER="${SUDO_USER:-}"
 
-# Certains paquets Batocera sont root:root avec des permissions parfois
-# restrictives — un frontend peut donc élever ce script via `sudo -E`
-# (inutile : voir en tête de fichier, mais toujours pris en charge). Mais root n'a pas le cookie
-# X11 (~/.Xauthority) de la session graphique de l'utilisateur réel :
-# lancer Wine tel quel donne "Authorization required, but no authorization
-# protocol specified" puis "no driver could be loaded" — confirmé en direct.
-# On garde donc le montage/l'extraction en root (si c'est ainsi qu'on a été
-# lancé), mais on repasse sur SUDO_USER (positionné automatiquement par sudo)
-# juste avant d'exécuter Wine. ALLOW_OTHER_OPT n'est utile que dans ce cas :
-# sans lui, un montage fait en root reste invisible à SUDO_USER ensuite
-# (FUSE : seul le monteur ou root — ici l'inverse — peut y accéder sans
-# allow_other), ce qui cascade en "Permission denied" au lancement suivant.
-RUN_AS_ROOT=false
-[[ "$(id -u)" -eq 0 ]] && RUN_AS_ROOT=true
-TARGET_USER="${SUDO_USER:-}"
-ALLOW_OTHER_OPT=""
-[[ "$RUN_AS_ROOT" == true ]] && ALLOW_OTHER_OPT="allow_other"
+    # Le contenu des .wsquashfs Batocera appartient à root:root (755/644) et
+    # fuse-overlayfs applique ces droits (default_permissions) : Wine ne
+    # pouvait alors RIEN modifier dans le jeu — confirmé sur Initial D 8
+    # (segare) : "UnauthorizedAccessException: Access to the path
+    # C:\game\...\teknoparrot.ini is denied". squash_to_uid/gid fait
+    # apparaître toute l'arborescence fusionnée comme appartenant à
+    # l'utilisateur qui lance Wine.
+    WINE_UID=$(id -u)
+    WINE_GID=$(id -g)
+    if drops_to_target_user; then
+        WINE_UID=$(id -u "$TARGET_USER")
+        WINE_GID=$(id -g "$TARGET_USER")
+    fi
+    OVERLAY_SQUASH_OPT="squash_to_uid=${WINE_UID},squash_to_gid=${WINE_GID}"
 
-# Le contenu des .wsquashfs Batocera appartient à root:root (755/644) et
-# fuse-overlayfs applique ces droits (default_permissions) : Wine, qui tourne
-# en TARGET_USER, ne pouvait alors RIEN modifier dans le jeu — confirmé en
-# direct sur Initial D 8 (segare) : "UnauthorizedAccessException: Access to
-# the path C:\game\...\teknoparrot.ini is denied", et C:\users\<user>
-# impossible à créer. squash_to_uid/gid fait apparaître toute l'arborescence
-# fusionnée comme appartenant à l'utilisateur qui lance Wine.
-WINE_UID=$(id -u)
-WINE_GID=$(id -g)
-if [[ "$RUN_AS_ROOT" == true && -n "$TARGET_USER" ]]; then
-    WINE_UID=$(id -u "$TARGET_USER")
-    WINE_GID=$(id -g "$TARGET_USER")
-fi
-OVERLAY_SQUASH_OPT="squash_to_uid=${WINE_UID},squash_to_gid=${WINE_GID}"
+    readonly SAVES_DIR CACHE_DIR RUN_AS_ROOT TARGET_USER ALLOW_OTHER_OPT \
+             WINE_UID WINE_GID OVERLAY_SQUASH_OPT
+}
+
+# Vrai si l'on tourne en root pour le compte d'un utilisateur (sudo) : Wine
+# doit alors être lancé en TARGET_USER.
+drops_to_target_user() {
+    [[ "$RUN_AS_ROOT" == true && -n "$TARGET_USER" ]]
+}
 
 # Exécute une commande en tant que l'utilisateur qui lance Wine.
 as_wine_user() {
-    if [[ "$RUN_AS_ROOT" == true && -n "$TARGET_USER" ]]; then
+    if drops_to_target_user; then
         sudo -u "$TARGET_USER" "$@"
     else
         "$@"
     fi
 }
-
-# ============================================================
-# FONCTIONS
-# ============================================================
 
 detect_env() {
     if [[ -f /.dockerenv ]] || grep -qE 'docker|lxc' /proc/1/cgroup 2>/dev/null; then
@@ -106,113 +205,88 @@ detect_env() {
     fi
 }
 
-# Wine par défaut (prefix non Proton : jeux arcade Batocera). Priorité
-# (27/09) : wine-tkg → wine-ge/lutris → wine-proton → wine système. wine-tkg
-# d'abord, comme le runner par défaut de Batocera : meilleure compatibilité
-# avec les jeux arcade. Les prefixes créés par Proton (Heroic, Steam) ont
-# leur propre choix de runner, voir find_proton_runner.
-find_wine_binary() {
-    local candidates=("/usr/wine/wine-tkg/bin/wine") d w
-    # Chemins installés par notre installeur ou manuellement
-    for d in "$HOME/.local/share/wsquashfs/wine" "/opt"; do
-        [[ -d "$d" ]] || continue
-        while IFS= read -r -d '' w; do
-            [[ -x "$w" ]] && candidates+=("$w")
-        done < <(find "$d" -maxdepth 3 -name "wine" -path "*/bin/wine" -print0 2>/dev/null \
-            | grep -z -i 'tkg')
-    done
-    candidates+=("/usr/wine/ge-custom/bin/wine")
-    for d in "$HOME/.local/share/wsquashfs/wine" "/opt"; do
-        [[ -d "$d" ]] || continue
-        while IFS= read -r -d '' w; do
-            [[ -x "$w" ]] && candidates+=("$w")
-        done < <(find "$d" -maxdepth 3 -name "wine" -path "*/bin/wine" -print0 2>/dev/null \
-            | grep -z -iE '/(wine-ge|lutris-|wine-lutris)')
-    done
-    candidates+=("/usr/wine/wine-proton/bin/wine")
-    for c in "${candidates[@]}"; do
-        [[ -x "$c" ]] || continue
-        # Vérifier que l'interpréteur ELF est présent (wine est souvent un stub 32-bit
-        # qui requiert /lib/ld-linux.so.2 absent des systèmes 64-bit purs)
-        local interp
-        interp=$(readelf -l "$c" 2>/dev/null | grep 'interpreter' \
-                 | sed 's/.*interpreter: \(.*\)\]/\1/')
-        if [[ -z "$interp" || -x "$interp" ]]; then
-            echo "$c" && return
-        fi
-        # Fallback : wine64 dans le même répertoire bin/
-        local wine64="${c%wine}wine64"
-        if [[ -x "$wine64" ]]; then
-            local interp64
-            interp64=$(readelf -l "$wine64" 2>/dev/null | grep 'interpreter' \
-                       | sed 's/.*interpreter: \(.*\)\]/\1/')
-            if [[ -z "$interp64" || -x "$interp64" ]]; then
-                echo "$wine64" && return
-            fi
-        fi
-    done
-    command -v wine
-}
-
-# Vrai si ce binaire Wine sait exécuter un prefix win32 (build classique avec
-# i386-unix ; un build WoW64 seul n'a que x86_64-unix).
-wine_supports_win32() {
-    local root
-    root=$(dirname "$(dirname "$(readlink -f "$1")")")
-    [[ -d "${root}/lib/wine/i386-unix" || -d "${root}/lib32/wine/i386-unix" ]]
-}
-
-# Détecte l'architecture réelle du prefix depuis system.reg (comme setPrefixArch de Batocera).
-# Format réel : ligne "#arch=win32" en tête de system.reg/userdef.reg — l'ancien
-# motif '"#arch"="win32"' ne correspondait jamais (tout prefix vu en win64).
-detect_prefix_arch() {
-    if grep -qs '^#arch=win32' "${WINEPOINT}/system.reg" "${WINEPOINT}/userdef.reg"; then
-        echo "win32"
-    else
-        echo "win64"
+# Auto-correction de propriété sur le cache : un dossier créé par un autre
+# UID (session sudo antérieure, ancien PUID de conteneur avant remap
+# usermod...) bloque ensuite mkdir/rm/unsquashfs pour TOUS les jeux. On
+# corrige la racine en une passe (rien si déjà correct). sudo -n : jamais de
+# prompt (le script peut tourner sans TTY) ; sans sudo, no-op silencieux.
+#
+# Propriétaire visé = l'utilisateur qui lance Wine. find -xdev, jamais
+# chown -R : ce dernier traversait les overlays encore montés sous CACHE_DIR
+# et chaque chown y déclenchait un copy-up — confirmé en direct, le jeu
+# ENTIER recopié dans SAVES_DIR (7 Go par jeu).
+fix_ownership() {
+    local path="$1"
+    [[ -e "$path" ]] || return 0
+    [[ "$(stat -c '%u' "$path" 2>/dev/null)" == "$WINE_UID" ]] && return 0
+    local chown_cmd=(chown)
+    if [[ "$(id -u)" -ne 0 ]]; then
+        command -v sudo &>/dev/null || return 0
+        chown_cmd=(sudo -n chown)
     fi
+    find "$path" -xdev ! -user "$WINE_UID" -print0 2>/dev/null \
+        | xargs -0r "${chown_cmd[@]}" -h "${WINE_UID}:${WINE_GID}" 2>/dev/null || true
 }
 
-# Détecte le nom d'utilisateur Wine dans le prefix (profiles packagés par Batocera, ex: steamuser).
-# Retourne le premier utilisateur trouvé (hors Public/All Users/Default User).
-detect_wine_username() {
-    local users_dir="${WINEPOINT}/drive_c/users"
-    [[ -d "$users_dir" ]] || return
-    local name
-    for d in "$users_dir"/*/; do
-        name=$(basename "$d")
-        case "$name" in
-            Public|"All Users"|"Default User"|LocalService|NetworkService) continue ;;
-        esac
-        [[ -d "$d" ]] && echo "$name" && return
-    done
+# Lancé en root, tout ce que le script crée (dossiers de cache, prefix
+# extrait) appartient à root — Wine refuse ensuite un WINEPREFIX qui ne lui
+# appartient pas ("... is not owned by you", confirmé en direct). Rend le
+# chemin à TARGET_USER ; no-op hors sudo.
+chown_to_target() {
+    drops_to_target_user || return 0
+    [[ -e "$1" ]] || return 0
+    # Jamais à travers un montage FUSE (overlay encore monté d'une session
+    # précédente...) : chaque chown y déclenche un copy-up du fichier.
+    mountpoint -q "$1" 2>/dev/null && return 0
+    find "$1" -xdev ! -user "$TARGET_USER" -print0 2>/dev/null \
+        | xargs -0r chown -h "${TARGET_USER}:${TARGET_USER}" 2>/dev/null || true
 }
 
-# Surcharge de l'autorun (04/10, wsquashfs-manager) : <jeu>.wsquashfs.autorun
-# à côté de l'image, même format que l'autorun.cmd. Une clé qui y figure
-# l'emporte sur celle de l'image (CLÉ= vide : retour au défaut du lanceur) ;
-# les autres clés viennent de l'image. Sert à essayer un réglage tout de
-# suite, avant de l'inscrire dans l'image — Batocera ne lit pas ce fichier.
-override_var() {
-    local file="$1" winevar="$2"
-    [[ -n "$file" && -f "$file" ]] || return 1
-    grep -q "^${winevar}=" "$file" || return 1
-    grep "^${winevar}=" "$file" | sed "s/^${winevar}=//" | head -1 | tr -d '\r'
+# ════════════════════════════════════════════════════════════════════════
+# 2. UTILITAIRES
+# ════════════════════════════════════════════════════════════════════════
+
+# Erreurs et avertissements vont sur la sortie d'erreur : un frontend qui
+# n'enregistre que la sortie standard garde un journal propre, et un script
+# qui appelle le lanceur peut les séparer du reste.
+
+# die <message> [lignes de détail...] : affiche l'erreur et quitte (code 1).
+die() {
+    {
+        echo "Erreur : $1"
+        shift
+        (($#)) && printf '%s\n' "$@"
+    } >&2
+    exit 1
 }
 
-getWine_var() {
-    local winepoint="$1" winevar="$2" default="$3" val
-    if val=$(override_var "${AUTORUN_OVERRIDE:-}" "$winevar"); then
-        echo "${val:-$default}"
-        return
-    fi
-    if [[ -e "${winepoint}/autorun.cmd" ]]; then
-        local val
-        val=$(grep "^${winevar}=" "${winepoint}/autorun.cmd" | sed "s/^${winevar}=//" | head -1 | tr -d '\r')
-        echo "${val:-$default}"
-    else
-        echo "$default"
-    fi
+# warn <message> [lignes de détail...]
+warn() {
+    {
+        echo "Attention : $1"
+        shift
+        (($#)) && printf '%s\n' "$@"
+    } >&2
+    return 0
+}
+
+# usage_error <syntaxe> : rappel de syntaxe d'une commande, puis code 1.
+usage_error() {
+    echo "Usage : $*" >&2
+    exit 1
+}
+
+# confirm <question> : vrai si l'utilisateur répond oui (o/y).
+confirm() {
+    local reply
+    read -r -p "$1 [o/N] " reply
+    [[ "${reply,,}" == o* || "${reply,,}" == y* ]]
+}
+
+# Échappe une chaîne pour un motif grep -E.
+regex_escape() {
+    # shellcheck disable=SC2016  # $ littéral dans la classe de caractères
+    printf '%s' "$1" | sed 's/[][\.*^$(){}?+|/]/\\&/g'
 }
 
 # Retire une paire de guillemets entourant une valeur de chemin de
@@ -228,429 +302,102 @@ unquote() {
     echo "$v"
 }
 
-# Version du jeu packagé : GAME_VERSION= de l'autorun.cmd (29/09). Batocera
-# ne lit que les clés qu'il connaît (grep "^CLE=" dans batocera-wine), une
-# clé en plus y est ignorée — l'image reste compatible. Lue dans l'image
-# même (unsquashfs -cat, sans montage : une modification de l'autorun.cmd
-# restée dans les sauvegardes ne compte pas) ou dans un dossier installé.
-game_version() {
-    local v
-    if v=$(override_var "${1%/}.autorun" GAME_VERSION); then
-        unquote "$v"
+# Racine d'installation d'un binaire Wine (…/bin/wine → …), liens résolus.
+runner_root() {
+    dirname "$(dirname "$(readlink -f "$1")")"
+}
+
+# Nom lisible du runner d'un binaire Wine, pour les messages :
+# …/wine-tkg/bin/wine → wine-tkg, …/GE-Proton9-1/files/bin/wine →
+# GE-Proton9-1, wine du PATH → « Wine système ». Un binaire posé dans un
+# dossier système (/usr/local/bin/proton) est nommé avec son chemin.
+runner_name() {
+    local bin="$1" root=""
+    if [[ -z "$bin" ]]; then
+        echo "aucun Wine"
         return
     fi
-    if [[ -d "$1" ]]; then
-        v=$(grep -m1 '^GAME_VERSION=' "${1}/autorun.cmd" 2>/dev/null)
-    else
-        v=$(unsquashfs -cat "$1" autorun.cmd 2>/dev/null | grep -m1 '^GAME_VERSION=')
+    if [[ "$bin" == "$(command -v wine 2>/dev/null)" ]]; then
+        echo "Wine système"
+        return
     fi
-    v="${v#GAME_VERSION=}"
-    unquote "${v%$'\r'}"
+    case "$bin" in
+        */files/bin/*) root="${bin%/files/bin/*}" ;;
+        */bin/*)       root="${bin%/bin/*}" ;;
+    esac
+    case "$(basename "${root:-/}")" in
+        /|usr|local|opt) echo "$(basename "$bin") (${bin})" ;;
+        *)               basename "$root" ;;
+    esac
 }
 
-do_umount() {
-    fusermount -u "$1" 2>/dev/null || fusermount3 -u "$1" 2>/dev/null || umount "$1" 2>/dev/null || true
-}
-
-# Démontage de fin de partie : juste après wineserver -k, les processus du jeu
-# tiennent encore des fichiers ouverts quelques instants ("busy") — un seul
-# essai laissait le montage en place (confirmé en campagne de test). Quelques
-# essais, puis démontage différé en dernier recours, comme safe_umount() de
-# batocera-wine (umount -l).
-umount_retry() {
-    local i
-    for ((i = 0; i < 5; i++)); do
-        mountpoint -q "$1" 2>/dev/null || return 0
-        fusermount -u "$1" 2>/dev/null || fusermount3 -u "$1" 2>/dev/null || umount "$1" 2>/dev/null
-        mountpoint -q "$1" 2>/dev/null || return 0
-        sleep 1
-    done
-    fusermount3 -uz "$1" 2>/dev/null || fusermount -uz "$1" 2>/dev/null || umount -l "$1" 2>/dev/null || true
-}
-
-# Balaie TOUS les montages wsquashfs actifs sous CACHE_DIR, pas seulement
-# celui du jeu qu'on lance — un jeu qui plante ou qu'on ferme brutalement
-# (SIGKILL, déconnexion Moonlight) ne passe jamais par cleanup() ; sans ce
-# balayage à chaque lancement, ces montages orphelins s'accumulent
-# indéfiniment au fil des jeux essayés (confirmé en direct : 10 montages
-# fantômes après 10 jeux testés une fois chacun). Best-effort : un jeu
-# ACTIVEMENT en cours (fichier ouvert dans son montage) échoue juste
-# silencieusement à se démonter ("busy") et n'est donc jamais perturbé.
-unmount_all_stale() {
-    # mount(8) affiche toujours le chemin CANONIQUE (symlinks résolus) —
-    # CACHE_DIR peut être un chemin symlinké (ex: $HOME/.cache/... quand
-    # $HOME lui-même est un lien, comme /home/arcade -> /config sur
-    # SteamBox) : un grep -F sur CACHE_DIR brut ne matcherait alors jamais
-    # rien, confirmé en direct (fonction silencieusement no-op).
-    # Seulement les montages ABANDONNÉS (27/09) : démonter aussi ceux d'un
-    # jeu en cours coupait ce jeu dès qu'un autre était lancé — plusieurs
-    # parties interrompues ainsi le 27/09 (Kingdom Hearts III, DBZ).
-    local real_cache_dir m
-    real_cache_dir=$(readlink -f "$CACHE_DIR" 2>/dev/null || echo "$CACHE_DIR")
-    mount 2>/dev/null | grep -F "${real_cache_dir}/wine/" | sed -E 's/^[^ ]+ on (.*) type .*/\1/' \
-        | while IFS= read -r m; do game_in_use "$(basename "$m")" || do_umount "$m"; done
-    mount 2>/dev/null | grep -F "${real_cache_dir}/mnt/" | sed -E 's/^[^ ]+ on (.*) type .*/\1/' \
-        | while IFS= read -r m; do game_in_use "$(basename "$m")" || do_umount "$m"; done
-}
-
-# Vrai si un processus tourne dans le prefix de ce jeu : WINEPREFIX (Wine,
-# Proton, umu et son runtime l'héritent tous) pointe vers
-# .../wsquashfs/wine/<jeu>, avec ou sans / final (Proton : .../<jeu>/pfx/).
-game_in_use() {
-    local re
-    re=$(printf '%s' "$1" | sed 's/[][\.*^$(){}?+|/]/\\&/g')
-    grep -qszE "^WINEPREFIX=.*/wsquashfs/wine/${re}(/.*)?$" /proc/[0-9]*/environ 2>/dev/null
-}
-
-# Auto-correction de propriété sur le cache : un dossier créé par un autre
-# UID (session sudo antérieure, ancien PUID de conteneur avant remap
-# usermod, etc.) bloque ensuite mkdir/rm/unsquashfs pour TOUS les jeux
-# dont le cache vit sous ce même chemin. On corrige la racine en une
-# passe récursive (skip si déjà correct — pas de chown -R inutile à
-# chaque lancement) plutôt que de rustiner un jeu à la fois.
-# sudo -n : jamais de prompt interactif (le script peut tourner sans TTY,
-# ex. lancé depuis un frontend). Sans sudo (dé)configuré, no-op silencieux.
-#
-# Propriétaire visé = l'utilisateur qui lance Wine (pas root quand on a été
-# élevé via sudo, sinon Wine refuse ensuite le prefix). find -xdev, jamais
-# chown -R : ce dernier traversait les overlays encore montés sous CACHE_DIR
-# et chaque chown y déclenchait un copy-up du fichier — confirmé en direct,
-# le jeu ENTIER recopié dans SAVES_DIR (7 Go par jeu).
-fix_ownership() {
-    local path="$1"
-    [[ -e "$path" ]] || return 0
-    [[ "$(stat -c '%u' "$path" 2>/dev/null)" == "$WINE_UID" ]] && return 0
-    local chown_cmd=(chown)
-    if [[ "$(id -u)" -ne 0 ]]; then
-        command -v sudo &>/dev/null || return 0
-        chown_cmd=(sudo -n chown)
+# Version d'un runner : fichier version d'un Proton ("<horodatage>
+# GE-Proton9-1" → GE-Proton9-1), sinon wine --version. Vide si inconnue.
+runner_version() {
+    local bin="$1"
+    if [[ "$bin" == */files/bin/wine && -f "${bin%/files/bin/wine}/version" ]]; then
+        awk '{print $NF; exit}' "${bin%/files/bin/wine}/version" 2>/dev/null
+        return
     fi
-    find "$path" -xdev ! -user "$WINE_UID" -print0 2>/dev/null \
-        | xargs -0r "${chown_cmd[@]}" -h "${WINE_UID}:${WINE_GID}" 2>/dev/null || true
+    # Seulement un vrai binaire wine : un script proton ne connaît pas --version.
+    [[ "$(basename "$bin")" == wine* && -x "$bin" ]] || return 0
+    timeout 10 "$bin" --version 2>/dev/null | head -1
 }
 
-# Quand ce script monte/extrait en root (voir RUN_AS_ROOT plus haut), tout ce
-# qu'il crée (dossiers de cache, prefix extrait) appartient à root — Wine
-# refuse ensuite de démarrer dans un WINEPREFIX qui ne lui appartient pas
-# ("... is not owned by you", confirmé en direct), même une fois relancé en
-# TARGET_USER. No-op si on ne tourne pas en root avec un utilisateur cible
-# connu (chemin normal, non élevé).
-chown_to_target() {
-    [[ "$RUN_AS_ROOT" == true ]] || return 0
-    [[ -n "$TARGET_USER" ]] || return 0
-    [[ -e "$1" ]] || return 0
-    # Jamais à travers un montage FUSE (overlay encore monté d'une session
-    # précédente...) : chaque chown y déclenche un copy-up du fichier.
-    mountpoint -q "$1" 2>/dev/null && return 0
-    find "$1" -xdev ! -user "$TARGET_USER" -print0 2>/dev/null \
-        | xargs -0r chown -h "${TARGET_USER}:${TARGET_USER}" 2>/dev/null || true
+# Vrai si l'interpréteur ELF du binaire est présent : wine est souvent un
+# stub 32 bits qui requiert /lib/ld-linux.so.2, absent des systèmes 64 bits
+# purs.
+elf_interpreter_present() {
+    local interp
+    interp=$(readelf -l "$1" 2>/dev/null | grep 'interpreter' \
+             | sed 's/.*interpreter: \(.*\)\]/\1/')
+    [[ -z "$interp" || -x "$interp" ]]
 }
 
-# Parse "KEY=VAL KEY2=VAL2" et exporte sans eval
-apply_wine_env() {
-    local pair
-    while IFS= read -r pair; do
-        # shellcheck disable=SC2163  # export de "VAR=valeur" voulu
-        [[ "$pair" =~ ^[A-Za-z_][A-Za-z0-9_]*=.* ]] && export "$pair" || true
-    done <<< "$(tr ' ' '\n' <<< "$1")"
-}
-
-# Arrêt propre du wineserver — séquence Batocera : kill → wait → kill -9 forcé
-# Lancé en tant que l'utilisateur de Wine : chaque UID a son propre socket
-# wineserver (/tmp/.wine-<uid>), root ne joignait donc jamais celui de
-# TARGET_USER — l'overlay était démonté sous un wineserver encore vivant, qui
-# perdait ensuite le registre ("could not save registry branch to system.reg").
-stop_wineserver() {
-    as_wine_user env WINEPREFIX="$WINEPOINT" wineserver -k 2>/dev/null || true
-    local i=0
-    while (( i++ < 10 )); do
-        as_wine_user env WINEPREFIX="$WINEPOINT" wineserver -w 2>/dev/null && return 0
-        sleep 1
-    done
-    # Kill forcé si wineserver s'accroche encore
-    local pids
-    pids=$(pgrep -f "WINEPREFIX=${WINEPOINT}" 2>/dev/null) || true
-    [[ -n "$pids" ]] && kill -9 $pids 2>/dev/null || true
-}
-
-# Relie (lien symbolique) les DLLs Wine absentes du prefix (DLLs Wine 10+ manquantes dans vieux
-# prefixes Batocera). Seules les DLLs absentes sont reliées — les existantes (DXVK etc.) ne sont
-# jamais écrasées.
-# Note : aucune limite de taille — Wine 10+ a promu certaines DLLs de stubs à implémentations
-# complètes (ex: coml2.dll ~344 Ko) qui sont nécessaires même dans les vieux prefixes Batocera.
-#
-# En mode overlay : fuse-overlayfs non-privilégié ne peut pas faire de copy-up des répertoires
-# root-owned (system32, syswow64). On écrit donc directement dans le SAVEPOINT (upperdir)
-# au lieu du WINEPOINT (overlay), ce qui évite le copy-up et l'erreur EPERM.
-sync_wine_stubs() {
-    local wine_bin="$1"
-    # target_root : répertoire racine du prefix où écrire les DLLs
-    # En mode overlay → SAVEPOINT (upperdir direct, évite copy-up EPERM)
-    # En mode copy    → WINEPOINT (écriture directe)
-    local target_root="${2:-$WINEPOINT}"
-    local wine_root
-    # Résoudre le symlink pour trouver le vrai répertoire Wine (ex: /usr/bin/wine → /opt/wine-staging/bin/wine)
-    wine_root=$(dirname "$(dirname "$(readlink -f "$wine_bin")")")
-    local src_dirs=(
-        "${wine_root}/lib/wine/x86_64-windows:system32"
-        "${wine_root}/lib64/wine/x86_64-windows:system32"   # wine-ge/lutris met les DLLs 64-bit ici
-        "${wine_root}/lib/wine/i386-windows:syswow64"
-        # chemins Debian/Ubuntu
-        "/usr/lib/x86_64-linux-gnu/wine/x86_64-windows:system32"
-        "/usr/lib/x86_64-linux-gnu/wine/i386-windows:syswow64"
-        "/usr/lib/i386-linux-gnu/wine/i386-windows:syswow64"
-    )
-    local entry src_dir dst_subdir src dst name
-    for entry in "${src_dirs[@]}"; do
-        src_dir="${entry%%:*}"
-        dst_subdir="${entry##*:}"
-        # Prefix win32 : system32 contient les DLL 32 bits, pas de syswow64
-        if [[ "$WINE_ARCH" == "win32" ]]; then
-            [[ "$dst_subdir" == "system32" ]] && continue
-            dst_subdir=system32
+# split_command_line <ligne> : découpe des arguments à la manière de Windows,
+# un par ligne terminée par NUL (pour mapfile -d ''). Les guillemets
+# regroupent et sont retirés ("C:\Mon Jeu" → un argument), les antislashs
+# restent tels quels, "" donne un argument vide. Jusqu'au 13/10, les
+# arguments étaient découpés aux espaces, guillemets compris.
+split_command_line() {
+    local line="$1" arg="" c i in_quotes=false has_arg=false
+    for ((i = 0; i < ${#line}; i++)); do
+        c="${line:i:1}"
+        if [[ "$c" == '"' ]]; then
+            [[ "$in_quotes" == true ]] && in_quotes=false || in_quotes=true
+            has_arg=true
+        elif [[ "$c" == [[:space:]] && "$in_quotes" == false ]]; then
+            [[ "$has_arg" == true ]] && printf '%s\0' "$arg"
+            arg="" has_arg=false
+        else
+            arg+="$c"
+            has_arg=true
         fi
-        [[ -d "$src_dir" ]] || continue
-        mkdir -p "${target_root}/drive_c/windows/${dst_subdir}" 2>/dev/null || true
-        # DLL internes de Wine déjà dans le prefix (signature "Wine builtin
-        # DLL" / "Wine placeholder DLL") : remplacées par celles du runner,
-        # comme batocera-wine (27/09). Les prefixes Batocera en embarquent de
-        # vraies copies d'un autre Wine (Virtua Tennis 4 : 619 dans
-        # system32) — gardées, winex11.drv/explorer.exe d'un autre Wine avec
-        # les bibliothèques de celui-ci donnaient "no driver could be
-        # loaded". Seules les DLL natives (sans signature : d3dx9_42,
-        # mscoree... de Microsoft) sont conservées.
-        local -A wine_owned=()
-        local f
-        while IFS= read -r f; do
-            wine_owned["$(basename "$f")"]=1
-        done < <(grep -laE "Wine (builtin|placeholder) DLL" \
-                     "${WINEPOINT}/drive_c/windows/${dst_subdir}"/* 2>/dev/null)
-        # Tous les types de modules (.dll, .exe, .drv, .sys...) : explorer.exe
-        # et winex11.drv n'étaient jamais reliés avec *.dll seul.
-        for src in "$src_dir"/*; do
-            [[ -f "$src" ]] || continue
-            name=$(basename "$src")
-            local overlay_dst="${WINEPOINT}/drive_c/windows/${dst_subdir}/${name}"
-            # -f renvoie false pour les symlinks cassés → on ne saute pas, on remplace
-            [[ -f "$overlay_dst" && -z "${wine_owned[$name]:-}" ]] && continue
-            dst="${target_root}/drive_c/windows/${dst_subdir}/${name}"
-            # Lien symbolique, pas copie (25/09) : comme batocera-wine, qui relie
-            # les DLL du runner dans le prefix. La copie recopiait ~1 660 DLL
-            # (~500 Mo) à CHAQUE lancement dans les sauvegardes du jeu — 35 Go
-            # sur 41 Go de saves pour 140 jeux (mesuré). Wine reconnaît ses DLL
-            # intégrées à travers le lien. ln -sfn remplace aussi un lien cassé
-            # (ex. vers /userdata/... d'un prefix Batocera).
-            ln -sfn "$src" "$dst" 2>/dev/null || true
-        done
     done
+    [[ "$has_arg" == true ]] && printf '%s\0' "$arg"
+    return 0
 }
 
-# Les prefixes Batocera n'embarquent pas DXVK : system32/syswow64 contiennent
-# des liens vers /userdata/system/wine/dxvk/{x64,x32}/*.dll, un chemin qui
-# n'existe que sous Batocera (247 jeux sur 247 concernés dans une collection
-# réelle). Liens cassés → Wine retombe sur son d3d9/d3d11 intégré (OpenGL),
-# soit llvmpipe sous Xwayland+NVIDIA — confirmé en direct : Dead or Alive 5
-# Ultimate (segare) quittait aussitôt sans aucune erreur.
-find_dxvk_dir() {
-    local d
-    for d in "${WSQUASHFS_DXVK_DIR:-}" /usr/share/dxvk "$HOME/.local/share/wsquashfs/dxvk"; do
-        [[ -n "$d" && -f "${d}/x64/dxgi.dll" ]] && echo "$d" && return
-    done
+# Longueur en caractères d'un texte UTF-8, quelle que soit la locale (un
+# frontend peut lancer en LANG=C, où ${#texte} compte les octets) : les
+# octets de continuation (0x80-0xBF) ne sont pas comptés.
+text_width() {
+    local stripped
+    # shellcheck disable=SC2030,SC2031  # LC_ALL=C limité au sous-shell, voulu
+    stripped=$(LC_ALL=C; printf '%s' "${1//[$'\x80'-$'\xbf']/}")
+    echo "${#stripped}"
 }
 
-# Comme dxvk_install() de batocera-wine : les liens DXVK sont recréés à
-# CHAQUE lancement (pas seulement réparés), vers le DXVK local. À lancer
-# APRÈS sync_wine_stubs, qui aurait sinon laissé la DLL intégrée de Wine.
-# target_root : comme sync_wine_stubs (SAVEPOINT en overlay, WINEPOINT sinon).
-install_dxvk() {
-    local target_root="${1:-$WINEPOINT}" dxvk_dir pair arch sub dll
-    dxvk_dir=$(find_dxvk_dir)
-    [[ -n "$dxvk_dir" ]] || return 0
-    for pair in x64:system32 x32:syswow64; do
-        arch="${pair%%:*}" sub="${pair##*:}"
-        # Prefix win32 : system32 contient les DLL 32 bits, pas de syswow64
-        if [[ "$WINE_ARCH" == "win32" ]]; then
-            [[ "$arch" == "x64" ]] && continue
-            sub=system32
-        fi
-        mkdir -p "${target_root}/drive_c/windows/${sub}" 2>/dev/null || true
-        for dll in d3d8 d3d9 d3d10core d3d11 dxgi; do
-            [[ -f "${dxvk_dir}/${arch}/${dll}.dll" ]] || continue
-            ln -sfn "${dxvk_dir}/${arch}/${dll}.dll" \
-                "${target_root}/drive_c/windows/${sub}/${dll}.dll" 2>/dev/null || true
-        done
-    done
+# pad <texte> <largeur> : texte complété d'espaces jusqu'à la largeur.
+pad() {
+    local n=$(( $2 - $(text_width "$1") ))
+    ((n < 1)) && n=1
+    printf '%s%*s' "$1" "$n" ''
 }
 
-# VKD3D-Proton (Direct3D 12 → Vulkan), relié comme DXVK (26/09) : jusque-là
-# seul l'override d3d12=n,b était posé, sans aucune DLL vkd3d-proton dans le
-# prefix — Wine chargeait son propre d3d12.dll, inutilisable ici, et tout jeu
-# DX12 échouait (Pinball FX : "DX12 is not supported on your system"). Il
-# faut la version Windows (paquet vkd3d-proton-mingw, /usr/share/vkd3d-proton/
-# {x64,x86}), pas la bibliothèque Linux de vkd3d-proton.
-find_vkd3d_dir() {
-    local d
-    for d in "${WSQUASHFS_VKD3D_DIR:-}" /usr/share/vkd3d-proton "$HOME/.local/share/wsquashfs/vkd3d-proton"; do
-        [[ -n "$d" && -f "${d}/x64/d3d12.dll" ]] && echo "$d" && return
-    done
-}
-
-install_vkd3d() {
-    local target_root="${1:-$WINEPOINT}" vkd3d_dir pair arch sub dll
-    vkd3d_dir=$(find_vkd3d_dir)
-    [[ -n "$vkd3d_dir" ]] || return 0
-    for pair in x64:system32 x86:syswow64; do
-        arch="${pair%%:*}" sub="${pair##*:}"
-        if [[ "$WINE_ARCH" == "win32" ]]; then
-            [[ "$arch" == "x64" ]] && continue
-            sub=system32
-        fi
-        mkdir -p "${target_root}/drive_c/windows/${sub}" 2>/dev/null || true
-        for dll in d3d12 d3d12core; do
-            [[ -f "${vkd3d_dir}/${arch}/${dll}.dll" ]] || continue
-            ln -sfn "${vkd3d_dir}/${arch}/${dll}.dll" \
-                "${target_root}/drive_c/windows/${sub}/${dll}.dll" 2>/dev/null || true
-        done
-    done
-}
-
-# Comme sandboxing_prefix() de batocera-wine : les dossiers du profil Wine
-# (Documents, Music...) sont packagés en liens vers /userdata/system,
-# inexistant ici — un jeu qui sauvegarde dans "Mes documents" échouait.
-# Remplacés par de vrais dossiers (dans l'upperdir en overlay : les
-# sauvegardes y persistent).
-# d7vk (DirectDraw → Vulkan, 32 bits uniquement), comme dxvk_install() de
-# batocera-wine avec son option d7vk : ddraw.dll → d7vk, et le ddraw
-# intégré de Wine exposé en ddraw_.dll. Sans lui, un jeu DirectDraw passe
-# par l'OpenGL de wined3d, soit llvmpipe (rendu logiciel) sous
-# Xwayland + NVIDIA.
-find_d7vk() {
-    local f
-    for f in "${WSQUASHFS_D7VK_DLL:-}" /usr/share/d7vk/x32/ddraw.dll \
-             "$HOME/.local/share/wsquashfs/d7vk/x32/ddraw.dll"; do
-        [[ -n "$f" && -f "$f" ]] && echo "$f" && return
-    done
-}
-
-install_d7vk() {
-    local target_root="${1:-$WINEPOINT}" d7 wine_root builtin="" c sub=syswow64
-    d7=$(find_d7vk)
-    [[ -n "$d7" ]] || return 0
-    [[ "$WINE_ARCH" == "win32" ]] && sub=system32
-    wine_root=$(dirname "$(dirname "$(readlink -f "$WINE_BINARY")")")
-    for c in "${wine_root}/lib/wine/i386-windows/ddraw.dll" \
-             "${wine_root}/lib32/wine/i386-windows/ddraw.dll" \
-             /usr/lib/wine/i386-windows/ddraw.dll; do
-        [[ -f "$c" ]] && { builtin="$c"; break; }
-    done
-    mkdir -p "${target_root}/drive_c/windows/${sub}" 2>/dev/null || true
-    ln -sfn "$d7" "${target_root}/drive_c/windows/${sub}/ddraw.dll" 2>/dev/null || true
-    [[ -n "$builtin" ]] && ln -sfn "$builtin" "${target_root}/drive_c/windows/${sub}/ddraw_.dll" 2>/dev/null || true
-}
-
-# Mise à jour du prefix au changement de runner, comme createOrUpdatePrefix()
-# de batocera-wine : Wine met le prefix à jour quand .update-timestamp ne
-# correspond plus à son wine.inf, et échouait alors sur les liens DLL déjà en
-# place (liens DXVK des prefixes Batocera, cassés ici) — "create_dest_file
-# failed ... (error=80)" pour chaque DLL, vu pendant la campagne de test.
-# Les liens de system32/syswow64 sont retirés AVANT la mise à jour, puis
-# recréés par sync_wine_stubs/install_dxvk/install_d7vk juste après.
-update_prefix_if_needed() {
-    local wine_root inf ts stamp
-    [[ -f "${WINEPOINT}/system.reg" ]] || return 0
-    wine_root=$(dirname "$(dirname "$(readlink -f "$WINE_BINARY")")")
-    inf="${wine_root}/share/wine/wine.inf"
-    [[ -f "$inf" ]] || return 0
-    ts=$(stat -c %Y "$inf")
-    # Wine écrit ce fichier en fin de ligne Windows ("1790165633\r\n") : sans
-    # retirer le \r, la comparaison échouait toujours et wineboot -u tournait
-    # à CHAQUE lancement (~70 s, ~725 DLL réécrites dans les saves — 25/09).
-    stamp=$(head -n1 "${WINEPOINT}/.update-timestamp" 2>/dev/null | tr -d '\r')
-    [[ "$stamp" == "disable" || "$stamp" == "$ts" ]] && return 0
-    echo "Préfixe       : mise à jour pour $("$WINE_BINARY" --version 2>/dev/null || basename "$wine_root")"
-    find "${WINEPOINT}/drive_c/windows/system32" "${WINEPOINT}/drive_c/windows/syswow64" \
-        -maxdepth 1 -type l -delete 2>/dev/null || true
-    as_wine_user env DISPLAY="${DISPLAY:-}" WINEPREFIX="$WINEPOINT" WINEARCH="$WINE_ARCH" \
-        WINEDEBUG="-all" WINEDLLOVERRIDES="mscoree,mshtml=;winemenubuilder.exe=d" \
-        "$WINE_BINARY" wineboot -u >/dev/null 2>&1 || true
-    as_wine_user env WINEPREFIX="$WINEPOINT" wineserver -w 2>/dev/null || true
-    # wineboot -u vient d'écrire ~1 600 DLL (~500 Mo) dans l'upperdir : les
-    # retirer tout de suite, sync_wine_stubs les remplace par des liens et
-    # l'overlay est rechargé ensuite (de toute façon effacées au lancement
-    # suivant). Vu le 25/09 : 8 jeux, +4,5 Go après un premier lancement.
-    # Prefix packagé seulement : pour un jeu seul, ce system32 EST le prefix.
-    # Rechargement obligatoire (27/09) : sans lui, fuse-overlayfs gardait
-    # sa vue d'avant l'effacement, sync_wine_stubs croyait absentes les DLL
-    # natives du jeu (d3dx9_42, mscoree...) et les remplaçait par des liens
-    # Wine — "d3dx9_42.dll not found", jeu arcade qui ne se lance pas au
-    # premier lancement après chaque changement de Wine (Virtua Tennis 4,
-    # 27/09 : échec avec la mise à jour, lancement normal sans).
-    if [[ "$MOUNT_MODE" == "overlay" && "$PACKAGED_PREFIX" == "1" ]]; then
-        rm -rf "${SAVEPOINT}/drive_c/windows/system32" \
-               "${SAVEPOINT}/drive_c/windows/syswow64" 2>/dev/null || true
-        reload_overlay "après mise à jour du préfixe"
-    fi
-}
-
-# SAVEDIR / SAVEFILES de l'autorun.cmd, comme saveFilesToUserdata() de
-# batocera-wine : le dossier (ou les fichiers) de sauvegarde du jeu sont
-# remplacés par des liens vers <racine>/saves/<système>/<jeu>, à côté du
-# dossier roms/ — l'emplacement des sauvegardes Batocera. Différence : la
-# copie initiale des sauvegardes packagées n'écrase JAMAIS une sauvegarde
-# déjà présente (cp -n), là où Batocera peut les remplacer si le prefix est
-# recréé.
-batocera_saves_dir() {
-    local rom_dir sys root
-    if [[ -n "${WSQUASHFS_BATOCERA_SAVES:-}" ]]; then
-        echo "${WSQUASHFS_BATOCERA_SAVES}/${GAME_NAME}"; return
-    fi
-    rom_dir=$(dirname "$WSQUASHFS_FILE")
-    sys=$(basename "$rom_dir")
-    root=$(dirname "$(dirname "$rom_dir")")
-    [[ "$(basename "$(dirname "$rom_dir")")" == "roms" ]] || return 1
-    echo "${root}/saves/${sys}/${GAME_NAME}"
-}
-
-apply_savedir() {
-    local savedir="${1//\\//}" savefiles="$2" sysdir parent base f
-    [[ -n "$savedir$savefiles" ]] || return 0
-    if ! sysdir=$(batocera_saves_dir); then
-        echo "Attention : SAVEDIR/SAVEFILES ignorés (jeu hors d'un dossier roms/<système>/ ;"
-        echo "  définir WSQUASHFS_BATOCERA_SAVES)"
-        return 0
-    fi
-    mkdir -p "$sysdir"
-    if [[ -n "$savedir" ]]; then
-        parent="${WINEPOINT}/$(dirname "$savedir")"
-        base=$(basename "$savedir")
-        mkdir -p "$parent"
-        if [[ -d "${parent}/${base}" && ! -L "${parent}/${base}" ]]; then
-            cp -an "${parent}/${base}/." "$sysdir/" 2>/dev/null || true
-            rm -rf "${parent:?}/${base:?}"
-        fi
-        [[ -L "${parent}/${base}" ]] || ln -s "$sysdir" "${parent}/${base}"
-    else
-        IFS=';' read -r -a files <<< "$savefiles"
-        for f in "${files[@]}"; do
-            f="${f//\\//}"
-            [[ -n "$f" ]] || continue
-            mkdir -p "$(dirname "${sysdir}/${f}")" "$(dirname "${WINEPOINT}/${f}")"
-            if [[ -e "${WINEPOINT}/${f}" && ! -L "${WINEPOINT}/${f}" ]]; then
-                [[ -e "${sysdir}/${f}" ]] || mv -f "${WINEPOINT}/${f}" "${sysdir}/${f}"
-                rm -f "${WINEPOINT}/${f}"
-            fi
-            ln -sfn "${sysdir}/${f}" "${WINEPOINT}/${f}"
-        done
-    fi
-    chown_to_target "$sysdir"
-    echo "Sauvegardes   : ${sysdir} (SAVEDIR/SAVEFILES)"
-}
-
-fix_userdata_links() {
-    local link
-    while IFS= read -r -d '' link; do
-        rm -f "$link" && mkdir -p "$link"
-    done < <(find "${WINEPOINT}/drive_c/users" -maxdepth 6 -type l -lname '/userdata*' -print0 2>/dev/null)
+# Ajoute une règle à WINEDLLOVERRIDES (séparateur ;).
+add_dll_override() {
+    export WINEDLLOVERRIDES="${WINEDLLOVERRIDES:+${WINEDLLOVERRIDES};}$1"
 }
 
 # Résout <base>/<rel> sans tenir compte de la casse (comme Windows/Wine).
@@ -676,44 +423,326 @@ resolve_ci() {
     echo "$cur"
 }
 
-# Extrait le wsquashfs dans WINEPOINT : squashfuse (copie) ou unsquashfs
-do_fresh_extraction() {
-    if command -v squashfuse &>/dev/null && \
-       squashfuse ${ALLOW_OTHER_OPT:+-o "$ALLOW_OTHER_OPT"} "$WSQUASHFS_FILE" "$SQUASHFSPOINT" 2>/dev/null; then
+# ════════════════════════════════════════════════════════════════════════
+# 3. LECTURE DE L'AUTORUN.CMD
+# ════════════════════════════════════════════════════════════════════════
+
+# Surcharge de l'autorun (04/10, wsquashfs-manager) : <jeu>.wsquashfs.autorun
+# à côté de l'image, même format que l'autorun.cmd. Une clé qui y figure
+# l'emporte sur celle de l'image (CLÉ= vide : retour au défaut du lanceur) ;
+# les autres clés viennent de l'image. Sert à essayer un réglage tout de
+# suite, avant de l'inscrire dans l'image — Batocera ne lit pas ce fichier.
+#
+# override_var <fichier> <clé> : affiche la valeur, retour 1 si la clé (ou
+# le fichier) est absente.
+override_var() {
+    local file="$1" key="$2"
+    [[ -n "$file" && -f "$file" ]] || return 1
+    grep -q "^${key}=" "$file" || return 1
+    grep "^${key}=" "$file" | sed "s/^${key}=//" | head -1 | tr -d '\r'
+}
+
+# Clés présentes dans un fichier de surcharge, séparées par des espaces.
+override_keys() {
+    grep -o '^[A-Za-z_][A-Za-z0-9_]*=' "$1" | tr -d '=' | paste -sd ' '
+}
+
+# autorun_var <clé> <défaut> : valeur d'une clé de l'autorun.cmd du prefix
+# monté, surcharge comprise ; le défaut si elle est absente ou vide.
+autorun_var() {
+    local key="$1" default="$2" val
+    if val=$(override_var "${AUTORUN_OVERRIDE:-}" "$key"); then
+        echo "${val:-$default}"
+        return
+    fi
+    if [[ -e "${WINEPOINT}/autorun.cmd" ]]; then
+        val=$(grep "^${key}=" "${WINEPOINT}/autorun.cmd" | sed "s/^${key}=//" | head -1 | tr -d '\r')
+        echo "${val:-$default}"
+    else
+        echo "$default"
+    fi
+}
+
+# Version du jeu packagé : GAME_VERSION= de l'autorun.cmd (29/09). Batocera
+# ne lit que les clés qu'il connaît (grep "^CLE=" dans batocera-wine), une
+# clé en plus y est ignorée — l'image reste compatible. Lue dans l'image
+# même (unsquashfs -cat, sans montage : une modification de l'autorun.cmd
+# restée dans les sauvegardes ne compte pas) ou dans un dossier installé.
+game_version() {
+    local v
+    if v=$(override_var "${1%/}.autorun" GAME_VERSION); then
+        unquote "$v"
+        return
+    fi
+    if [[ -d "$1" ]]; then
+        v=$(grep -m1 '^GAME_VERSION=' "${1}/autorun.cmd" 2>/dev/null)
+    else
+        v=$(unsquashfs -cat "$1" autorun.cmd 2>/dev/null | grep -m1 '^GAME_VERSION=')
+    fi
+    v="${v#GAME_VERSION=}"
+    unquote "${v%$'\r'}"
+}
+
+# ════════════════════════════════════════════════════════════════════════
+# 4. MONTAGES FUSE ET CACHE
+# ════════════════════════════════════════════════════════════════════════
+
+fuse_umount() {
+    fusermount -u "$1" 2>/dev/null || fusermount3 -u "$1" 2>/dev/null || umount "$1" 2>/dev/null
+}
+
+do_umount() {
+    fuse_umount "$1" || true
+}
+
+# Démontage de fin de partie : juste après wineserver -k, les processus du jeu
+# tiennent encore des fichiers ouverts quelques instants ("busy") — un seul
+# essai laissait le montage en place (confirmé en campagne de test). Quelques
+# essais, puis démontage différé en dernier recours, comme safe_umount() de
+# batocera-wine (umount -l).
+umount_retry() {
+    local i
+    for ((i = 0; i < 5; i++)); do
+        mountpoint -q "$1" 2>/dev/null || return 0
+        fuse_umount "$1"
+        mountpoint -q "$1" 2>/dev/null || return 0
+        sleep 1
+    done
+    fusermount3 -uz "$1" 2>/dev/null || fusermount -uz "$1" 2>/dev/null || umount -l "$1" 2>/dev/null || true
+}
+
+# mount_squashfs <image> <point> : montage squashfuse (allow_other en root).
+mount_squashfs() {
+    without_lock squashfuse ${ALLOW_OTHER_OPT:+-o "$ALLOW_OTHER_OPT"} "$1" "$2" 2>/dev/null
+}
+
+# Monte l'overlay du jeu : image (lowerdir) + sauvegardes (upperdir).
+# Note : redirect_dir=on cause des ESTALE sur les chemins imbriqués lors des
+# remontages successifs (bug fuse-overlayfs) : option jamais utilisée.
+mount_overlay() {
+    without_lock fuse-overlayfs \
+        -o "lowerdir=${SQUASHFSPOINT},upperdir=${SAVEPOINT},workdir=${WORKPOINT},${OVERLAY_SQUASH_OPT}${ALLOW_OTHER_OPT:+,$ALLOW_OTHER_OPT}" \
+        "$WINEPOINT" 2>/dev/null
+}
+
+# Remonte l'overlay : fuse-overlayfs garde sa vue des dossiers en mémoire
+# et ne voit pas ce qui est modifié directement dans l'upperdir (SAVEPOINT).
+reload_overlay() {
+    do_umount "$WINEPOINT"
+    rm -rf "$WORKPOINT" && mkdir -p "$WORKPOINT"
+    chown_to_target "$WORKPOINT"
+    mount_overlay || die "échec du rechargement de l'overlay ${1}"
+}
+
+# Vrai si un processus tourne dans le prefix dont le chemin correspond au
+# motif (grep -E) : WINEPREFIX est hérité par Wine, Proton, umu et son
+# runtime, avec ou sans sous-dossier (Proton : …/pfx/).
+prefix_in_use() {
+    grep -qszE "^WINEPREFIX=${1}(/.*)?$" /proc/[0-9]*/environ 2>/dev/null
+}
+
+# Motif (grep -E) du dossier des prefixes de jeux : CACHE_DIR/wine tel quel
+# et liens résolus (WINEPREFIX garde le chemin tel qu'il a été donné), plus
+# …/wsquashfs/wine, le dossier par défaut, pour un jeu lancé par un autre
+# utilisateur ou avec un autre CACHE_DIR. Seul ce dernier était reconnu
+# jusqu'au 13/10 : avec WSQUASHFS_CACHE ailleurs, aucun jeu n'était vu en
+# cours — un autre lancement le démontait, --clean effaçait son cache.
+games_prefix_regex() {
+    local raw real
+    raw=$(regex_escape "$CACHE_DIR")
+    real=$(regex_escape "$(readlink -f "$CACHE_DIR" 2>/dev/null || echo "$CACHE_DIR")")
+    echo "(${raw}|${real}|.*/wsquashfs)/wine"
+}
+
+# Vrai si un processus tourne dans le prefix de ce jeu.
+game_in_use() {
+    prefix_in_use "$(games_prefix_regex)/$(regex_escape "$1")"
+}
+
+# Vrai si le jeu tourne ou si un autre lancement de ce jeu est en cours de
+# préparation (verrou tenu, Wine pas encore démarré).
+game_running() {
+    game_in_use "$1" || game_locked "$1"
+}
+
+# Vrai si le jeu est monté ou en cours : ses sauvegardes sont l'upperdir
+# actif de l'overlay, on n'y touche pas.
+saves_busy() {
+    game_running "$1" || mountpoint -q "${CACHE_DIR}/wine/${1}" 2>/dev/null
+}
+
+# ── Verrou par jeu ─────────────────────────────────────────────────────
+#
+# Un lancement prend le verrou CACHE_DIR/locks/<jeu>.lock (flock) avant de
+# monter quoi que ce soit (13/10) : game_in_use ne voit un jeu qu'une fois
+# Wine démarré, deux lancements rapprochés (double clic dans un frontend)
+# passaient tous les deux et montaient le même overlay. Le verrou suit le
+# descripteur : libéré à la fin du script et de Wine (qui en hérite, la
+# partie reste protégée si le lanceur est tué), jamais transmis aux démons
+# FUSE (without_lock) — un montage oublié bloquerait sinon le jeu.
+# Sans flock ou sans fichier de verrou lisible : pas de verrou, jamais
+# bloquant.
+
+lock_file() {
+    echo "${CACHE_DIR}/locks/${1}.lock"
+}
+
+# Prend le verrou de GAME_NAME ; faux s'il est déjà tenu.
+acquire_game_lock() {
+    local file
+    command -v flock &>/dev/null || return 0
+    file=$(lock_file "$GAME_NAME")
+    mkdir -p "${CACHE_DIR}/locks" 2>/dev/null
+    chown_to_target "${CACHE_DIR}/locks"
+    : >> "$file" 2>/dev/null
+    # Lecture seule : un verrou créé par un autre utilisateur (sudo) reste
+    # utilisable, flock n'a pas besoin d'écrire.
+    [[ -r "$file" ]] || return 0
+    exec {LOCK_FD}< "$file"
+    flock -n "$LOCK_FD" || return 1
+    LOCKED_GAME="$GAME_NAME"
+}
+
+# Vrai si un AUTRE lancement tient le verrou de ce jeu.
+game_locked() {
+    local file
+    [[ "$1" != "$LOCKED_GAME" ]] || return 1
+    command -v flock &>/dev/null || return 1
+    file=$(lock_file "$1")
+    [[ -r "$file" ]] || return 1
+    ! flock -n "$file" true 2>/dev/null
+}
+
+# Exécute une commande sans lui transmettre le descripteur du verrou (démons
+# qui survivent au script).
+without_lock() {
+    if [[ -n "$LOCK_FD" ]]; then
+        "$@" {LOCK_FD}>&-
+    else
+        "$@"
+    fi
+}
+
+# Balaie TOUS les montages wsquashfs abandonnés sous CACHE_DIR, pas seulement
+# celui du jeu qu'on lance — un jeu qui plante ou qu'on ferme brutalement
+# (SIGKILL, déconnexion Moonlight) ne passe jamais par cleanup() ; sans ce
+# balayage, les montages orphelins s'accumulaient (10 montages fantômes
+# après 10 jeux testés). Les jeux EN COURS sont épargnés (27/09) : les
+# démonter coupait la partie dès qu'un autre jeu était lancé.
+unmount_all_stale() {
+    # mount(8) affiche le chemin CANONIQUE : CACHE_DIR peut passer par un lien
+    # (ex. /home/arcade -> /config sur SteamBox), un grep sur le chemin brut
+    # ne trouvait alors jamais rien (confirmé en direct).
+    local real_cache_dir sub m
+    real_cache_dir=$(readlink -f "$CACHE_DIR" 2>/dev/null || echo "$CACHE_DIR")
+    for sub in wine mnt; do
+        mount 2>/dev/null | grep -F "${real_cache_dir}/${sub}/" | sed -E 's/^[^ ]+ on (.*) type .*/\1/' \
+            | while IFS= read -r m; do game_running "$(basename "$m")" || do_umount "$m"; done
+    done
+}
+
+# --umount [jeu] : arrête le wineserver du jeu puis démonte son overlay et
+# son squashfs.
+umount_game() {
+    local name="$1"
+    [[ -d "${CACHE_DIR}/wine/${name}" ]] || return 0
+    run_wineserver "${CACHE_DIR}/wine/${name}" -k || true
+    umount_retry "${CACHE_DIR}/wine/${name}"
+    umount_retry "${CACHE_DIR}/mnt/${name}"
+    echo "✓ Démonté : ${name}"
+}
+
+# Identité de l'image (chemin, taille, date) : valide la copie en cache.
+image_signature() {
+    echo "${WSQUASHFS_FILE}:$(stat -c '%s:%Y' "$WSQUASHFS_FILE" 2>/dev/null)"
+}
+
+# Mode copy : extrait l'image dans WINEPOINT (squashfuse puis copie, ou
+# unsquashfs).
+extract_image() {
+    if command -v squashfuse &>/dev/null && mount_squashfs "$WSQUASHFS_FILE" "$SQUASHFSPOINT"; then
         echo "Mode          : copy (squashfuse)"
-        [[ -n "$WINEPOINT" ]] && rm -rf "$WINEPOINT"
+        rm -rf -- "${WINEPOINT:?}"
         mkdir -p "$WINEPOINT"
         cp -a "$SQUASHFSPOINT/." "$WINEPOINT/"
         do_umount "$SQUASHFSPOINT"
     elif command -v unsquashfs &>/dev/null; then
         echo "Mode          : copy (unsquashfs)"
-        [[ -n "$WINEPOINT" ]] && rm -rf "$WINEPOINT"
-        if ! unsquashfs -d "$WINEPOINT" "$WSQUASHFS_FILE"; then
-            echo "Erreur : échec de l'extraction unsquashfs"
-            return 1
-        fi
+        rm -rf -- "${WINEPOINT:?}"
+        unsquashfs -d "$WINEPOINT" "$WSQUASHFS_FILE" || die "échec de l'extraction unsquashfs"
     else
-        echo "Erreur : FUSE bloqué et unsquashfs absent"
-        echo "  → Exposer /dev/fuse dans le conteneur : --device /dev/fuse"
-        echo "  → Ou installer squashfs-tools : apt-get install squashfs-tools"
-        return 1
+        die "FUSE bloqué et unsquashfs absent" \
+            "  → Exposer /dev/fuse dans le conteneur : --device /dev/fuse" \
+            "  → Ou installer squashfs-tools : apt-get install squashfs-tools"
     fi
-    echo "${WSQUASHFS_FILE}:$(stat -c '%s:%Y' "$WSQUASHFS_FILE" 2>/dev/null)" \
-        > "${WINEPOINT}/.wsquashfs_cache"
-    # Mode copy : WINEPOINT est un vrai répertoire extrait — s'il l'a été en
-    # root, Wine (relancé en TARGET_USER plus loin) le refusera sinon.
+    image_signature > "${WINEPOINT}/.wsquashfs_cache"
+    # WINEPOINT est un vrai répertoire : extrait en root, Wine le refuserait.
     chown_to_target "$WINEPOINT"
-    return 0
 }
 
-# Runners Wine/Proton installés, pour --wine : dossiers contenant bin/wine
-# (Wine classique, Kron4ek...) ou files/bin/wine (Proton-GE).
-list_wine_runners() {
-    local d
-    for d in /opt/* /usr/wine/* "$HOME/.local/share/wsquashfs/wine"/*; do
-        [[ -x "${d}/bin/wine" || -x "${d}/files/bin/wine" ]] && echo "$d"
-    done 2>/dev/null
-    proton_runner_dirs
+# ════════════════════════════════════════════════════════════════════════
+# 5. RUNNERS WINE / PROTON
+# ════════════════════════════════════════════════════════════════════════
+
+# Binaires bin/wine installés par notre installeur ou à la main, filtrés par
+# grep -z <options> (ex. -i tkg).
+installed_wines() {
+    local d w
+    for d in "$HOME/.local/share/wsquashfs/wine" "/opt"; do
+        [[ -d "$d" ]] || continue
+        while IFS= read -r -d '' w; do
+            [[ -x "$w" ]] && echo "$w"
+        done < <(find "$d" -maxdepth 3 -name "wine" -path "*/bin/wine" -print0 2>/dev/null \
+            | grep -z "$@")
+    done
+}
+
+# Wine par défaut (prefix non Proton : jeux arcade Batocera). Priorité
+# (27/09) : wine-tkg → wine-ge/lutris → wine-proton → wine système. wine-tkg
+# d'abord, comme le runner par défaut de Batocera : meilleure compatibilité
+# avec les jeux arcade. Les prefixes créés par Proton (Heroic, Steam) ont
+# leur propre choix de runner, voir find_proton_runner.
+find_wine_binary() {
+    local candidates=() c w
+    mapfile -t candidates < <(
+        echo "/usr/wine/wine-tkg/bin/wine"
+        installed_wines -i 'tkg'
+        echo "/usr/wine/ge-custom/bin/wine"
+        installed_wines -iE '/(wine-ge|lutris-|wine-lutris)'
+        echo "/usr/wine/wine-proton/bin/wine"
+    )
+    for c in "${candidates[@]}"; do
+        [[ -x "$c" ]] || continue
+        if elf_interpreter_present "$c"; then
+            echo "$c"
+            return
+        fi
+        # Repli : wine64 dans le même répertoire bin/
+        w="${c%wine}wine64"
+        if [[ -x "$w" ]] && elf_interpreter_present "$w"; then
+            echo "$w"
+            return
+        fi
+    done
+    command -v wine
+}
+
+# Vrai si ce binaire Wine sait exécuter un prefix win32 (build classique avec
+# i386-unix ; un build WoW64 seul n'a que x86_64-unix).
+wine_supports_win32() {
+    local root
+    root=$(runner_root "$1")
+    [[ -d "${root}/lib/wine/i386-unix" || -d "${root}/lib32/wine/i386-unix" ]]
+}
+
+# Premier Wine installé capable de lancer un prefix win32.
+find_win32_wine() {
+    local w
+    while IFS= read -r -d '' w; do
+        wine_supports_win32 "$w" && { echo "$w"; return 0; }
+    done < <(find /usr/wine /opt "$HOME/.local/share/wsquashfs/wine" -maxdepth 3 \
+                 -path '*/bin/wine' -print0 2>/dev/null)
+    return 1
 }
 
 # Runners Proton installés hors de nos dossiers (27/09) : Heroic, Steam et
@@ -732,67 +761,14 @@ proton_runner_dirs() {
     done 2>/dev/null | awk '!seen[$0]++'
 }
 
-# Manettes Sony (DualShock 4, DualSense) utilisables par hidraw : avec
-# "DisableHidraw"=0, winebus les réserve à son backend hidraw et SDL les
-# ignore — un /dev/hidrawN illisible laisserait le jeu SANS manette. Vrai
-# s'il y en a au moins une et que tous leurs nœuds sont lisibles ; message
-# de la raison dans HIDRAW_REASON.
-hidraw_usable() {
-    local u n found=0
-    for u in "${HIDRAW_SYSFS:-/sys/class/hidraw}"/*/device/uevent; do
-        grep -qs '^HID_ID=[0-9A-Fa-f]*:0000054C:' "$u" || continue
-        n=$(basename "$(dirname "$(dirname "$u")")")
-        found=1
-        if [[ ! -r "/dev/${n}" ]]; then
-            HIDRAW_REASON="/dev/${n} illisible"
-            return 1
-        fi
-    done
-    [[ "$found" == 1 ]] || { HIDRAW_REASON="aucune manette Sony"; return 1; }
-}
-
-# DualSense Bluetooth (Sunshine) présentée en DualSense USB pendant le jeu,
-# l'originale masquée à Wine (voir HIDRAW plus bas). Faux s'il n'y a pas de
-# DualSense Bluetooth (une DualSense USB passe en direct) ou pas de pont.
-DS_BRIDGE_PID=""
-start_dualsense_bridge() {
-    local bridge ready i
-    grep -qsx 'HID_ID=0005:0000054C:00000CE6' "${HIDRAW_SYSFS:-/sys/class/hidraw}"/*/device/uevent || return 1
-    bridge=$(command -v dualsense-usb-bridge) \
-        || bridge="$(dirname "$(readlink -f "$0")")/tools/dualsense-usb-bridge/dualsense-usb-bridge"
-    [[ -x "$bridge" ]] || { echo "Attention : dualsense-usb-bridge introuvable, DualSense Bluetooth en direct"; return 1; }
-    ready=$(mktemp -u "${TMPDIR:-/tmp}/dualsense-usb-bridge.XXXXXX")
-    "$bridge" --hide --parent $$ --ready-file "$ready" &
-    DS_BRIDGE_PID=$!
-    for i in $(seq 30); do
-        [[ -e "$ready" ]] && { rm -f "$ready"; return 0; }
-        kill -0 "$DS_BRIDGE_PID" 2>/dev/null || break
-        sleep 0.1
-    done
-    stop_dualsense_bridge
-    rm -f "$ready"
-    return 1
-}
-
-stop_dualsense_bridge() {
-    [[ -n "$DS_BRIDGE_PID" ]] || return 0
-    kill "$DS_BRIDGE_PID" 2>/dev/null
-    wait "$DS_BRIDGE_PID" 2>/dev/null
-    DS_BRIDGE_PID=""
-}
-
-# Remonte l'overlay : fuse-overlayfs garde sa vue des dossiers en mémoire
-# et ne voit pas ce qui est modifié directement dans l'upperdir (SAVEPOINT).
-reload_overlay() {
-    do_umount "$WINEPOINT"
-    rm -rf "$WORKPOINT" && mkdir -p "$WORKPOINT"
-    chown_to_target "$WORKPOINT"
-    if ! fuse-overlayfs \
-           -o "lowerdir=${SQUASHFSPOINT},upperdir=${SAVEPOINT},workdir=${WORKPOINT},${OVERLAY_SQUASH_OPT}${ALLOW_OTHER_OPT:+,$ALLOW_OTHER_OPT}" \
-           "$WINEPOINT" 2>/dev/null; then
-        echo "Erreur : échec du rechargement de l'overlay ${1}"
-        exit 1
-    fi
+# Runners Wine/Proton installés, pour --wine : dossiers contenant bin/wine
+# (Wine classique, Kron4ek...) ou files/bin/wine (Proton-GE).
+list_wine_runners() {
+    local d
+    for d in /opt/* /usr/wine/* "$HOME/.local/share/wsquashfs/wine"/*; do
+        [[ -x "${d}/bin/wine" || -x "${d}/files/bin/wine" ]] && echo "$d"
+    done 2>/dev/null
+    proton_runner_dirs
 }
 
 # umu-run (paquet umu-launcher), sinon celui installé par Heroic : lance un
@@ -831,7 +807,7 @@ proton_runner_is() {
 # wine-staging). proton-cachyos puis UMU-Proton d'abord (30/09) : leur SDL
 # gère la DualSense en XInput avec la vibration (evdev, hid-playstation) ;
 # GE la force en hidraw et sa conversion XInput ne transmet pas la vibration.
-# proton-cachyos exige une pile limitée (voir « Pile limitée » plus haut).
+# proton-cachyos exige une pile limitée (voir limit_stack_size).
 find_proton_runner() {
     local want="$1" d dirs
     dirs=$(proton_runner_dirs)
@@ -862,22 +838,515 @@ resolve_wine_override() {
     return 1
 }
 
-# --umount [jeu] : arrête le wineserver du jeu puis démonte son overlay et
-# son squashfs. Sans argument : tous les montages wsquashfs.
-umount_game() {
-    local name="$1"
-    [[ -d "${CACHE_DIR}/wine/${name}" ]] || return 0
-    as_wine_user env WINEPREFIX="${CACHE_DIR}/wine/${name}" wineserver -k 2>/dev/null || true
-    umount_retry "${CACHE_DIR}/wine/${name}"
-    umount_retry "${CACHE_DIR}/mnt/${name}"
-    echo "✓ Démonté : ${name}"
+# Dossier Proton d'un binaire …/files/bin/wine accompagné du script proton,
+# retour 1 sinon.
+proton_dir_of() {
+    [[ "$1" == */files/bin/wine && -x "${1%/files/bin/wine}/proton" ]] || return 1
+    echo "${1%/files/bin/wine}"
 }
+
+# ════════════════════════════════════════════════════════════════════════
+# 6. PRÉPARATION DU PREFIX
+# ════════════════════════════════════════════════════════════════════════
+
+# ── Commandes Wine sur le prefix ───────────────────────────────────────
+
+# run_wineserver <prefix> <options> : wineserver de ce prefix, lancé en
+# utilisateur Wine — chaque UID a son propre socket (/tmp/.wine-<uid>), root
+# ne joindrait pas celui de TARGET_USER.
+run_wineserver() {
+    local prefix="$1"
+    shift
+    as_wine_user env WINEPREFIX="$prefix" wineserver "$@" 2>/dev/null
+}
+
+# run_wineboot_update <WINEDEBUG> : crée ou met à jour le prefix.
+run_wineboot_update() {
+    as_wine_user env DISPLAY="${DISPLAY:-}" WINEPREFIX="$WINEPOINT" WINEARCH="$WINE_ARCH" \
+        WINEDEBUG="$1" WINEDLLOVERRIDES="mscoree,mshtml=;winemenubuilder.exe=d" \
+        "$WINE_BINARY" wineboot -u
+}
+
+# run_wine_tool <outil> [arguments] : outil Wine (regedit, reg) sur le
+# prefix, par umu pour un prefix Proton (voir WINE_TOOL).
+run_wine_tool() {
+    as_wine_user env DISPLAY="${DISPLAY:-}" WINEPREFIX="$WINEPOINT" WINEARCH="$WINE_ARCH" \
+        WINEDEBUG="$WINEDEBUG" WINEDLLOVERRIDES="$WINEDLLOVERRIDES" \
+        GAMEID="${GAMEID:-}" PROTONPATH="${PROTONPATH:-}" \
+        "${WINE_TOOL[@]}" "$@"
+}
+
+# Arrêt propre du wineserver — séquence Batocera : kill → wait → kill -9.
+# En utilisateur Wine : sinon l'overlay était démonté sous un wineserver
+# encore vivant, qui perdait le registre ("could not save registry branch
+# to system.reg").
+stop_wineserver() {
+    local i=0 pids=()
+    run_wineserver "$WINEPOINT" -k || true
+    while (( i++ < 10 )); do
+        run_wineserver "$WINEPOINT" -w && return 0
+        sleep 1
+    done
+    # Kill forcé si wineserver s'accroche encore
+    mapfile -t pids < <(pgrep -f "WINEPREFIX=${WINEPOINT}" 2>/dev/null)
+    if ((${#pids[@]})); then
+        kill -9 "${pids[@]}" 2>/dev/null || true
+    fi
+}
+
+# ── Détection ──────────────────────────────────────────────────────────
+
+# Architecture réelle du prefix (comme setPrefixArch de Batocera). Format :
+# ligne "#arch=win32" en tête de system.reg/userdef.reg — l'ancien motif
+# '"#arch"="win32"' ne correspondait jamais (tout prefix vu en win64).
+detect_prefix_arch() {
+    if grep -qs '^#arch=win32' "${WINEPOINT}/system.reg" "${WINEPOINT}/userdef.reg"; then
+        echo "win32"
+    else
+        echo "win64"
+    fi
+}
+
+# Nom d'utilisateur Wine du prefix (profils packagés par Batocera, ex.
+# steamuser) : le premier trouvé hors comptes système.
+detect_wine_username() {
+    local users_dir="${WINEPOINT}/drive_c/users" d name
+    [[ -d "$users_dir" ]] || return
+    for d in "$users_dir"/*/; do
+        name=$(basename "$d")
+        case "$name" in
+            Public|"All Users"|"Default User"|LocalService|NetworkService) continue ;;
+        esac
+        [[ -d "$d" ]] && echo "$name" && return
+    done
+}
+
+# ── DLL du runner, DXVK, VKD3D, d7vk ───────────────────────────────────
+
+# Relie (lien symbolique) les DLL Wine absentes du prefix (DLL de Wine 10+
+# manquantes dans les vieux prefixes Batocera). Les DLL natives existantes
+# (DXVK, d3dx9...) ne sont jamais écrasées. Aucune limite de taille : Wine
+# 10+ a promu certaines DLL de stubs à implémentations complètes (ex.
+# coml2.dll ~344 Ko), nécessaires même dans les vieux prefixes.
+#
+# sync_wine_stubs <wine> [racine cible] — racine où écrire : SAVEPOINT en
+# overlay (fuse-overlayfs non privilégié ne peut pas faire de copy-up des
+# dossiers root-owned system32/syswow64 : EPERM), WINEPOINT sinon.
+sync_wine_stubs() {
+    local wine_bin="$1" target_root="${2:-$WINEPOINT}" wine_root
+    wine_root=$(runner_root "$wine_bin")
+    local src_dirs=(
+        "${wine_root}/lib/wine/x86_64-windows:system32"
+        "${wine_root}/lib64/wine/x86_64-windows:system32"   # wine-ge/lutris met les DLL 64 bits ici
+        "${wine_root}/lib/wine/i386-windows:syswow64"
+        # chemins Debian/Ubuntu
+        "/usr/lib/x86_64-linux-gnu/wine/x86_64-windows:system32"
+        "/usr/lib/x86_64-linux-gnu/wine/i386-windows:syswow64"
+        "/usr/lib/i386-linux-gnu/wine/i386-windows:syswow64"
+    )
+    local entry src_dir dst_subdir src name f
+    for entry in "${src_dirs[@]}"; do
+        src_dir="${entry%%:*}"
+        dst_subdir="${entry##*:}"
+        # Prefix win32 : system32 contient les DLL 32 bits, pas de syswow64
+        if [[ "$WINE_ARCH" == "win32" ]]; then
+            [[ "$dst_subdir" == "system32" ]] && continue
+            dst_subdir=system32
+        fi
+        [[ -d "$src_dir" ]] || continue
+        mkdir -p "${target_root}/drive_c/windows/${dst_subdir}" 2>/dev/null || true
+        # DLL internes de Wine déjà dans le prefix (signature "Wine builtin
+        # DLL" / "Wine placeholder DLL") : remplacées par celles du runner,
+        # comme batocera-wine (27/09). Les prefixes Batocera en embarquent de
+        # vraies copies d'un autre Wine (Virtua Tennis 4 : 619 dans
+        # system32) — gardées, winex11.drv/explorer.exe d'un autre Wine avec
+        # les bibliothèques de celui-ci donnaient "no driver could be
+        # loaded". Seules les DLL natives (sans signature : d3dx9_42,
+        # mscoree... de Microsoft) sont conservées.
+        local -A wine_owned=()
+        while IFS= read -r f; do
+            wine_owned["$(basename "$f")"]=1
+        done < <(grep -laE "Wine (builtin|placeholder) DLL" \
+                     "${WINEPOINT}/drive_c/windows/${dst_subdir}"/* 2>/dev/null)
+        # Tous les types de modules (.dll, .exe, .drv, .sys...) : explorer.exe
+        # et winex11.drv n'étaient jamais reliés avec *.dll seul.
+        for src in "$src_dir"/*; do
+            [[ -f "$src" ]] || continue
+            name=$(basename "$src")
+            # -f est faux pour un lien cassé : il est alors remplacé.
+            [[ -f "${WINEPOINT}/drive_c/windows/${dst_subdir}/${name}" && -z "${wine_owned[$name]:-}" ]] && continue
+            # Lien symbolique, pas copie (25/09) : comme batocera-wine. La copie
+            # recopiait ~1 660 DLL (~500 Mo) à CHAQUE lancement dans les
+            # sauvegardes — 35 Go sur 41 Go de saves pour 140 jeux (mesuré).
+            # ln -sfn remplace aussi un lien cassé (ex. vers /userdata/...).
+            ln -sfn "$src" "${target_root}/drive_c/windows/${dst_subdir}/${name}" 2>/dev/null || true
+        done
+    done
+}
+
+# link_dll_set <dossier source> <sous-dossier 64> <sous-dossier 32>
+#              <racine cible> <dll...>
+# Relie <source>/<sous-dossier>/<dll>.dll dans system32 (64 bits) et
+# syswow64 (32 bits) du prefix ; prefix win32 : 32 bits seulement, dans
+# system32.
+link_dll_set() {
+    local src_dir="$1" dir64="$2" dir32="$3" target_root="$4"
+    shift 4
+    local pair arch sub dll
+    for pair in "${dir64}:system32" "${dir32}:syswow64"; do
+        arch="${pair%%:*}" sub="${pair##*:}"
+        if [[ "$WINE_ARCH" == "win32" ]]; then
+            [[ "$arch" == "$dir64" ]] && continue
+            sub=system32
+        fi
+        mkdir -p "${target_root}/drive_c/windows/${sub}" 2>/dev/null || true
+        for dll in "$@"; do
+            [[ -f "${src_dir}/${arch}/${dll}.dll" ]] || continue
+            ln -sfn "${src_dir}/${arch}/${dll}.dll" \
+                "${target_root}/drive_c/windows/${sub}/${dll}.dll" 2>/dev/null || true
+        done
+    done
+}
+
+# Les prefixes Batocera n'embarquent pas DXVK : system32/syswow64 contiennent
+# des liens vers /userdata/system/wine/dxvk/{x64,x32}/*.dll, un chemin qui
+# n'existe que sous Batocera (247 jeux sur 247 dans une collection réelle).
+# Liens cassés → Wine retombe sur son d3d9/d3d11 intégré (OpenGL), soit
+# llvmpipe sous Xwayland+NVIDIA — Dead or Alive 5 Ultimate (segare) quittait
+# aussitôt sans erreur.
+find_dxvk_dir() {
+    local d
+    for d in "${WSQUASHFS_DXVK_DIR:-}" /usr/share/dxvk "$HOME/.local/share/wsquashfs/dxvk"; do
+        [[ -n "$d" && -f "${d}/x64/dxgi.dll" ]] && echo "$d" && return
+    done
+}
+
+# Comme dxvk_install() de batocera-wine : liens DXVK recréés à CHAQUE
+# lancement, vers le DXVK local. À lancer APRÈS sync_wine_stubs, qui aurait
+# sinon laissé la DLL intégrée de Wine.
+install_dxvk() {
+    local dxvk_dir
+    dxvk_dir=$(find_dxvk_dir)
+    [[ -n "$dxvk_dir" ]] || return 0
+    link_dll_set "$dxvk_dir" x64 x32 "${1:-$WINEPOINT}" d3d8 d3d9 d3d10core d3d11 dxgi
+}
+
+# VKD3D-Proton (Direct3D 12 → Vulkan), relié comme DXVK (26/09) : avec le
+# seul override d3d12=n,b, Wine chargeait son propre d3d12.dll, inutilisable
+# ici, et tout jeu DX12 échouait (Pinball FX : "DX12 is not supported on
+# your system"). Il faut la version Windows (paquet vkd3d-proton-mingw,
+# /usr/share/vkd3d-proton/{x64,x86}), pas la bibliothèque Linux.
+find_vkd3d_dir() {
+    local d
+    for d in "${WSQUASHFS_VKD3D_DIR:-}" /usr/share/vkd3d-proton "$HOME/.local/share/wsquashfs/vkd3d-proton"; do
+        [[ -n "$d" && -f "${d}/x64/d3d12.dll" ]] && echo "$d" && return
+    done
+}
+
+install_vkd3d() {
+    local vkd3d_dir
+    vkd3d_dir=$(find_vkd3d_dir)
+    [[ -n "$vkd3d_dir" ]] || return 0
+    link_dll_set "$vkd3d_dir" x64 x86 "${1:-$WINEPOINT}" d3d12 d3d12core
+}
+
+# d7vk (DirectDraw → Vulkan, 32 bits uniquement), comme dxvk_install() de
+# batocera-wine avec son option d7vk : ddraw.dll → d7vk, et le ddraw intégré
+# de Wine exposé en ddraw_.dll. Sans lui, un jeu DirectDraw passe par
+# l'OpenGL de wined3d, soit llvmpipe (rendu logiciel) sous Xwayland + NVIDIA.
+find_d7vk() {
+    local f
+    for f in "${WSQUASHFS_D7VK_DLL:-}" /usr/share/d7vk/x32/ddraw.dll \
+             "$HOME/.local/share/wsquashfs/d7vk/x32/ddraw.dll"; do
+        [[ -n "$f" && -f "$f" ]] && echo "$f" && return
+    done
+}
+
+install_d7vk() {
+    local target_root="${1:-$WINEPOINT}" d7 wine_root builtin="" c sub=syswow64
+    d7=$(find_d7vk)
+    [[ -n "$d7" ]] || return 0
+    [[ "$WINE_ARCH" == "win32" ]] && sub=system32
+    wine_root=$(runner_root "$WINE_BINARY")
+    for c in "${wine_root}/lib/wine/i386-windows/ddraw.dll" \
+             "${wine_root}/lib32/wine/i386-windows/ddraw.dll" \
+             /usr/lib/wine/i386-windows/ddraw.dll; do
+        [[ -f "$c" ]] && { builtin="$c"; break; }
+    done
+    mkdir -p "${target_root}/drive_c/windows/${sub}" 2>/dev/null || true
+    ln -sfn "$d7" "${target_root}/drive_c/windows/${sub}/ddraw.dll" 2>/dev/null || true
+    if [[ -n "$builtin" ]]; then
+        ln -sfn "$builtin" "${target_root}/drive_c/windows/${sub}/ddraw_.dll" 2>/dev/null || true
+    fi
+}
+
+# DLL du runner + DXVK/VKD3D/d7vk selon les réglages, dans <racine cible>.
+link_runtime_dlls() {
+    local target_root="$1"
+    sync_wine_stubs "$WINE_BINARY" "$target_root"
+    [[ "$DXVK" == "1" ]] && install_dxvk "$target_root"
+    [[ "$VKD3D" == "1" ]] && install_vkd3d "$target_root"
+    [[ "$D7VK" == "1" ]] && install_d7vk "$target_root"
+    return 0
+}
+
+# ── Mise à jour du prefix ──────────────────────────────────────────────
+
+# Mise à jour du prefix au changement de runner, comme createOrUpdatePrefix()
+# de batocera-wine : Wine met le prefix à jour quand .update-timestamp ne
+# correspond plus à son wine.inf, et échouait alors sur les liens DLL déjà en
+# place (liens DXVK des prefixes Batocera, cassés ici) — "create_dest_file
+# failed ... (error=80)" pour chaque DLL. Les liens de system32/syswow64 sont
+# retirés AVANT la mise à jour, puis recréés par link_runtime_dlls.
+update_prefix_if_needed() {
+    local wine_root inf ts stamp
+    [[ -f "${WINEPOINT}/system.reg" ]] || return 0
+    wine_root=$(runner_root "$WINE_BINARY")
+    inf="${wine_root}/share/wine/wine.inf"
+    [[ -f "$inf" ]] || return 0
+    ts=$(stat -c %Y "$inf")
+    # Wine écrit ce fichier en fin de ligne Windows ("1790165633\r\n") : sans
+    # retirer le \r, la comparaison échouait toujours et wineboot -u tournait
+    # à CHAQUE lancement (~70 s, ~725 DLL réécrites dans les saves — 25/09).
+    stamp=$(head -n1 "${WINEPOINT}/.update-timestamp" 2>/dev/null | tr -d '\r')
+    [[ "$stamp" == "disable" || "$stamp" == "$ts" ]] && return 0
+    echo "Préfixe       : mise à jour pour $("$WINE_BINARY" --version 2>/dev/null || basename "$wine_root")"
+    find "${WINEPOINT}/drive_c/windows/system32" "${WINEPOINT}/drive_c/windows/syswow64" \
+        -maxdepth 1 -type l -delete 2>/dev/null || true
+    run_wineboot_update "-all" >/dev/null 2>&1 || true
+    run_wineserver "$WINEPOINT" -w || true
+    # wineboot -u vient d'écrire ~1 600 DLL (~500 Mo) dans l'upperdir : les
+    # retirer tout de suite, sync_wine_stubs les remplace par des liens (25/09 :
+    # 8 jeux, +4,5 Go après un premier lancement). Prefix packagé seulement :
+    # pour un jeu seul, ce system32 EST le prefix.
+    # Rechargement obligatoire (27/09) : sans lui, fuse-overlayfs gardait sa
+    # vue d'avant l'effacement, sync_wine_stubs croyait absentes les DLL
+    # natives du jeu (d3dx9_42, mscoree...) et les remplaçait par des liens
+    # Wine — "d3dx9_42.dll not found" au premier lancement après chaque
+    # changement de Wine (Virtua Tennis 4).
+    if [[ "$MOUNT_MODE" == "overlay" && "$PACKAGED_PREFIX" == "1" ]]; then
+        rm -rf "${SAVEPOINT}/drive_c/windows/system32" \
+               "${SAVEPOINT}/drive_c/windows/syswow64" 2>/dev/null || true
+        reload_overlay "après mise à jour du préfixe"
+    fi
+}
+
+# Comme sandboxing_prefix() de batocera-wine : les dossiers du profil Wine
+# (Documents, Music...) sont packagés en liens vers /userdata/system,
+# inexistant ici — un jeu qui sauvegarde dans "Mes documents" échouait.
+# Remplacés par de vrais dossiers (dans l'upperdir en overlay : les
+# sauvegardes y persistent).
+fix_userdata_links() {
+    local link
+    while IFS= read -r -d '' link; do
+        rm -f "$link" && mkdir -p "$link"
+    done < <(find "${WINEPOINT}/drive_c/users" -maxdepth 6 -type l -lname '/userdata*' -print0 2>/dev/null)
+}
+
+# ── Sauvegardes Batocera (SAVEDIR / SAVEFILES) ─────────────────────────
+
+# SAVEDIR / SAVEFILES de l'autorun.cmd, comme saveFilesToUserdata() de
+# batocera-wine : le dossier (ou les fichiers) de sauvegarde du jeu sont
+# remplacés par des liens vers <racine>/saves/<système>/<jeu>, à côté du
+# dossier roms/ — l'emplacement des sauvegardes Batocera. Différence : la
+# copie initiale des sauvegardes packagées n'écrase JAMAIS une sauvegarde
+# déjà présente (cp -n), là où Batocera peut les remplacer si le prefix est
+# recréé.
+batocera_saves_dir() {
+    local rom_dir sys root
+    if [[ -n "${WSQUASHFS_BATOCERA_SAVES:-}" ]]; then
+        echo "${WSQUASHFS_BATOCERA_SAVES}/${GAME_NAME}"
+        return
+    fi
+    rom_dir=$(dirname "$WSQUASHFS_FILE")
+    sys=$(basename "$rom_dir")
+    root=$(dirname "$(dirname "$rom_dir")")
+    [[ "$(basename "$(dirname "$rom_dir")")" == "roms" ]] || return 1
+    echo "${root}/saves/${sys}/${GAME_NAME}"
+}
+
+apply_savedir() {
+    local savedir="${1//\\//}" savefiles="$2" sysdir parent base f files=()
+    [[ -n "$savedir$savefiles" ]] || return 0
+    if ! sysdir=$(batocera_saves_dir); then
+        warn "SAVEDIR/SAVEFILES ignorés (jeu hors d'un dossier roms/<système>/ ;" \
+             "  définir WSQUASHFS_BATOCERA_SAVES)"
+        return 0
+    fi
+    mkdir -p "$sysdir"
+    if [[ -n "$savedir" ]]; then
+        parent="${WINEPOINT}/$(dirname "$savedir")"
+        base=$(basename "$savedir")
+        mkdir -p "$parent"
+        if [[ -d "${parent}/${base}" && ! -L "${parent}/${base}" ]]; then
+            cp -an "${parent}/${base}/." "$sysdir/" 2>/dev/null || true
+            rm -rf "${parent:?}/${base:?}"
+        fi
+        [[ -L "${parent}/${base}" ]] || ln -s "$sysdir" "${parent}/${base}"
+    else
+        IFS=';' read -r -a files <<< "$savefiles"
+        for f in "${files[@]}"; do
+            f="${f//\\//}"
+            [[ -n "$f" ]] || continue
+            mkdir -p "$(dirname "${sysdir}/${f}")" "$(dirname "${WINEPOINT}/${f}")"
+            if [[ -e "${WINEPOINT}/${f}" && ! -L "${WINEPOINT}/${f}" ]]; then
+                [[ -e "${sysdir}/${f}" ]] || mv -f "${WINEPOINT}/${f}" "${sysdir}/${f}"
+                rm -f "${WINEPOINT}/${f}"
+            fi
+            ln -sfn "${sysdir}/${f}" "${WINEPOINT}/${f}"
+        done
+    fi
+    chown_to_target "$sysdir"
+    echo "Sauvegardes   : ${sysdir} (SAVEDIR/SAVEFILES)"
+}
+
+# ════════════════════════════════════════════════════════════════════════
+# 7. MANETTES
+# ════════════════════════════════════════════════════════════════════════
+
+# Manettes Sony (DualShock 4, DualSense) utilisables par hidraw : avec
+# "DisableHidraw"=0, winebus les réserve à son backend hidraw et SDL les
+# ignore — un /dev/hidrawN illisible laisserait le jeu SANS manette. Vrai
+# s'il y en a au moins une et que tous leurs nœuds sont lisibles ; raison de
+# l'échec dans HIDRAW_REASON.
+hidraw_usable() {
+    local u n found=0
+    for u in "${HIDRAW_SYSFS:-/sys/class/hidraw}"/*/device/uevent; do
+        grep -qs '^HID_ID=[0-9A-Fa-f]*:0000054C:' "$u" || continue
+        n=$(basename "$(dirname "$(dirname "$u")")")
+        found=1
+        if [[ ! -r "/dev/${n}" ]]; then
+            HIDRAW_REASON="/dev/${n} illisible"
+            return 1
+        fi
+    done
+    [[ "$found" == 1 ]] || { HIDRAW_REASON="aucune manette Sony"; return 1; }
+}
+
+# dualsense-usb-bridge : dans le PATH, sinon à côté du lanceur (dépôt).
+find_dualsense_bridge() {
+    local bridge
+    bridge=$(command -v dualsense-usb-bridge) \
+        || bridge="$(dirname "$(readlink -f "$0")")/tools/dualsense-usb-bridge/dualsense-usb-bridge"
+    [[ -x "$bridge" ]] && echo "$bridge"
+    return 0
+}
+
+# DualSense Bluetooth (Sunshine) présentée en DualSense USB pendant le jeu,
+# l'originale masquée à Wine (voir configure_controllers). Faux s'il n'y a
+# pas de DualSense Bluetooth (une DualSense USB passe en direct) ou pas de
+# pont.
+start_dualsense_bridge() {
+    local bridge ready i
+    grep -qsx 'HID_ID=0005:0000054C:00000CE6' "${HIDRAW_SYSFS:-/sys/class/hidraw}"/*/device/uevent || return 1
+    bridge=$(find_dualsense_bridge)
+    if [[ -z "$bridge" ]]; then
+        warn "dualsense-usb-bridge introuvable, DualSense Bluetooth en direct"
+        return 1
+    fi
+    ready=$(mktemp -u "${TMPDIR:-/tmp}/dualsense-usb-bridge.XXXXXX")
+    without_lock "$bridge" --hide --parent $$ --ready-file "$ready" &
+    DS_BRIDGE_PID=$!
+    for ((i = 0; i < 30; i++)); do
+        [[ -e "$ready" ]] && { rm -f "$ready"; return 0; }
+        kill -0 "$DS_BRIDGE_PID" 2>/dev/null || break
+        sleep 0.1
+    done
+    stop_dualsense_bridge
+    rm -f "$ready"
+    return 1
+}
+
+stop_dualsense_bridge() {
+    [[ -n "$DS_BRIDGE_PID" ]] || return 0
+    kill "$DS_BRIDGE_PID" 2>/dev/null
+    wait "$DS_BRIDGE_PID" 2>/dev/null
+    DS_BRIDGE_PID=""
+}
+
+# ════════════════════════════════════════════════════════════════════════
+# 8. COMMANDES DE MAINTENANCE
+# ════════════════════════════════════════════════════════════════════════
+
+usage() {
+    cat <<'HELP'
+Usage :
+  wsquashfs-launcher [--wine <version>] <jeu.wsquashfs>
+        Lance le jeu (autorun.cmd).
+  wsquashfs-launcher [--wine <version>] --exec <jeu.wsquashfs> <programme> [arguments...]
+        Lance un autre programme dans le prefix du jeu : un exécutable du jeu
+        (chemin relatif au prefix ou au DIR de l'autorun.cmd, ex. JConfig.exe,
+        drive_c/teknoparrot/TeknoParrotUi.exe) ou un outil Wine (winecfg,
+        regedit, cmd, explorer, control joy.cpl...).
+  wsquashfs-launcher --mount <jeu.wsquashfs>
+        Monte le jeu et le laisse monté pour le modifier à la main ; les
+        changements vont dans le dossier de sauvegardes du jeu.
+  wsquashfs-launcher --umount [<jeu.wsquashfs>]
+        Démonte un jeu (ou tous les jeux montés).
+  wsquashfs-launcher --pack <Jeu.wine> [sortie.wsquashfs]
+        Crée un .wsquashfs (zstd) à partir d'un prefix Wine.
+  wsquashfs-launcher --install <jeu.wsquashfs> [dossier]
+        Extrait le jeu dans <dossier>/<Jeu> (défaut : à côté de l'image), pour
+        jouer sans FUSE ; l'image est conservée, ses sauvegardes non reprises.
+  wsquashfs-launcher --info <jeu.wsquashfs | dossier>
+        Affiche la version du jeu (GAME_VERSION= de l'autorun.cmd), son type
+        de prefix, sa commande et sa taille, sans monter l'image.
+  wsquashfs-launcher [--wine <version>] <dossier du jeu>
+        Lance un jeu installé (dossier contenant autorun.cmd) sur place, sans
+        montage : le jeu écrit directement dans son dossier.
+  wsquashfs-launcher --clean
+        Supprime les copies de travail (cache) et les doublons des sauvegardes :
+        fichiers identiques à l'image du jeu, DLL que Proton recopie à chaque
+        lancement. Tout ce que le jeu a écrit est gardé ; jeux en cours exceptés.
+  wsquashfs-launcher --clear [jeu]
+        Ne garde que drive_c/users des sauvegardes (de tous les jeux, ou d'un
+        seul) : le reste (prefix, registre, scores et réglages écrits dans le
+        dossier du jeu) est supprimé, après archivage (--backup).
+        Confirmation au terminal.
+  wsquashfs-launcher --backup [jeu]
+        Archive les sauvegardes (de tous les jeux, ou d'un seul) dans
+        ~/.local/share/wsquashfs/backups ; jeux en cours exceptés.
+  wsquashfs-launcher --list
+        Liste les jeux connus : état (en cours, monté), version, taille des
+        sauvegardes et image.
+  wsquashfs-launcher --doctor
+        Vérifie l'installation (FUSE, Wine/Proton, umu, DXVK, VKD3D, d7vk,
+        manettes, dossiers) et indique ce qui manque.
+
+Options :
+  --wine <version>  Runner Wine/Proton à utiliser : nom (ou partie du nom) d'un
+                    runner installé dans /opt, /usr/wine ou
+                    ~/.local/share/wsquashfs/wine, chemin d'un binaire wine,
+                    ou "system". Un Proton (Heroic, Steam) est lancé via umu
+                    sur un jeu à prefix Proton ou sans prefix.
+
+Modes de montage (automatique) :
+  overlay   squashfuse + fuse-overlayfs (sauvegardes isolées, idéal)
+  copy      squashfuse ou unsquashfs + cache persistant
+  dossier   jeu installé (--install) lancé sur place, sans FUSE
+
+Variables d'environnement :
+  WSQUASHFS_SAVES_DIR        Sauvegardes overlay (défaut: ~/.local/share/wsquashfs/saves)
+  WSQUASHFS_CACHE            Cache de travail   (défaut: ~/.cache/wsquashfs)
+  WSQUASHFS_BACKUP_DIR       Archives --backup  (défaut: ~/.local/share/wsquashfs/backups)
+  WSQUASHFS_DXVK=0           Désactive DXVK (défaut : activé)
+  WSQUASHFS_HIDRAW=1         Manettes Sony par hidraw si lisibles (défaut : XInput,
+                             comme Batocera ; aussi par jeu via HIDRAW=1 dans autorun.cmd) ;
+                             DualSense Bluetooth présentée en USB (dualsense-usb-bridge)
+  WSQUASHFS_HIDRAW=bt        Idem, DualSense Bluetooth en direct (haptiques Bluetooth)
+  (MangoHud, gamemode... : outils extérieurs, ex. "mangohud wsquashfs-launcher jeu.wsquashfs" —
+   leurs variables sont transmises au jeu, y compris lancé en root)
+  WSQUASHFS_VIRTUAL_DESKTOP  Bureau virtuel Wine pour tous les jeux (ex: 1920x1080),
+                             aussi par jeu via VIRTUAL_DESKTOP= dans autorun.cmd
+HELP
+}
+
+# ── --clean / --clear ──────────────────────────────────────────────────
 
 # Vrai si rel (chemin relatif dans l'upperdir) est sous un dossier opaque :
 # le dossier de l'image y est masqué, le fichier de l'upperdir est alors le
 # seul visible, même identique. fuse-overlayfs marque les dossiers opaques
 # par l'attribut user.fuseoverlayfs.opaque ou un fichier .wh..wh..opq.
-declare -A OPAQUE_CACHE=()
 under_opaque() {
     local upper="$1" d="$2"
     while [[ "$d" == */* ]]; do
@@ -892,12 +1361,6 @@ under_opaque() {
         [[ "${OPAQUE_CACHE[$d]}" == y ]] && return 0
     done
     return 1
-}
-
-# Vrai si le jeu est monté ou en cours : ses sauvegardes sont l'upperdir
-# actif de l'overlay, on n'y touche pas.
-saves_busy() {
-    game_in_use "$1" || mountpoint -q "${CACHE_DIR}/wine/${1}" 2>/dev/null
 }
 
 # --clean (01/10) : retire des sauvegardes de chaque jeu les doublons
@@ -955,7 +1418,9 @@ clean_saves() {
         while IFS= read -r -d '' f; do
             b=$(basename "$f")
             for c in "${lib}wine"/{dxvk,vkd3d-proton,nvapi}/{x86_64,i386}-windows/"$b"; do
-                [[ -f "$c" ]] && cmp -s "$f" "$c" || continue
+                if ! { [[ -f "$c" ]] && cmp -s "$f" "$c"; }; then
+                    continue
+                fi
                 size=$(stat -c %s "$f")
                 rm -f -- "$f" && { n=$((n + 1)); bytes=$((bytes + size)); }
                 break
@@ -1009,10 +1474,10 @@ clean_cache() {
     local d g
     local -A kept=()
     # Démonter avant de supprimer : rm -rf sur un point de montage FUSE
-    # actif tente de supprimer les fichiers du jeu À TRAVERS le montage
-    # plutôt que le point de montage lui-même (destructif/imprévisible).
+    # actif supprime les fichiers du jeu À TRAVERS le montage.
     unmount_all_stale
-    for d in "${CACHE_DIR}/mnt"/* "${CACHE_DIR}/wine"/* "${CACHE_DIR}/work"/*; do
+    # CACHE_DIR/work : emplacement du workdir jusqu'au 13/10.
+    for d in "${CACHE_DIR}/mnt"/* "${CACHE_DIR}/wine"/* "${SAVES_DIR}/.work"/* "${CACHE_DIR}/work"/*; do
         [[ -e "$d" ]] || continue
         g=$(basename "$d")
         if saves_busy "$g" || mountpoint -q "${CACHE_DIR}/mnt/${g}" 2>/dev/null; then
@@ -1025,51 +1490,344 @@ clean_cache() {
     echo "✓ Copies de travail supprimées"
 }
 
+# Jeux qui ont une couche de sauvegardes.
+saved_games() {
+    local g
+    for g in "${SAVES_DIR}"/*/; do
+        [[ -d "$g" ]] && basename "$g"
+    done
+}
+
+cmd_clean() {
+    local games=() g
+    echo "Nettoyage des copies de travail et des doublons des sauvegardes..."
+    clean_cache
+    mapfile -t games < <(saved_games)
+    for g in "${games[@]}"; do
+        clean_saves "$g"
+    done
+    echo "✓ Sauvegardes gardées dans : ${SAVES_DIR}"
+}
+
+# cmd_clear [jeu]
+cmd_clear() {
+    local targets=() g
+    if [[ -n "${1:-}" ]]; then
+        targets=("$(basename "$1" .wsquashfs)")
+        if [[ ! -d "${SAVES_DIR}/${targets[0]}" ]]; then
+            echo "Aucune sauvegarde pour ${targets[0]}"
+            return 0
+        fi
+    else
+        mapfile -t targets < <(saved_games)
+    fi
+    echo "--clear ne garde que drive_c/users de ${#targets[@]} jeu(x) : scores et réglages"
+    echo "  enregistrés ailleurs (jeux arcade, dossier du jeu, registre) seront perdus."
+    echo "  Chaque jeu est d'abord archivé dans $(backup_dir) (voir --backup)."
+    if [[ -t 0 ]] && ! confirm "Continuer ?"; then
+        echo "Abandon."
+        return 1
+    fi
+    clean_cache
+    for g in "${targets[@]}"; do
+        if saves_busy "$g"; then
+            echo "  ${g} : monté ou en cours, ignoré"
+            continue
+        fi
+        # Jamais de suppression sans archive (13/10) : --clear est irréversible.
+        backup_saves "$g" || continue
+        clear_saves "$g"
+    done
+    return 0
+}
+
+# ── --backup ───────────────────────────────────────────────────────────
+
+backup_dir() {
+    echo "${WSQUASHFS_BACKUP_DIR:-$HOME/.local/share/wsquashfs/backups}"
+}
+
+# backup_saves <jeu> : archive SAVES_DIR/<jeu> dans backup_dir
+# (<jeu>-AAAAMMJJ-HHMMSS.tar.zst, ou .tar.gz sans zstd). Les attributs
+# étendus sont gardés : fuse-overlayfs y marque les dossiers opaques, Wine
+# les attributs DOS. Faux si l'archive n'a pas pu être faite.
+backup_saves() {
+    local name="$1" dir archive comp=(--gzip) ext=tar.gz
+    [[ -d "${SAVES_DIR}/${name}" ]] || return 0
+    dir=$(backup_dir)
+    if command -v zstd &>/dev/null; then
+        comp=(--zstd) ext=tar.zst
+    fi
+    archive="${dir}/${name}-$(date +%Y%m%d-%H%M%S)"
+    # Deux archives dans la même seconde (--clear juste après --backup) :
+    # suffixe, jamais d'écrasement.
+    local base="$archive" n=1
+    while [[ -e "${archive}.${ext}" ]]; do
+        archive="${base}-$((++n))"
+    done
+    archive+=".${ext}"
+    if mkdir -p "$dir" 2>/dev/null \
+       && tar -C "$SAVES_DIR" --xattrs --xattrs-include='user.*' "${comp[@]}" \
+              -cf "${archive}.part" -- "$name" 2>/dev/null \
+       && mv -f "${archive}.part" "$archive"; then
+        chown_to_target "$dir"
+        echo "  ${name} : archivé dans ${archive} ($(du -h "$archive" | cut -f1))"
+        return 0
+    fi
+    rm -f "${archive}.part"
+    warn "${name} : échec de l'archive (${archive}), sauvegardes laissées intactes"
+    return 1
+}
+
+# cmd_backup [jeu] : un jeu, ou tous ceux qui ont des sauvegardes.
+cmd_backup() {
+    local targets=() g failed=0
+    if [[ -n "${1:-}" ]]; then
+        targets=("$(basename "$1" .wsquashfs)")
+        [[ -d "${SAVES_DIR}/${targets[0]}" ]] || die "aucune sauvegarde pour ${targets[0]}"
+    else
+        mapfile -t targets < <(saved_games)
+    fi
+    if ((${#targets[@]} == 0)); then
+        echo "Aucune sauvegarde à archiver (${SAVES_DIR})"
+        return 0
+    fi
+    echo "Archivage des sauvegardes dans $(backup_dir)..."
+    for g in "${targets[@]}"; do
+        # Jeu en cours : ses sauvegardes changent sous tar, archive incohérente.
+        if saves_busy "$g"; then
+            echo "  ${g} : monté ou en cours, ignoré"
+            continue
+        fi
+        backup_saves "$g" || failed=1
+    done
+    echo "Restauration (jeu arrêté) :"
+    echo "  tar -C \"${SAVES_DIR}\" --xattrs --xattrs-include='user.*' -xpf <archive>"
+    return "$failed"
+}
+
+# ── --list ─────────────────────────────────────────────────────────────
+
+# Jeux connus : sauvegardes, copie de travail, ou image enregistrée au
+# lancement (SAVES_DIR/.images).
+known_games() {
+    local d
+    {
+        for d in "${SAVES_DIR}"/*/ "${CACHE_DIR}/wine"/*/; do
+            [[ -d "$d" ]] && basename "$d"
+        done
+        for d in "${SAVES_DIR}/.images"/*; do
+            [[ -f "$d" ]] && basename "$d"
+        done
+    } | sort -u
+}
+
+game_state() {
+    if game_in_use "$1"; then
+        echo "en cours"
+    elif game_locked "$1"; then
+        echo "verrouillé"
+    elif mountpoint -q "${CACHE_DIR}/wine/${1}" 2>/dev/null; then
+        echo "monté"
+    else
+        echo "-"
+    fi
+}
+
+# --list (13/10) : jeux connus, état, version et taille des sauvegardes.
+cmd_list() {
+    local games=() g width=4 img image version size
+    mapfile -t games < <(known_games)
+    if ((${#games[@]} == 0)); then
+        echo "Aucun jeu connu (aucun lancement enregistré dans ${SAVES_DIR})"
+        return 0
+    fi
+    for g in "${games[@]}"; do
+        (($(text_width "$g") > width)) && width=$(text_width "$g")
+    done
+    width=$((width + 2))
+    echo "$(pad "Jeu" "$width")$(pad "État" 12)$(pad "Version" 12)$(pad "Sauvegardes" 13)Image"
+    for g in "${games[@]}"; do
+        img="" version="-" size="aucune"
+        [[ -f "${SAVES_DIR}/.images/${g}" ]] && img=$(< "${SAVES_DIR}/.images/${g}")
+        if [[ -z "$img" ]]; then
+            image="inconnue"
+        elif [[ -e "$img" ]]; then
+            image="$img"
+            version=$(game_version "$img")
+            [[ -n "$version" ]] || version="-"
+        else
+            image="introuvable : ${img}"
+        fi
+        [[ -d "${SAVES_DIR}/${g}" ]] && size=$(du -sh "${SAVES_DIR}/${g}" 2>/dev/null | cut -f1)
+        echo "$(pad "$g" "$width")$(pad "$(game_state "$g")" 12)$(pad "$version" 12)$(pad "$size" 13)${image}"
+    done
+    echo ""
+    echo "Sauvegardes : ${SAVES_DIR} ($(du -sh "$SAVES_DIR" 2>/dev/null | cut -f1) au total)"
+}
+
+# ── --doctor ───────────────────────────────────────────────────────────
+
+doctor_ok()   { echo "  ✓ $*"; }
+doctor_fail() { echo "  ✗ $*"; }
+doctor_note() { echo "  – $*"; }
+
+# doctor_tool <commande> <rôle> <ok|fail|note si absente>
+doctor_tool() {
+    local path
+    if path=$(command -v "$1"); then
+        doctor_ok "$1 (${path}) : $2"
+    else
+        "doctor_$3" "$1 absent : $2"
+    fi
+}
+
+# --doctor (13/10) : ce qui est installé, ce qui manque et ce que cela
+# change. Code 1 si aucun jeu ne peut être lancé.
+cmd_doctor() {
+    local fatal=0 bin alt runners dir umu
+    echo "Montage des images"
+    if [[ -c /dev/fuse && -r /dev/fuse && -w /dev/fuse ]]; then
+        doctor_ok "/dev/fuse accessible"
+    else
+        doctor_fail "/dev/fuse inaccessible : mode copy seulement (conteneur : --device /dev/fuse)"
+    fi
+    doctor_tool squashfuse "montage de l'image" fail
+    doctor_tool fuse-overlayfs "mode overlay, sauvegardes séparées (sinon mode copy)" fail
+    doctor_tool unsquashfs "mode copy, --info, --install" fail
+    doctor_tool mksquashfs "--pack" note
+    doctor_tool getfattr "--clean (doublons des sauvegardes)" note
+    doctor_tool flock "verrou par jeu (double lancement)" note
+    doctor_tool zstd "archives --backup compactes (sinon gzip)" note
+    if ! command -v squashfuse &>/dev/null && ! command -v unsquashfs &>/dev/null; then
+        fatal=1
+    fi
+
+    echo "Wine / Proton"
+    bin=$(find_wine_binary)
+    if [[ -n "$bin" ]]; then
+        doctor_ok "Wine par défaut : $(runner_name "$bin") $(runner_version "$bin") (${bin})"
+        if wine_supports_win32 "$bin"; then
+            doctor_ok "prefixes 32 bits (win32) pris en charge"
+        elif alt=$(find_win32_wine); then
+            doctor_ok "prefixes 32 bits : $(runner_name "$alt") (Wine par défaut WoW64 seul)"
+        else
+            doctor_fail "prefixes 32 bits impossibles : Wine WoW64 seul, aucun Wine classique installé"
+        fi
+    else
+        doctor_fail "aucun Wine : seuls les jeux lancés par Proton (umu) fonctionnent"
+    fi
+    runners=$(list_wine_runners)
+    if [[ -n "$runners" ]]; then
+        doctor_ok "runners installés (--wine) :"
+        while IFS= read -r dir; do
+            echo "      $(basename "$dir")  ${dir}"
+        done <<< "$runners"
+    else
+        doctor_note "aucun runner installé dans /opt, /usr/wine, ~/.local/share/wsquashfs/wine ni Steam/Heroic"
+    fi
+    if umu=$(find_umu_run); then
+        doctor_ok "umu-run (${umu}) : prefixes Proton et jeux seuls lancés par Proton"
+    else
+        doctor_note "umu-run absent : prefixes Proton lancés directement par Wine (dégradé)"
+    fi
+    if [[ -z "$bin" ]] && ! { [[ -n "$umu" ]] && [[ -n "$(find_proton_runner "")" ]]; }; then
+        fatal=1
+    fi
+
+    echo "Rendu"
+    dir=$(find_dxvk_dir)
+    if [[ -n "$dir" ]]; then doctor_ok "DXVK (${dir})"; else doctor_fail "DXVK absent : Direct3D 8-11 en OpenGL (llvmpipe possible)"; fi
+    dir=$(find_vkd3d_dir)
+    if [[ -n "$dir" ]]; then doctor_ok "VKD3D-Proton (${dir})"; else doctor_fail "VKD3D-Proton absent : Direct3D 12 indisponible"; fi
+    dir=$(find_d7vk)
+    if [[ -n "$dir" ]]; then doctor_ok "d7vk (${dir})"; else doctor_note "d7vk absent : DirectDraw en OpenGL"; fi
+
+    echo "Manettes"
+    if hidraw_usable; then
+        doctor_ok "manette Sony lisible par hidraw (HIDRAW=1 possible)"
+    else
+        doctor_note "hidraw : ${HIDRAW_REASON} (HIDRAW=1 retombe en XInput)"
+    fi
+    bin=$(find_dualsense_bridge)
+    if [[ -n "$bin" ]]; then
+        doctor_ok "dualsense-usb-bridge (${bin})"
+    else
+        doctor_note "dualsense-usb-bridge absent : DualSense Bluetooth en direct avec HIDRAW=1"
+    fi
+
+    echo "Dossiers"
+    for dir in "$SAVES_DIR" "$CACHE_DIR" "$(backup_dir)"; do
+        if [[ ! -e "$dir" ]]; then
+            doctor_note "${dir} : pas encore créé"
+        elif [[ -w "$dir" ]]; then
+            doctor_ok "${dir} ($(du -sh "$dir" 2>/dev/null | cut -f1))"
+        else
+            doctor_fail "${dir} : pas d'accès en écriture"
+        fi
+    done
+
+    echo ""
+    if ((fatal)); then
+        echo "✗ Aucun jeu ne peut être lancé : voir les points ✗ ci-dessus"
+        return 1
+    fi
+    echo "✓ Prêt à lancer des jeux"
+}
+
+# cmd_umount [jeu] : un jeu, ou tous les jeux montés.
+cmd_umount() {
+    local g
+    if [[ -n "${1:-}" ]]; then
+        umount_game "$(basename "$1" .wsquashfs)"
+    else
+        for g in "${CACHE_DIR}/wine"/*/; do
+            [[ -d "$g" ]] && umount_game "$(basename "$g")"
+        done
+        unmount_all_stale
+    fi
+    return 0
+}
+
+# ── --pack / --install / --info ────────────────────────────────────────
+
 # --pack <Jeu.wine> [sortie] : prefix Wine (dossier) → .wsquashfs, comme
 # wine2squashfs de batocera-wine (mksquashfs, compression zstd).
 pack_prefix() {
-    local src="${1%/}" out="${2:-}"
-    if [[ -z "$src" || ! -d "$src" ]]; then
-        echo "Usage : $0 --pack <dossier.wine> [sortie.wsquashfs]"
-        return 1
-    fi
-    command -v mksquashfs &>/dev/null || { echo "Erreur : mksquashfs absent (squashfs-tools)"; return 1; }
+    local src="${1%/}" out="${2:-}" saves tmp version reset_saves=false
+    [[ -n "$src" && -d "$src" ]] || usage_error "$0 --pack <dossier.wine> [sortie.wsquashfs]"
+    command -v mksquashfs &>/dev/null || die "mksquashfs absent (squashfs-tools)"
     [[ -n "$out" ]] || out="${src%.wine}.wsquashfs"
-    local saves reply reset_saves=false
     saves="${SAVES_DIR}/$(basename "$out" .wsquashfs)"
-    # Fichier existant : question au terminal (26/09, demande utilisateur),
-    # refus sans terminal (script, frontend) comme avant.
+    # Fichier existant : question au terminal (26/09), refus sans terminal
+    # (script, frontend).
     if [[ -e "$out" ]]; then
-        if [[ ! -t 0 ]]; then
-            echo "Erreur : ${out} existe déjà (jamais écrasé sans confirmation au terminal)"
+        [[ -t 0 ]] || die "${out} existe déjà (jamais écrasé sans confirmation au terminal)"
+        if ! confirm "${out} existe déjà ($(du -h "$out" | cut -f1), $(date -r "$out" '+%d/%m %H:%M')). L'écraser ?"; then
+            echo "Abandon."
             return 1
         fi
-        read -r -p "${out} existe déjà ($(du -h "$out" | cut -f1), $(date -r "$out" '+%d/%m %H:%M')). L'écraser ? [o/N] " reply
-        [[ "${reply,,}" == o* || "${reply,,}" == y* ]] || { echo "Abandon."; return 1; }
         # Sauvegardes de l'ancienne image : appliquées par-dessus le nouveau
         # prefix (overlay), elles peuvent en masquer une partie.
-        if [[ -d "$saves" ]]; then
-            read -r -p "Réinitialiser aussi ses sauvegardes (${saves}) ? [o/N] " reply
-            [[ "${reply,,}" == o* || "${reply,,}" == y* ]] && reset_saves=true
+        if [[ -d "$saves" ]] && confirm "Réinitialiser aussi ses sauvegardes (${saves}) ?"; then
+            reset_saves=true
         fi
     fi
-    [[ -f "${src}/autorun.cmd" ]] || echo "Attention : pas d'autorun.cmd dans ${src} (lançable seulement via --exec)"
+    [[ -f "${src}/autorun.cmd" ]] || warn "pas d'autorun.cmd dans ${src} (lançable seulement via --exec)"
     # Construit à côté puis remplace : l'ancienne image reste intacte si
     # mksquashfs échoue ou est interrompu.
-    local tmp="${out}.part"
+    tmp="${out}.part"
     rm -f "$tmp"
     echo "Création de ${out} depuis ${src}..."
     if ! mksquashfs "$src" "$tmp" -comp zstd -noappend -quiet; then
         rm -f "$tmp"
-        echo "Erreur : échec de mksquashfs, ${out} inchangé"
-        return 1
+        die "échec de mksquashfs, ${out} inchangé"
     fi
     mv -f "$tmp" "$out"
     if [[ "$reset_saves" == true ]]; then
         rm -rf -- "${saves:?}" && echo "Sauvegardes réinitialisées : ${saves}"
     fi
     echo "✓ ${out} ($(du -h "$out" | cut -f1))"
-    local version
     version=$(game_version "$src")
     if [[ -n "$version" ]]; then
         echo "  Version : ${version}"
@@ -1081,18 +1839,15 @@ pack_prefix() {
 # --info <jeu.wsquashfs | dossier> (29/09) : version et type du jeu, lus
 # dans l'image sans la monter.
 show_info() {
-    local src="$1" autorun type version proton
-    if [[ -z "$src" || ! -e "$src" ]]; then
-        echo "Usage : $0 --info <jeu.wsquashfs | dossier du jeu>"
-        return 1
-    fi
+    local src="$1" autorun type="" version proton cmd
+    [[ -n "$src" && -e "$src" ]] || usage_error "$0 --info <jeu.wsquashfs | dossier du jeu>"
     src=$(realpath "$src")
     if [[ -d "$src" ]]; then
         autorun=$(cat "${src}/autorun.cmd" 2>/dev/null)
         [[ -f "${src}/system.reg" ]] && type=prefix
         proton=$(head -1 "${src}/config_info" 2>/dev/null)
     else
-        command -v unsquashfs &>/dev/null || { echo "Erreur : unsquashfs absent (squashfs-tools)"; return 1; }
+        command -v unsquashfs &>/dev/null || die "unsquashfs absent (squashfs-tools)"
         autorun=$(unsquashfs -cat "$src" autorun.cmd 2>/dev/null)
         unsquashfs -cat "$src" system.reg >/dev/null 2>&1 && type=prefix
         proton=$(unsquashfs -cat "$src" config_info 2>/dev/null | head -1)
@@ -1110,7 +1865,6 @@ show_info() {
     [[ -n "$version" ]] || version="non renseignée (GAME_VERSION= dans l'autorun.cmd)"
     echo "Version       : ${version}"
     echo "Type          : ${type}"
-    local cmd
     if cmd=$(override_var "${src%/}.autorun" CMD); then
         echo "Commande      : ${cmd}"
     elif [[ -n "$autorun" ]]; then
@@ -1119,7 +1873,7 @@ show_info() {
         echo "Commande      : aucun autorun.cmd"
     fi
     if [[ -f "${src%/}.autorun" ]]; then
-        echo "Surcharge     : $(basename "${src%/}.autorun") ($(grep -o '^[A-Za-z_][A-Za-z0-9_]*=' "${src%/}.autorun" | tr -d '=' | paste -sd ' ')) — non lue par Batocera"
+        echo "Surcharge     : $(basename "${src%/}.autorun") ($(override_keys "${src%/}.autorun")) — non lue par Batocera"
     fi
     echo "Taille        : $(du -sh "$src" | cut -f1)"
 }
@@ -1130,20 +1884,16 @@ show_info() {
 # (wsquashfs-launcher <dossier>/<Jeu>). Part de l'image d'origine : la couche
 # de sauvegardes du .wsquashfs n'est pas reprise, l'image est conservée.
 install_game() {
-    local img="$1" parent="${2:-}" name dest tmp
+    local img="$1" parent="${2:-}" name dest tmp version
     if [[ -z "$img" || ! -f "$img" || "${img##*.}" != "wsquashfs" ]]; then
-        echo "Usage : $0 --install <jeu.wsquashfs> [dossier de destination]"
-        return 1
+        usage_error "$0 --install <jeu.wsquashfs> [dossier de destination]"
     fi
-    command -v unsquashfs &>/dev/null || { echo "Erreur : unsquashfs absent (squashfs-tools)"; return 1; }
+    command -v unsquashfs &>/dev/null || die "unsquashfs absent (squashfs-tools)"
     name=$(basename "$img" .wsquashfs)
     [[ -n "$parent" ]] || parent=$(dirname "$(realpath "$img")")
-    mkdir -p "$parent" || { echo "Erreur : impossible de créer ${parent}"; return 1; }
+    mkdir -p "$parent" || die "impossible de créer ${parent}"
     dest="${parent%/}/${name}"
-    if [[ -e "$dest" ]]; then
-        echo "Erreur : ${dest} existe déjà (jamais écrasé)"
-        return 1
-    fi
+    [[ ! -e "$dest" ]] || die "${dest} existe déjà (jamais écrasé)"
     # Extrait à côté puis renomme : pas de dossier à moitié rempli si
     # unsquashfs échoue (place insuffisante...) ou est interrompu.
     tmp="${dest}.part"
@@ -1151,352 +1901,136 @@ install_game() {
     echo "Installation de ${name} dans ${dest}..."
     if ! unsquashfs -no-xattrs -d "$tmp" "$img"; then
         rm -rf -- "$tmp"
-        echo "Erreur : échec de l'extraction, rien n'a été installé"
-        return 1
+        die "échec de l'extraction, rien n'a été installé"
     fi
     mv -- "$tmp" "$dest"
     # Lancé en root : le dossier doit appartenir à l'utilisateur qui lancera
     # Wine, sinon Wine refuse le prefix.
-    if [[ "$RUN_AS_ROOT" == true && -n "$TARGET_USER" ]]; then
+    if drops_to_target_user; then
         chown -R "${WINE_UID}:${WINE_GID}" "$dest"
     fi
     echo "✓ ${dest} ($(du -sh "$dest" | cut -f1))"
-    local version
     version=$(game_version "$dest")
     [[ -n "$version" ]] && echo "  Version : ${version}"
     echo "  Lancement : $0 \"${dest}\""
 }
 
-MOUNT_MODE=""
-MOUNTED=false
-SQUASHFSPOINT=""
-WINEPOINT=""
-WORKPOINT=""
-SAVEPOINT=""
+# ════════════════════════════════════════════════════════════════════════
+# 9. LANCEMENT D'UN JEU
+# ════════════════════════════════════════════════════════════════════════
 
-cleanup() {
-    local exit_code=$?
-    trap - EXIT INT TERM
-    # Le script a fait un cd dans WINEPOINT pour lancer le jeu : sans en
-    # sortir, son propre CWD rend l'overlay "busy" et le démontage échouait
-    # à chaque fois — d'où les montages orphelins (confirmé en direct).
-    cd / || true
-    stop_dualsense_bridge
-    if [[ "$MOUNTED" == true ]]; then
-        stop_wineserver
-        case "$MOUNT_MODE" in
-            overlay)
-                umount_retry "$WINEPOINT"
-                umount_retry "$SQUASHFSPOINT"
-                [[ -d "$WORKPOINT" ]] && rm -rf "$WORKPOINT"
-                ;;
-            copy)
-                # WINEPOINT persiste entre les sessions (cache + sauvegardes intégrées)
-                ;;
-        esac
+# ── 9.1 Vérifications ──────────────────────────────────────────────────
+
+# Résout GAME_ARG en WSQUASHFS_FILE (image ou dossier installé).
+resolve_game_path() {
+    [[ -n "$GAME_ARG" ]] || die "fichier .wsquashfs ou dossier de jeu requis" \
+        "Usage : $0 <fichier.wsquashfs | dossier du jeu>  |  $0 --help"
+    WSQUASHFS_FILE=$(realpath "$GAME_ARG" 2>/dev/null) || die "chemin introuvable : $GAME_ARG"
+
+    if [[ -d "$WSQUASHFS_FILE" ]]; then
+        # Jeu installé (--install) : dossier lancé sur place, sans montage.
+        if [[ ! -f "${WSQUASHFS_FILE}/autorun.cmd" && "$ACTION" != "exec" ]]; then
+            die "pas d'autorun.cmd dans ${WSQUASHFS_FILE}"
+        fi
+        [[ "$ACTION" != "mount" ]] || die "--mount sert aux .wsquashfs ; un dossier installé se modifie directement"
+        DIR_MODE=1
+    elif [[ "${WSQUASHFS_FILE##*.}" != "wsquashfs" ]]; then
+        die "extension .wsquashfs attendue (ou dossier de jeu installé)"
+    elif [[ ! -f "$WSQUASHFS_FILE" ]]; then
+        die "fichier introuvable : $WSQUASHFS_FILE"
     fi
-    exit $exit_code
 }
 
-trap cleanup EXIT INT TERM
-
-# ============================================================
-# COMMANDES SPÉCIALES
-# ============================================================
-
-fix_ownership "$CACHE_DIR"
-fix_ownership "$SAVES_DIR"
-
-usage() {
-    cat <<'HELP'
-Usage :
-  wsquashfs-launcher [--wine <version>] <jeu.wsquashfs>
-        Lance le jeu (autorun.cmd).
-  wsquashfs-launcher [--wine <version>] --exec <jeu.wsquashfs> <programme> [arguments...]
-        Lance un autre programme dans le prefix du jeu : un exécutable du jeu
-        (chemin relatif au prefix ou au DIR de l'autorun.cmd, ex. JConfig.exe,
-        drive_c/teknoparrot/TeknoParrotUi.exe) ou un outil Wine (winecfg,
-        regedit, cmd, explorer, control joy.cpl...).
-  wsquashfs-launcher --mount <jeu.wsquashfs>
-        Monte le jeu et le laisse monté pour le modifier à la main ; les
-        changements vont dans le dossier de sauvegardes du jeu.
-  wsquashfs-launcher --umount [<jeu.wsquashfs>]
-        Démonte un jeu (ou tous les jeux montés).
-  wsquashfs-launcher --pack <Jeu.wine> [sortie.wsquashfs]
-        Crée un .wsquashfs (zstd) à partir d'un prefix Wine.
-  wsquashfs-launcher --install <jeu.wsquashfs> [dossier]
-        Extrait le jeu dans <dossier>/<Jeu> (défaut : à côté de l'image), pour
-        jouer sans FUSE ; l'image est conservée, ses sauvegardes non reprises.
-  wsquashfs-launcher --info <jeu.wsquashfs | dossier>
-        Affiche la version du jeu (GAME_VERSION= de l'autorun.cmd), son type
-        de prefix, sa commande et sa taille, sans monter l'image.
-  wsquashfs-launcher [--wine <version>] <dossier du jeu>
-        Lance un jeu installé (dossier contenant autorun.cmd) sur place, sans
-        montage : le jeu écrit directement dans son dossier.
-  wsquashfs-launcher --clean
-        Supprime les copies de travail (cache) et les doublons des sauvegardes :
-        fichiers identiques à l'image du jeu, DLL que Proton recopie à chaque
-        lancement. Tout ce que le jeu a écrit est gardé ; jeux en cours exceptés.
-  wsquashfs-launcher --clear [jeu]
-        Ne garde que drive_c/users des sauvegardes (de tous les jeux, ou d'un
-        seul) : le reste (prefix, registre, scores et réglages écrits dans le
-        dossier du jeu) est supprimé. Confirmation au terminal.
-
-Options :
-  --wine <version>  Runner Wine/Proton à utiliser : nom (ou partie du nom) d'un
-                    runner installé dans /opt, /usr/wine ou
-                    ~/.local/share/wsquashfs/wine, chemin d'un binaire wine,
-                    ou "system". Un Proton (Heroic, Steam) est lancé via umu
-                    sur un jeu à prefix Proton ou sans prefix.
-
-Modes de montage (automatique) :
-  overlay   squashfuse + fuse-overlayfs (sauvegardes isolées, idéal)
-  copy      squashfuse ou unsquashfs + cache persistant
-  dossier   jeu installé (--install) lancé sur place, sans FUSE
-
-Variables d'environnement :
-  WSQUASHFS_SAVES_DIR        Sauvegardes overlay (défaut: ~/.local/share/wsquashfs/saves)
-  WSQUASHFS_CACHE            Cache de travail   (défaut: ~/.cache/wsquashfs)
-  WSQUASHFS_DXVK=0           Désactive DXVK (défaut : activé)
-  WSQUASHFS_HIDRAW=1         Manettes Sony par hidraw si lisibles (défaut : XInput,
-                             comme Batocera ; aussi par jeu via HIDRAW=1 dans autorun.cmd) ;
-                             DualSense Bluetooth présentée en USB (dualsense-usb-bridge)
-  WSQUASHFS_HIDRAW=bt        Idem, DualSense Bluetooth en direct (haptiques Bluetooth)
-  (MangoHud, gamemode... : outils extérieurs, ex. "mangohud wsquashfs-launcher jeu.wsquashfs" —
-   leurs variables sont transmises au jeu, y compris lancé en root)
-  WSQUASHFS_VIRTUAL_DESKTOP  Bureau virtuel Wine pour tous les jeux (ex: 1920x1080),
-                             aussi par jeu via VIRTUAL_DESKTOP= dans autorun.cmd
-HELP
+check_dependencies() {
+    # Sans Wine, un Proton lancé par umu suffit (jeu seul ou prefix Proton) :
+    # cas d'un système sans wine, les runners étant dans compatibilitytools.d.
+    if ! command -v wine &>/dev/null && [[ -z "$(find_wine_binary)" ]] \
+       && ! { find_umu_run >/dev/null && [[ -n "$(find_proton_runner "")" ]]; }; then
+        die "aucun binaire Wine ni Proton (avec umu-run) trouvé"
+    fi
+    if [[ "$DIR_MODE" == "0" ]] && ! command -v squashfuse &>/dev/null && ! command -v unsquashfs &>/dev/null; then
+        die "ni squashfuse ni unsquashfs ne sont disponibles" \
+            "  → apt-get install squashfuse squashfs-tools"
+    fi
 }
 
-ACTION="run"
-GAME_ARG=""
-WINE_OVERRIDE=""
-declare -a EXEC_CMD=()
-while [[ $# -gt 0 ]]; do
-    case "$1" in
-        --clean)
-            echo "Nettoyage des copies de travail et des doublons des sauvegardes..."
-            clean_cache
-            for g in "${SAVES_DIR}"/*/; do
-                [[ -d "$g" ]] && clean_saves "$(basename "$g")"
-            done
-            echo "✓ Sauvegardes gardées dans : ${SAVES_DIR}"
-            exit 0
-            ;;
-        --clear)
-            if [[ -n "${2:-}" ]]; then
-                targets=("$(basename "$2" .wsquashfs)")
-                [[ -d "${SAVES_DIR}/${targets[0]}" ]] || { echo "Aucune sauvegarde pour ${targets[0]}"; exit 0; }
-            else
-                targets=()
-                for g in "${SAVES_DIR}"/*/; do [[ -d "$g" ]] && targets+=("$(basename "$g")"); done
-            fi
-            echo "--clear ne garde que drive_c/users de ${#targets[@]} jeu(x) : scores et réglages"
-            echo "  enregistrés ailleurs (jeux arcade, dossier du jeu, registre) seront perdus."
-            if [[ -t 0 ]]; then
-                read -r -p "Continuer ? [o/N] " reply
-                [[ "${reply,,}" == o* || "${reply,,}" == y* ]] || { echo "Abandon."; exit 1; }
-            fi
-            clean_cache
-            for g in "${targets[@]}"; do clear_saves "$g"; done
-            exit 0
-            ;;
-        --help|-h)
-            usage
-            exit 0
-            ;;
-        --umount)
-            if [[ -n "${2:-}" ]]; then
-                umount_game "$(basename "$2" .wsquashfs)"
-            else
-                for g in "${CACHE_DIR}/wine"/*/; do
-                    [[ -d "$g" ]] && umount_game "$(basename "$g")"
-                done
-                unmount_all_stale
-            fi
-            exit 0
-            ;;
-        --pack)
-            pack_prefix "${2:-}" "${3:-}"
-            exit $?
-            ;;
-        --install)
-            install_game "${2:-}" "${3:-}"
-            exit $?
-            ;;
-        --info)
-            show_info "${2:-}"
-            exit $?
-            ;;
-        --wine)
-            [[ -n "${2:-}" ]] || { echo "Erreur : --wine attend une version ou un chemin"; exit 1; }
-            WINE_OVERRIDE="$2"
-            shift 2
-            ;;
-        --mount)
-            ACTION="mount"
-            shift
-            ;;
-        --exec)
-            ACTION="exec"
-            GAME_ARG="${2:-}"
-            EXEC_CMD=("${@:3}")
-            if [[ -z "$GAME_ARG" || ${#EXEC_CMD[@]} -eq 0 ]]; then
-                echo "Usage : $0 --exec <jeu.wsquashfs> <programme> [arguments...]"
-                exit 1
-            fi
-            set --
-            ;;
-        -*)
-            echo "Erreur : option inconnue : $1  (voir $0 --help)"
-            exit 1
-            ;;
-        *)
-            if [[ -n "$GAME_ARG" ]]; then
-                echo "Erreur : un seul jeu attendu (voir $0 --help)"
-                exit 1
-            fi
-            GAME_ARG="$1"
-            shift
-            ;;
-    esac
-done
+# ── 9.2 En-tête ────────────────────────────────────────────────────────
 
-# ============================================================
-# VÉRIFICATIONS
-# ============================================================
-
-if [[ -z "$GAME_ARG" ]]; then
-    echo "Erreur : fichier .wsquashfs ou dossier de jeu requis"
-    echo "Usage : $0 <fichier.wsquashfs | dossier du jeu>  |  $0 --help"
-    exit 1
-fi
-
-WSQUASHFS_FILE=$(realpath "$GAME_ARG" 2>/dev/null) || {
-    echo "Erreur : chemin introuvable : $GAME_ARG"
-    exit 1
+init_game_paths() {
+    GAME_NAME=$(basename "$WSQUASHFS_FILE" .wsquashfs)
+    AUTORUN_OVERRIDE="${WSQUASHFS_FILE%/}.autorun"
+    [[ -f "$AUTORUN_OVERRIDE" ]] || AUTORUN_OVERRIDE=""
+    SQUASHFSPOINT="${CACHE_DIR}/mnt/${GAME_NAME}"
+    WINEPOINT="${CACHE_DIR}/wine/${GAME_NAME}"
+    SAVEPOINT="${SAVES_DIR}/${GAME_NAME}"
+    # workdir sur le même système de fichiers que l'upperdir (13/10) :
+    # fuse-overlayfs y crée chaque fichier puis le renomme dans les
+    # sauvegardes, et un renommage entre deux montages échoue (EXDEV). Dans
+    # CACHE_DIR, Wine ne pouvait rien écrire dès que les sauvegardes étaient
+    # sur un autre disque, un NAS ou un volume Docker séparé ("cannot create
+    # .../dosdevices : Invalid cross-device link").
+    WORKPOINT="${SAVES_DIR}/.work/${GAME_NAME}"
 }
 
-# Jeu installé (--install) : dossier lancé sur place, sans montage.
-DIR_MODE=0
-if [[ -d "$WSQUASHFS_FILE" ]]; then
-    if [[ ! -f "${WSQUASHFS_FILE}/autorun.cmd" && "$ACTION" != "exec" ]]; then
-        echo "Erreur : pas d'autorun.cmd dans ${WSQUASHFS_FILE}"
-        exit 1
+print_header() {
+    local version
+    echo "========================================="
+    echo "WSquashFS Launcher"
+    echo "========================================="
+    echo "Environnement : $(detect_env)"
+    echo "Jeu           : $GAME_NAME"
+    version=$(game_version "$WSQUASHFS_FILE")
+    [[ -n "$version" ]] && echo "Version       : $version"
+    echo "Fichier       : $WSQUASHFS_FILE"
+    if [[ -n "$AUTORUN_OVERRIDE" ]]; then
+        echo "Surcharge     : $(basename "$AUTORUN_OVERRIDE") ($(override_keys "$AUTORUN_OVERRIDE"))"
     fi
-    if [[ "$ACTION" == "mount" ]]; then
-        echo "Erreur : --mount sert aux .wsquashfs ; un dossier installé se modifie directement"
-        exit 1
-    fi
-    DIR_MODE=1
-elif [[ "${WSQUASHFS_FILE##*.}" != "wsquashfs" ]]; then
-    echo "Erreur : extension .wsquashfs attendue (ou dossier de jeu installé)"
-    exit 1
-elif [[ ! -f "$WSQUASHFS_FILE" ]]; then
-    echo "Erreur : fichier introuvable : $WSQUASHFS_FILE"
-    exit 1
-fi
+    [[ "$ACTION" != "run" ]] && echo "Action        : ${ACTION}${EXEC_CMD[0]:+ (${EXEC_CMD[0]})}"
+    return 0
+}
 
-# Sans Wine, un Proton lancé par umu suffit (jeu seul ou prefix Proton) : cas
-# d'un système sans wine, les runners étant dans compatibilitytools.d.
-if ! command -v wine &>/dev/null && [[ -z "$(find_wine_binary)" ]] \
-   && ! { find_umu_run >/dev/null && [[ -n "$(find_proton_runner "")" ]]; }; then
-    echo "Erreur : aucun binaire Wine ni Proton (avec umu-run) trouvé"
-    exit 1
-fi
+# ── 9.3 Montage ────────────────────────────────────────────────────────
 
-if [[ "$DIR_MODE" == "0" ]] && ! command -v squashfuse &>/dev/null && ! command -v unsquashfs &>/dev/null; then
-    echo "Erreur : ni squashfuse ni unsquashfs ne sont disponibles"
-    echo "  → apt-get install squashfuse squashfs-tools"
-    exit 1
-fi
-
-# ============================================================
-# EN-TÊTE
-# ============================================================
-
-GAME_NAME=$(basename "$WSQUASHFS_FILE" .wsquashfs)
-AUTORUN_OVERRIDE="${WSQUASHFS_FILE%/}.autorun"
-[[ -f "$AUTORUN_OVERRIDE" ]] || AUTORUN_OVERRIDE=""
-ENV_TYPE=$(detect_env)
-
-SQUASHFSPOINT="${CACHE_DIR}/mnt/${GAME_NAME}"
-WINEPOINT="${CACHE_DIR}/wine/${GAME_NAME}"
-SAVEPOINT="${SAVES_DIR}/${GAME_NAME}"
-WORKPOINT="${CACHE_DIR}/work/${GAME_NAME}"
-
-echo "========================================="
-echo "WSquashFS Launcher"
-echo "========================================="
-echo "Environnement : $ENV_TYPE"
-echo "Jeu           : $GAME_NAME"
-GAME_VERSION=$(game_version "$WSQUASHFS_FILE")
-[[ -n "$GAME_VERSION" ]] && echo "Version       : $GAME_VERSION"
-echo "Fichier       : $WSQUASHFS_FILE"
-if [[ -n "$AUTORUN_OVERRIDE" ]]; then
-    echo "Surcharge     : $(basename "$AUTORUN_OVERRIDE") ($(grep -o '^[A-Za-z_][A-Za-z0-9_]*=' "$AUTORUN_OVERRIDE" | tr -d '=' | paste -sd ' '))"
-fi
-[[ "$ACTION" != "run" ]] && echo "Action        : ${ACTION}${EXEC_CMD[0]:+ (${EXEC_CMD[0]})}"
-
-# ============================================================
-# MONTAGE
-# ============================================================
-
-if [[ "$DIR_MODE" == "1" ]]; then
-    # Jeu installé : le dossier est lui-même le prefix, rien à monter.
+# Jeu installé : le dossier est lui-même le prefix, rien à monter.
+use_installed_dir() {
     WINEPOINT="$WSQUASHFS_FILE"
     SQUASHFSPOINT="" SAVEPOINT="" WORKPOINT=""
-    if grep -qszE "^WINEPREFIX=$(printf '%s' "$WINEPOINT" | sed 's/[][\.*^$(){}?+|/]/\\&/g')(/.*)?$" /proc/[0-9]*/environ 2>/dev/null; then
-        echo "Erreur : ${GAME_NAME} est déjà lancé"
-        exit 1
-    fi
+    prefix_in_use "$(regex_escape "$WINEPOINT")" && die "${GAME_NAME} est déjà lancé"
     unmount_all_stale
-    PACKAGED_PREFIX=0
     [[ -f "${WINEPOINT}/system.reg" ]] && PACKAGED_PREFIX=1
-    PROTON_PREFIX=0
     [[ -f "${WINEPOINT}/config_info" ]] && PROTON_PREFIX=1
     rm -f "${WINEPOINT}/.wineserver-lock" "${WINEPOINT}"/reg*.tmp 2>/dev/null || true
     MOUNT_MODE="dir"
     echo "Mode          : dossier (jeu installé, sans FUSE)"
-fi
+}
 
-# Ce jeu tourne déjà : ne pas le relancer par-dessus (même montage, même
-# prefix — la partie en cours serait coupée).
-if [[ "$DIR_MODE" == "0" ]] && game_in_use "$GAME_NAME"; then
-    echo "Erreur : ${GAME_NAME} est déjà lancé"
-    exit 1
-fi
-
-if [[ "$DIR_MODE" == "0" ]]; then
-# Nettoyer d'éventuels montages orphelins (celui de ce jeu ET ceux d'autres
-# jeux abandonnés en cours de route, voir unmount_all_stale)
-unmount_all_stale
-
-mkdir -p "$SQUASHFSPOINT" "$SAVEPOINT" "$WINEPOINT" "${SAVES_DIR}/.images"
-# Image d'origine des sauvegardes, pour --clean (fichiers identiques).
-printf '%s\n' "$WSQUASHFS_FILE" > "${SAVES_DIR}/.images/${GAME_NAME}" 2>/dev/null || true
-chown_to_target "${SAVES_DIR}/.images"
-# WORKPOINT doit être vide avant chaque montage overlay (évite l'état obsolète)
-rm -rf "$WORKPOINT" && mkdir -p "$WORKPOINT"
-chown_to_target "$SQUASHFSPOINT"
-chown_to_target "$SAVEPOINT"
-chown_to_target "$WINEPOINT"
-chown_to_target "$WORKPOINT"
-
-# Supprimer les fichiers verrou et fichiers temporaires wineserver obsolètes dans SAVEPOINT
-# Les reg*.tmp orphelins (wineserver interrompu) corrompent fuse-overlayfs et causent ESTALE
-rm -f "${SAVEPOINT}/wineserver" "${SAVEPOINT}/.wineserver-lock" 2>/dev/null || true
-rm -f "${SAVEPOINT}"/reg*.tmp 2>/dev/null || true
+# Dossiers de montage vides et au bon propriétaire.
+prepare_mount_dirs() {
+    mkdir -p "$SQUASHFSPOINT" "$SAVEPOINT" "$WINEPOINT" "${SAVES_DIR}/.images"
+    # Image d'origine des sauvegardes, pour --clean (fichiers identiques).
+    printf '%s\n' "$WSQUASHFS_FILE" > "${SAVES_DIR}/.images/${GAME_NAME}" 2>/dev/null || true
+    chown_to_target "${SAVES_DIR}/.images"
+    # WORKPOINT doit être vide avant chaque montage overlay (état obsolète).
+    rm -rf "$WORKPOINT" && mkdir -p "$WORKPOINT"
+    chown_to_target "$SQUASHFSPOINT"
+    chown_to_target "$SAVEPOINT"
+    chown_to_target "$WINEPOINT"
+    chown_to_target "$WORKPOINT"
+    # Verrous et temporaires wineserver obsolètes : les reg*.tmp orphelins
+    # (wineserver interrompu) corrompent fuse-overlayfs et causent ESTALE.
+    rm -f "${SAVEPOINT}/wineserver" "${SAVEPOINT}/.wineserver-lock" 2>/dev/null || true
+    rm -f "${SAVEPOINT}"/reg*.tmp 2>/dev/null || true
+}
 
 # Image = prefix packagé (Batocera : system.reg, drive_c… dans le squashfs)
 # ou jeu seul (NBA 2K23, Pinball FX : prefix créé dans les saves au premier
 # lancement) ? Lu directement dans l'image (< 0,1 s, même sur 38 Go).
-PACKAGED_PREFIX=0
-unsquashfs -cat "$WSQUASHFS_FILE" system.reg >/dev/null 2>&1 && PACKAGED_PREFIX=1
 # Prefix créé par Proton (config_info) : ses DLL sont gérées par Proton.
-PROTON_PREFIX=0
-unsquashfs -cat "$WSQUASHFS_FILE" config_info >/dev/null 2>&1 && PROTON_PREFIX=1
+detect_image_prefix() {
+    unsquashfs -cat "$WSQUASHFS_FILE" system.reg >/dev/null 2>&1 && PACKAGED_PREFIX=1
+    unsquashfs -cat "$WSQUASHFS_FILE" config_info >/dev/null 2>&1 && PROTON_PREFIX=1
+    return 0
+}
 
 # Prefix packagé : system32/syswow64 de l'upperdir ne contiennent que des
 # liens/copies régénérés à chaque lancement (sync_wine_stubs, DXVK…) et
@@ -1506,56 +2040,58 @@ unsquashfs -cat "$WSQUASHFS_FILE" config_info >/dev/null 2>&1 && PROTON_PREFIX=1
 # Prefix Proton (27/09) : Proton y met à jour ses propres DLL (copies) quand
 # sa version change — effacées, le prefix garderait la nouvelle version
 # annoncée avec les DLL de l'ancienne. Seuls les liens posés par ce lanceur
-# (sync_wine_stubs, DXVK... d'un lancement sans umu) sont retirés.
-if [[ "$PACKAGED_PREFIX" == "1" && "$PROTON_PREFIX" == "1" ]]; then
-    find "${SAVEPOINT}/drive_c/windows/system32" "${SAVEPOINT}/drive_c/windows/syswow64" \
-        -maxdepth 1 -type l -delete 2>/dev/null || true
-elif [[ "$PACKAGED_PREFIX" == "1" ]]; then
-    rm -rf "${SAVEPOINT}/drive_c/windows/system32" \
-           "${SAVEPOINT}/drive_c/windows/syswow64" 2>/dev/null || true
-fi
-
-# MODE 1 : overlay (squashfuse + fuse-overlayfs)
-if command -v squashfuse &>/dev/null && \
-   squashfuse ${ALLOW_OTHER_OPT:+-o "$ALLOW_OTHER_OPT"} "$WSQUASHFS_FILE" "$SQUASHFSPOINT" 2>/dev/null; then
-    if command -v fuse-overlayfs &>/dev/null; then
-        # Note : redirect_dir=on cause des ESTALE sur les chemins imbriqués lors des
-        # remontages successifs (fuse-overlayfs bug). On n'utilise pas cette option.
-        if fuse-overlayfs \
-               -o "lowerdir=${SQUASHFSPOINT},upperdir=${SAVEPOINT},workdir=${WORKPOINT},${OVERLAY_SQUASH_OPT}${ALLOW_OTHER_OPT:+,$ALLOW_OTHER_OPT}" \
-               "$WINEPOINT" 2>/dev/null; then
-            MOUNT_MODE="overlay"
-            MOUNTED=true
-            echo "Mode          : overlay (squashfuse + fuse-overlayfs)"
-        else
-            do_umount "$SQUASHFSPOINT"
-        fi
+# (lancement sans umu) sont retirés.
+clear_generated_system_dlls() {
+    local dirs=("${SAVEPOINT}/drive_c/windows/system32" "${SAVEPOINT}/drive_c/windows/syswow64")
+    [[ "$PACKAGED_PREFIX" == "1" ]] || return 0
+    if [[ "$PROTON_PREFIX" == "1" ]]; then
+        find "${dirs[@]}" -maxdepth 1 -type l -delete 2>/dev/null || true
     else
-        do_umount "$SQUASHFSPOINT"
+        rm -rf "${dirs[@]}" 2>/dev/null || true
     fi
-fi
+}
 
-# MODE 2/3 : copy (squashfuse→copie ou unsquashfs)
-if [[ -z "$MOUNT_MODE" ]]; then
-    WSQUASHFS_INFO="${WSQUASHFS_FILE}:$(stat -c '%s:%Y' "$WSQUASHFS_FILE" 2>/dev/null)"
-    CACHE_INFO_FILE="${WINEPOINT}/.wsquashfs_cache"
+# Mode overlay : squashfuse + fuse-overlayfs. Faux si l'un manque ou échoue.
+try_overlay_mount() {
+    command -v squashfuse &>/dev/null || return 1
+    mount_squashfs "$WSQUASHFS_FILE" "$SQUASHFSPOINT" || return 1
+    if command -v fuse-overlayfs &>/dev/null && mount_overlay; then
+        MOUNT_MODE="overlay"
+        MOUNTED=true
+        echo "Mode          : overlay (squashfuse + fuse-overlayfs)"
+        return 0
+    fi
+    do_umount "$SQUASHFSPOINT"
+    return 1
+}
 
-    if [[ -d "$WINEPOINT" ]] && [[ -f "$CACHE_INFO_FILE" ]] && \
-       [[ "$(cat "$CACHE_INFO_FILE" 2>/dev/null)" == "$WSQUASHFS_INFO" ]]; then
+# Mode copy : copie de travail en cache, réextraite si l'image a changé.
+use_copy_mode() {
+    local cache_info_file="${WINEPOINT}/.wsquashfs_cache"
+    if [[ -d "$WINEPOINT" && -f "$cache_info_file" ]] && \
+       [[ "$(cat "$cache_info_file" 2>/dev/null)" == "$(image_signature)" ]]; then
         echo "Mode          : copy (cache valide, extraction ignorée)"
-        MOUNT_MODE="copy"
-        MOUNTED=true
     else
-        do_fresh_extraction || exit 1
-        MOUNT_MODE="copy"
-        MOUNTED=true
+        extract_image
     fi
-fi
-fi  # DIR_MODE == 0
+    MOUNT_MODE="copy"
+    MOUNTED=true
+}
+
+mount_image() {
+    # Ce jeu tourne déjà : ne pas le relancer par-dessus (même montage, même
+    # prefix — la partie en cours serait coupée).
+    game_in_use "$GAME_NAME" && die "${GAME_NAME} est déjà lancé"
+    unmount_all_stale
+    prepare_mount_dirs
+    detect_image_prefix
+    clear_generated_system_dlls
+    try_overlay_mount || use_copy_mode
+}
 
 # --mount : le jeu reste monté (cleanup ne démonte pas), pour le modifier à
 # la main — fichiers de config, sauvegardes, remplacement d'un fichier.
-if [[ "$ACTION" == "mount" ]]; then
+report_mount_and_exit() {
     MOUNTED=false
     echo "-----------------------------------------"
     echo "Monté dans    : $WINEPOINT"
@@ -1563,552 +2099,579 @@ if [[ "$ACTION" == "mount" ]]; then
     echo "Démontage     : $0 --umount \"$WSQUASHFS_FILE\""
     echo "  (tout lancement d'un autre jeu démonte aussi les montages inutilisés)"
     exit 0
-fi
+}
 
-# ============================================================
-# LECTURE DE AUTORUN.CMD
-# ============================================================
+# ── 9.4 autorun.cmd ────────────────────────────────────────────────────
 
-AUTORUN_FILE="${WINEPOINT}/autorun.cmd"
-if [[ ! -f "$AUTORUN_FILE" && "$ACTION" != "exec" ]]; then
-    echo "Erreur : autorun.cmd introuvable dans le wsquashfs"
-    exit 1
-fi
+read_autorun() {
+    if [[ ! -f "${WINEPOINT}/autorun.cmd" && "$ACTION" != "exec" ]]; then
+        die "autorun.cmd introuvable dans le wsquashfs"
+    fi
 
-DIR=$(unquote "$(getWine_var "$WINEPOINT" "DIR" "")")
-CMD=$(getWine_var "$WINEPOINT" "CMD" "")
-WINE_VERSION=$(getWine_var "$WINEPOINT" "WINE" "")
-PROTON_VERSION=$(getWine_var "$WINEPOINT" "PROTON" "")
-RUNNER=$(getWine_var "$WINEPOINT" "RUNNER" "")
-WINE_ARCH=$(getWine_var "$WINEPOINT" "ARCH" "")
-# DXVK activé par défaut (contrairement à Batocera) : sous Xwayland + NVIDIA,
-# l'OpenGL de wined3d tombe sur llvmpipe (rendu logiciel, confirmé en direct)
-# alors que Vulkan voit bien le GPU. DXVK=0 dans autorun.cmd (par jeu) ou
-# WSQUASHFS_DXVK=0 (global) pour revenir aux DLL intégrées de Wine.
-DXVK=$(getWine_var "$WINEPOINT" "DXVK" "${WSQUASHFS_DXVK:-1}")
-# Choix demandé, avant le repli faute de DXVK local : sous Proton, qui a son
-# propre DXVK, seul un DXVK=0 voulu passe en wined3d.
-DXVK_WANTED="$DXVK"
-if [[ "$DXVK" == "1" && -z "$(find_dxvk_dir)" ]]; then
-    echo "Attention : DXVK introuvable (/usr/share/dxvk), rendu via wined3d"
-    DXVK=0
-fi
-# VKD3D activé par défaut (pas 0) : le d3d12.dll natif de Wine dépend de
-# stubs noyau (win32k.sys/dxgkrnl.sys/dxgmms1.sys, "SharedGpuResources")
-# qui échouent à charger dans ce genre d'environnement conteneurisé sans
-# vrai pilote graphique côté noyau Windows émulé — confirmé en direct :
-# tout jeu D3D12 termine en page fault. vkd3d-proton traduit directement
-# vers Vulkan, sans ces stubs. Inoffensif pour un jeu qui ne charge jamais
-# d3d12.dll (l'override ne fait alors simplement rien). Un jeu packagé
-# avec VKD3D=0 explicite dans son autorun.cmd garde la priorité.
-VKD3D=$(getWine_var "$WINEPOINT" "VKD3D" "1")
-if [[ "$VKD3D" == "1" && -z "$(find_vkd3d_dir)" ]]; then
-    echo "Attention : VKD3D-Proton introuvable (/usr/share/vkd3d-proton), Direct3D 12 indisponible"
-    VKD3D=0
-fi
-# d7vk activé par défaut, pour la même raison que DXVK (OpenGL = llvmpipe
-# ici) ; sans effet sur un jeu qui ne charge pas ddraw.dll. D7VK=0 dans
-# l'autorun.cmd ou WSQUASHFS_D7VK=0 pour l'écarter.
-D7VK=$(getWine_var "$WINEPOINT" "D7VK" "${WSQUASHFS_D7VK:-1}")
-[[ "$D7VK" == "1" && -z "$(find_d7vk)" ]] && D7VK=0
-SAVEDIR=$(unquote "$(getWine_var "$WINEPOINT" "SAVEDIR" "")")
-SAVEFILES=$(unquote "$(getWine_var "$WINEPOINT" "SAVEFILES" "")")
-ESYNC=$(getWine_var "$WINEPOINT" "ESYNC" "0")
-FSYNC=$(getWine_var "$WINEPOINT" "FSYNC" "0")
-WINE_LANG=$(getWine_var "$WINEPOINT" "LANG" "")
-WINE_ENV=$(getWine_var "$WINEPOINT" "ENV" "")
-# Bureau virtuel Wine — évite les crashs KDE/WM quand le jeu change la résolution.
-# Priorité : autorun.cmd (VIRTUAL_DESKTOP=1920x1080) > variable d'env WSQUASHFS_VIRTUAL_DESKTOP.
-VIRTUAL_DESKTOP=$(getWine_var "$WINEPOINT" "VIRTUAL_DESKTOP" "${WSQUASHFS_VIRTUAL_DESKTOP:-}")
+    DIR=$(unquote "$(autorun_var DIR "")")
+    CMD=$(autorun_var CMD "")
+    WINE_VERSION=$(autorun_var WINE "")
+    PROTON_VERSION=$(autorun_var PROTON "")
+    RUNNER=$(autorun_var RUNNER "")
+    WINE_ARCH=$(autorun_var ARCH "")
 
-if [[ -z "$CMD" && "$ACTION" != "exec" ]]; then
-    echo "Erreur : CMD non défini dans autorun.cmd"
-    exit 1
-fi
+    # DXVK activé par défaut (contrairement à Batocera) : sous Xwayland +
+    # NVIDIA, l'OpenGL de wined3d tombe sur llvmpipe (rendu logiciel) alors
+    # que Vulkan voit bien le GPU. DXVK=0 dans autorun.cmd (par jeu) ou
+    # WSQUASHFS_DXVK=0 (global) pour revenir aux DLL intégrées de Wine.
+    DXVK=$(autorun_var DXVK "${WSQUASHFS_DXVK:-1}")
+    # Choix demandé, avant le repli faute de DXVK local : sous Proton, qui a
+    # son propre DXVK, seul un DXVK=0 voulu passe en wined3d.
+    DXVK_WANTED="$DXVK"
+    if [[ "$DXVK" == "1" && -z "$(find_dxvk_dir)" ]]; then
+        warn "DXVK introuvable (/usr/share/dxvk), rendu via wined3d"
+        DXVK=0
+    fi
 
-# ============================================================
-# PARSING DE CMD
-# ============================================================
+    # VKD3D activé par défaut : le d3d12.dll de Wine dépend de stubs noyau
+    # (win32k.sys/dxgkrnl.sys, "SharedGpuResources") qui échouent ici —
+    # tout jeu D3D12 terminait en page fault. vkd3d-proton traduit
+    # directement vers Vulkan. Sans effet sur un jeu qui ne charge pas
+    # d3d12.dll ; VKD3D=0 dans l'autorun.cmd garde la priorité.
+    VKD3D=$(autorun_var VKD3D "1")
+    if [[ "$VKD3D" == "1" && -z "$(find_vkd3d_dir)" ]]; then
+        warn "VKD3D-Proton introuvable (/usr/share/vkd3d-proton), Direct3D 12 indisponible"
+        VKD3D=0
+    fi
+
+    # d7vk activé par défaut, pour la même raison que DXVK (OpenGL = llvmpipe
+    # ici) ; sans effet sur un jeu qui ne charge pas ddraw.dll. D7VK=0 dans
+    # l'autorun.cmd ou WSQUASHFS_D7VK=0 pour l'écarter.
+    D7VK=$(autorun_var D7VK "${WSQUASHFS_D7VK:-1}")
+    [[ "$D7VK" == "1" && -z "$(find_d7vk)" ]] && D7VK=0
+
+    SAVEDIR=$(unquote "$(autorun_var SAVEDIR "")")
+    SAVEFILES=$(unquote "$(autorun_var SAVEFILES "")")
+    ESYNC=$(autorun_var ESYNC "0")
+    FSYNC=$(autorun_var FSYNC "0")
+    WINE_LANG=$(autorun_var LANG "")
+    WINE_ENV=$(autorun_var ENV "")
+    # Bureau virtuel Wine — évite les crashs KDE/WM quand le jeu change la
+    # résolution. autorun.cmd (VIRTUAL_DESKTOP=1920x1080) prioritaire sur
+    # WSQUASHFS_VIRTUAL_DESKTOP.
+    VIRTUAL_DESKTOP=$(autorun_var VIRTUAL_DESKTOP "${WSQUASHFS_VIRTUAL_DESKTOP:-}")
+
+    if [[ -z "$CMD" && "$ACTION" != "exec" ]]; then
+        die "CMD non défini dans autorun.cmd"
+    fi
+}
+
+# ── 9.5 Exécutable ─────────────────────────────────────────────────────
 
 # Windows ignore la casse, les autorun.cmd Batocera aussi : "game.exe" pour
-# Game.exe (Rabbids Hollywood Arcade, confirmé en direct). DIR et CMD sont
-# résolus composant par composant, sans tenir compte de la casse.
-DIR="${DIR//\\//}"
-if [[ -n "$DIR" ]]; then
-    DIR_RESOLVED=$(resolve_ci "$WINEPOINT" "$DIR") && DIR="${DIR_RESOLVED#"$WINEPOINT"/}"
-fi
+# Game.exe (Rabbids Hollywood Arcade). DIR et CMD sont résolus composant par
+# composant, sans tenir compte de la casse.
+resolve_executable() {
+    local resolved prog exec_name
+    DIR="${DIR//\\//}"
+    if [[ -n "$DIR" ]] && resolved=$(resolve_ci "$WINEPOINT" "$DIR"); then
+        DIR="${resolved#"$WINEPOINT"/}"
+    fi
 
-declare -a EXEC_ARGS_ARR=()
-if [[ "$ACTION" == "exec" ]]; then
-    # --exec : fichier du prefix (depuis sa racine, puis depuis le DIR de
-    # l'autorun.cmd), sinon outil Wine lancé tel quel (winecfg, regedit...).
-    prog="${EXEC_CMD[0]//\\//}"
-    EXEC_ARGS_ARR=("${EXEC_CMD[@]:1}")
-    if EXEC_PATH=$(resolve_ci "$WINEPOINT" "$prog") && [[ -f "$EXEC_PATH" ]]; then
-        DIR=$(dirname "${EXEC_PATH#"$WINEPOINT"/}"); [[ "$DIR" == "." ]] && DIR=""
-    elif [[ -n "$DIR" ]] && EXEC_PATH=$(resolve_ci "$WINEPOINT" "${DIR}/${prog}") && [[ -f "$EXEC_PATH" ]]; then
-        DIR=$(dirname "${EXEC_PATH#"$WINEPOINT"/}")
+    if [[ "$ACTION" == "exec" ]]; then
+        # --exec : fichier du prefix (depuis sa racine, puis depuis le DIR de
+        # l'autorun.cmd), sinon outil Wine lancé tel quel (winecfg, regedit...).
+        prog="${EXEC_CMD[0]//\\//}"
+        EXEC_ARGS_ARR=("${EXEC_CMD[@]:1}")
+        EXEC_ARGS="${EXEC_ARGS_ARR[*]}"
+        if EXEC_PATH=$(resolve_ci "$WINEPOINT" "$prog") && [[ -f "$EXEC_PATH" ]]; then
+            DIR=$(dirname "${EXEC_PATH#"$WINEPOINT"/}")
+            [[ "$DIR" == "." ]] && DIR=""
+        elif [[ -n "$DIR" ]] && EXEC_PATH=$(resolve_ci "$WINEPOINT" "${DIR}/${prog}") && [[ -f "$EXEC_PATH" ]]; then
+            DIR=$(dirname "${EXEC_PATH#"$WINEPOINT"/}")
+        else
+            EXEC_PATH="${EXEC_CMD[0]}"
+            DIR=""
+        fi
     else
-        EXEC_PATH="${EXEC_CMD[0]}"
-        DIR=""
+        # CMD : "exécutable avec espaces" args, ou exécutable args
+        if [[ "$CMD" =~ ^\"([^\"]+)\"(.*)$ ]]; then
+            exec_name="${BASH_REMATCH[1]}"
+            EXEC_ARGS="${BASH_REMATCH[2]# }"
+        else
+            exec_name=$(printf '%s\n' "$CMD" | awk '{print $1}')
+            EXEC_ARGS=$(printf '%s\n' "$CMD" | cut -d' ' -f2- -s)
+        fi
+        mapfile -d '' -t EXEC_ARGS_ARR < <(split_command_line "$EXEC_ARGS")
+        EXEC_PATH=$(resolve_ci "$WINEPOINT" "${DIR:+$DIR/}${exec_name}") \
+            || EXEC_PATH="${WINEPOINT}/${DIR:+$DIR/}${exec_name}"
+        [[ -f "$EXEC_PATH" ]] || die "exécutable introuvable : $EXEC_PATH" \
+            "  CMD : $CMD  |  DIR : ${DIR:-<vide>}"
     fi
-else
-    if [[ "$CMD" =~ ^\"([^\"]+)\"(.*)$ ]]; then
-        EXEC_NAME="${BASH_REMATCH[1]}"
-        EXEC_ARGS="${BASH_REMATCH[2]# }"
-    else
-        EXEC_NAME=$(echo "$CMD" | awk '{print $1}')
-        EXEC_ARGS=$(echo "$CMD" | cut -d' ' -f2- -s)
-    fi
-    read -ra EXEC_ARGS_ARR <<< "$EXEC_ARGS"
-    EXEC_PATH=$(resolve_ci "$WINEPOINT" "${DIR:+$DIR/}${EXEC_NAME}") \
-        || EXEC_PATH="${WINEPOINT}/${DIR:+$DIR/}${EXEC_NAME}"
-    if [[ ! -f "$EXEC_PATH" ]]; then
-        echo "Erreur : exécutable introuvable : $EXEC_PATH"
-        echo "  CMD : $CMD  |  DIR : ${DIR:-<vide>}"
-        exit 1
-    fi
-fi
 
-EXT="${EXEC_PATH##*.}"
-EXT="${EXT,,}"
+    EXT="${EXEC_PATH##*.}"
+    EXT="${EXT,,}"
+}
 
-# ============================================================
-# BINAIRE WINE
-# ============================================================
-
-# Base : Wine le plus compatible avec les prefixes Batocera
-WINE_BINARY=$(find_wine_binary)
+# ── 9.6 Choix du runner ────────────────────────────────────────────────
+#
+# Ordre de priorité, du plus faible au plus fort :
+#   1. Wine par défaut (find_wine_binary) ;
+#   2. Proton pour un prefix Proton ou un jeu seul (choose_proton_default) ;
+#   3. RUNNER= / PROTON= / WINE= de l'autorun.cmd (apply_autorun_runner) ;
+#   4. --wine (apply_wine_option).
+# Puis setup_umu décide si un Proton passe par umu-run.
 
 # Prefix créé par Proton (Heroic, Steam) : lancé sous Proton, la même
 # version si elle est installée, plutôt que sous le Wine par défaut.
-PREFIX_PROTON=$(prefix_proton_version)
-# --wine <Proton> (30/09) : sur un prefix Proton ou un jeu sans prefix, lancé
-# par umu comme PROTON= de l'autorun.cmd — auparavant seul le binaire wine du
-# Proton était pris, sans umu ni script proton (mode dégradé, écran noir de
-# Kingdom Hearts III). Sur un prefix Wine (Batocera), inchangé : Wine du
-# Proton lancé directement, Proton ne sachant pas convertir ces prefixes.
-# FORCED_WINE : runner Wine imposé (autorun.cmd ou --wine hors ce cas).
-OVERRIDE_PROTON=""
-if [[ -n "$WINE_OVERRIDE" ]] && found=$(resolve_wine_override "$WINE_OVERRIDE") \
-   && [[ "$found" == */files/bin/wine && -x "${found%/files/bin/wine}/proton" ]] \
-   && [[ -n "$PREFIX_PROTON" || ! -f "${WINEPOINT}/system.reg" ]]; then
-    OVERRIDE_PROTON="${found%/files/bin/wine}"
-fi
-FORCED_WINE="${RUNNER}${WINE_VERSION}"
-[[ -n "$WINE_OVERRIDE" && -z "$OVERRIDE_PROTON" ]] && FORCED_WINE+="$WINE_OVERRIDE"
-# Image sans prefix (jeu seul : jeu PC récent emballé à la main, 27/09) :
-# prefix créé par Proton via umu — proton-cachyos, sinon UMU-Proton, sinon
-# GE-Proton —, les
-# prefixes Batocera (jeux arcade) restant sous wine-tkg. Un prefix Wine
-# déjà créé dans les sauvegardes est gardé tel quel : Proton ne sait pas
-# le convertir (DRAGON BALL Sparking! ZERO, 27/09 : copy_pfx en échec,
-# puis manettes perdues sous Wine avec les DLL de Proton). WINE=tkg dans
-# l'autorun.cmd pour garder wine-tkg.
-AUTO_PROTON=0
-if [[ -z "$PREFIX_PROTON" && "$PACKAGED_PREFIX" == "0" && -z "$FORCED_WINE" ]]; then
-    if [[ -f "${WINEPOINT}/system.reg" ]]; then
-        if [[ "$DIR_MODE" == "1" ]]; then
-            echo "Attention : prefix Wine déjà créé dans ${WINEPOINT}, gardé sous $(basename "$(dirname "$(dirname "$WINE_BINARY")")") (Proton ne sait pas le convertir)"
-        else
-            echo "Attention : prefix Wine déjà créé dans les sauvegardes, gardé sous $(basename "$(dirname "$(dirname "$WINE_BINARY")")") — supprimer ${SAVEPOINT} (sauvegardes du jeu comprises) pour passer sous Proton"
-        fi
-    else
-        AUTO_PROTON=1
+choose_proton_default() {
+    local found
+    PREFIX_PROTON=$(prefix_proton_version)
+
+    # --wine <Proton> (30/09) : sur un prefix Proton ou un jeu sans prefix,
+    # lancé par umu comme PROTON= de l'autorun.cmd — auparavant seul le
+    # binaire wine du Proton était pris, sans umu ni script proton (mode
+    # dégradé, écran noir de Kingdom Hearts III). Sur un prefix Wine
+    # (Batocera), inchangé : Wine du Proton lancé directement, Proton ne
+    # sachant pas convertir ces prefixes.
+    if [[ -n "$WINE_OVERRIDE" ]] && found=$(resolve_wine_override "$WINE_OVERRIDE") \
+       && proton_dir_of "$found" >/dev/null \
+       && [[ -n "$PREFIX_PROTON" || ! -f "${WINEPOINT}/system.reg" ]]; then
+        OVERRIDE_PROTON=$(proton_dir_of "$found")
     fi
-fi
-if [[ -n "$PREFIX_PROTON" || "$AUTO_PROTON" == "1" ]]; then
+    FORCED_WINE="${RUNNER}${WINE_VERSION}"
+    [[ -n "$WINE_OVERRIDE" && -z "$OVERRIDE_PROTON" ]] && FORCED_WINE+="$WINE_OVERRIDE"
+
+    # Image sans prefix (jeu seul : jeu PC récent emballé à la main, 27/09) :
+    # prefix créé par Proton via umu — proton-cachyos, sinon UMU-Proton,
+    # sinon GE-Proton —, les prefixes Batocera (jeux arcade) restant sous
+    # wine-tkg. Un prefix Wine déjà créé dans les sauvegardes est gardé tel
+    # quel : Proton ne sait pas le convertir (DRAGON BALL Sparking! ZERO,
+    # 27/09 : copy_pfx en échec, puis manettes perdues sous Wine avec les DLL
+    # de Proton). WINE=tkg dans l'autorun.cmd pour garder wine-tkg.
+    if [[ -z "$PREFIX_PROTON" && "$PACKAGED_PREFIX" == "0" && -z "$FORCED_WINE" ]]; then
+        if [[ ! -f "${WINEPOINT}/system.reg" ]]; then
+            AUTO_PROTON=1
+        elif [[ "$DIR_MODE" == "1" ]]; then
+            warn "prefix Wine déjà créé dans ${WINEPOINT}, gardé sous $(runner_name "$WINE_BINARY") (Proton ne sait pas le convertir)"
+        else
+            warn "prefix Wine déjà créé dans les sauvegardes, gardé sous $(runner_name "$WINE_BINARY") — supprimer ${SAVEPOINT} (sauvegardes du jeu comprises) pour passer sous Proton"
+        fi
+    fi
+
+    [[ -n "$PREFIX_PROTON" || "$AUTO_PROTON" == "1" ]] || return 0
     if found=$(find_proton_runner "$PREFIX_PROTON") && [[ -n "$found" ]]; then
         WINE_BINARY="${found}/files/bin/wine"
-        [[ -z "$PREFIX_PROTON" ]] || proton_runner_is "$found" "$PREFIX_PROTON" || \
-            echo "Attention : prefix créé par ${PREFIX_PROTON} (absent), utilisation de $(basename "$found")"
+        if [[ -n "$PREFIX_PROTON" ]] && ! proton_runner_is "$found" "$PREFIX_PROTON"; then
+            warn "prefix créé par ${PREFIX_PROTON} (absent), utilisation de $(basename "$found")"
+        fi
     else
-        echo "Attention : prefix Proton${PREFIX_PROTON:+ (${PREFIX_PROTON})} voulu, aucun Proton installé, utilisation de $(basename "$WINE_BINARY")"
+        warn "prefix Proton${PREFIX_PROTON:+ (${PREFIX_PROTON})} voulu, aucun Proton installé, utilisation de $(runner_name "$WINE_BINARY")"
         AUTO_PROTON=0
     fi
-fi
+}
 
-# Surcharge via autorun.cmd
-if [[ -n "$RUNNER" ]]; then
-    if [[ -x "$RUNNER" ]]; then
-        WINE_BINARY="$RUNNER"
-    else
-        echo "Attention : runner ${RUNNER} non exécutable, utilisation de $(basename "$WINE_BINARY")"
+# Runner imposé par l'autorun.cmd : RUNNER= (binaire), PROTON= ou WINE=.
+apply_autorun_runner() {
+    local found="" d
+    if [[ -n "$RUNNER" ]]; then
+        if [[ -x "$RUNNER" ]]; then
+            WINE_BINARY="$RUNNER"
+        else
+            warn "runner ${RUNNER} non exécutable, utilisation de $(runner_name "$WINE_BINARY")"
+        fi
+    elif [[ -n "$PROTON_VERSION" ]]; then
+        if found=$(find_proton_runner "$PROTON_VERSION") && [[ -n "$found" ]]; then
+            WINE_BINARY="${found}/files/bin/wine"
+        elif [[ -x "/usr/local/bin/proton" ]]; then
+            WINE_BINARY="/usr/local/bin/proton"
+        else
+            warn "Proton absent, utilisation de $(runner_name "$WINE_BINARY")"
+        fi
+    elif [[ -n "$WINE_VERSION" ]]; then
+        # WINE=system (30/09) : le Wine du système, comme --wine system. Jeux
+        # 32 bits qui échouent sous wine-tkg (non WoW64) mais passent en
+        # WoW64 : GTI Club (réservation de 450 Mo refusée), Castlevania (mmap
+        # du son). Valeur ignorée par Batocera, qui choisit son runner dans ES.
+        if [[ "${WINE_VERSION,,}" == "system" ]]; then
+            found=$(command -v wine)
+        fi
+        for d in "/opt/wine-${WINE_VERSION}" "$HOME/.local/share/wsquashfs/wine/wine-${WINE_VERSION}"; do
+            [[ -n "$found" ]] && break
+            [[ -x "${d}/bin/wine" ]] && found="${d}/bin/wine" && break
+        done
+        if [[ -n "$found" ]]; then
+            WINE_BINARY="$found"
+        else
+            warn "Wine ${WINE_VERSION} absent, utilisation de $(runner_name "$WINE_BINARY")"
+        fi
     fi
-elif [[ -n "$PROTON_VERSION" ]]; then
-    if found=$(find_proton_runner "$PROTON_VERSION") && [[ -n "$found" ]]; then
-        WINE_BINARY="${found}/files/bin/wine"
-    elif [[ -x "/usr/local/bin/proton" ]]; then
-        WINE_BINARY="/usr/local/bin/proton"
-    else
-        echo "Attention : Proton absent, utilisation de $(basename "$WINE_BINARY")"
-    fi
-elif [[ -n "$WINE_VERSION" ]]; then
-    found=""
-    # WINE=system (30/09) : le Wine du système, comme --wine system. Jeux
-    # 32 bits qui échouent sous wine-tkg (non WoW64) mais passent en WoW64 :
-    # GTI Club (réservation de 450 Mo refusée), Castlevania (mmap du son).
-    # Valeur ignorée par Batocera, qui choisit son runner dans ES.
-    if [[ "${WINE_VERSION,,}" == "system" ]]; then
-        found=$(command -v wine)
-    fi
-    for d in "/opt/wine-${WINE_VERSION}" "$HOME/.local/share/wsquashfs/wine/wine-${WINE_VERSION}"; do
-        [[ -n "$found" ]] && break
-        [[ -x "${d}/bin/wine" ]] && found="${d}/bin/wine" && break
-    done
-    if [[ -n "$found" ]]; then
-        WINE_BINARY="$found"
-    else
-        echo "Attention : Wine ${WINE_VERSION} absent, utilisation de $(basename "$WINE_BINARY")"
-    fi
-fi
+}
 
 # --wine (ligne de commande) : prioritaire sur l'autorun.cmd.
-if [[ -n "$WINE_OVERRIDE" ]]; then
+apply_wine_option() {
+    local found
+    [[ -n "$WINE_OVERRIDE" ]] || return 0
     if found=$(resolve_wine_override "$WINE_OVERRIDE") && [[ -n "$found" ]]; then
         WINE_BINARY="$found"
-    else
+        return 0
+    fi
+    {
         echo "Erreur : runner Wine introuvable : ${WINE_OVERRIDE}"
         echo "  Runners installés :"
         list_wine_runners | sed 's/^/    /'
         echo "    system ($(command -v wine 2>/dev/null || echo absent))"
-        exit 1
-    fi
-fi
+    } >&2
+    exit 1
+}
 
 # Prefix Proton (ou PROTON= dans l'autorun.cmd) sans runner Wine imposé :
 # lancé via umu avec le script proton, comme Heroic (27/09, Kingdom Hearts
 # III : écran noir puis LowLevelFatalError avec le seul binaire wine de
 # GE-Proton, menu du jeu atteint via umu). Proton gère alors lui-même le
 # prefix, DXVK, VKD3D et NVAPI.
-UMU_RUN=""
-PROTON_DIR=""
-if [[ -n "${PREFIX_PROTON}${PROTON_VERSION}${OVERRIDE_PROTON}" || "$AUTO_PROTON" == "1" ]] \
-   && [[ -z "$FORCED_WINE" ]]; then
-    if [[ -z "$PREFIX_PROTON" && -f "${WINEPOINT}/system.reg" ]]; then
-        # PROTON= sur un prefix Wine existant : conversion impossible (voir
-        # AUTO_PROTON), on reste sur le Wine par défaut.
-        WINE_BINARY=$(find_wine_binary)
-        echo "Attention : PROTON=${PROTON_VERSION} ignoré, prefix Wine existant — Proton ne sait pas le convertir"
-    elif [[ "$WINE_BINARY" == */files/bin/wine ]] && [[ -x "${WINE_BINARY%/files/bin/wine}/proton" ]] \
-       && UMU_RUN=$(find_umu_run); then
-        PROTON_DIR="${WINE_BINARY%/files/bin/wine}"
-        export GAMEID="${GAMEID:-umu-default}" PROTONPATH="$PROTON_DIR"
-    elif [[ "$AUTO_PROTON" == "1" ]]; then
-        UMU_RUN=""
-        WINE_BINARY=$(find_wine_binary)
-        echo "Attention : umu-run absent, prefix créé par $(basename "$(dirname "$(dirname "$WINE_BINARY")")") au lieu de Proton"
-    else
-        UMU_RUN=""
-        echo "Attention : prefix Proton lancé directement par Wine (umu-run ou Proton absent) — rendu ou stabilité possiblement dégradés"
+setup_umu() {
+    if [[ -n "${PREFIX_PROTON}${PROTON_VERSION}${OVERRIDE_PROTON}" || "$AUTO_PROTON" == "1" ]] \
+       && [[ -z "$FORCED_WINE" ]]; then
+        if [[ -z "$PREFIX_PROTON" && -f "${WINEPOINT}/system.reg" ]]; then
+            # PROTON= sur un prefix Wine existant : conversion impossible (voir
+            # AUTO_PROTON), on reste sur le Wine par défaut.
+            WINE_BINARY=$(find_wine_binary)
+            warn "PROTON=${PROTON_VERSION} ignoré, prefix Wine existant — Proton ne sait pas le convertir"
+        elif proton_dir_of "$WINE_BINARY" >/dev/null && UMU_RUN=$(find_umu_run); then
+            PROTON_DIR=$(proton_dir_of "$WINE_BINARY")
+            export GAMEID="${GAMEID:-umu-default}" PROTONPATH="$PROTON_DIR"
+        elif [[ "$AUTO_PROTON" == "1" ]]; then
+            UMU_RUN=""
+            WINE_BINARY=$(find_wine_binary)
+            warn "umu-run absent, prefix créé par $(runner_name "$WINE_BINARY") au lieu de Proton"
+        else
+            UMU_RUN=""
+            warn "prefix Proton lancé directement par Wine (umu-run ou Proton absent) — rendu ou stabilité possiblement dégradés"
+        fi
     fi
-fi
+    return 0
+}
 
-# Outils Wine lancés sur le prefix (regedit, reg) : par umu pour un prefix
-# Proton — lancés par un autre wine, ils mettraient le prefix à jour pour
-# ce wine, hors de Proton.
-WINE_TOOL=("$WINE_BINARY")
-[[ -n "$UMU_RUN" ]] && WINE_TOOL=("$UMU_RUN")
+select_runner() {
+    # Base : Wine le plus compatible avec les prefixes Batocera
+    WINE_BINARY=$(find_wine_binary)
+    choose_proton_default
+    apply_autorun_runner
+    apply_wine_option
+    setup_umu
+}
 
-# ============================================================
-# CONFIGURATION WINE
-# ============================================================
-
-# Architecture : autorun.cmd → system.reg → défaut win64
-if [[ -z "$WINE_ARCH" ]]; then
-    WINE_ARCH=$(detect_prefix_arch)
-fi
+# ── 9.7 Configuration de Wine ──────────────────────────────────────────
 
 # Prefix win32 : il faut un Wine "classique" (avec i386-unix). Les builds
 # WoW64 seuls (wine-staging d'Arch depuis 2025) refusent ces prefixes —
-# confirmé en direct : "... is a 32-bit installation, it cannot support
-# 64-bit applications" (Lethal Enforcers 3, konamipc). batocera-wine fait le
-# même constat (setPrefixArch). On cherche un runner compatible installé.
-if [[ "$WINE_ARCH" == "win32" ]] && ! wine_supports_win32 "$WINE_BINARY"; then
-    alt=""
+# "... is a 32-bit installation, it cannot support 64-bit applications"
+# (Lethal Enforcers 3, konamipc). batocera-wine fait le même constat
+# (setPrefixArch). On cherche un runner compatible installé.
+ensure_win32_runner() {
+    local alt
+    [[ "$WINE_ARCH" == "win32" ]] || return 0
+    wine_supports_win32 "$WINE_BINARY" && return 0
     if [[ -n "$WINE_OVERRIDE" ]]; then
-        echo "Erreur : prefix win32, mais le runner choisi (--wine ${WINE_OVERRIDE}) est WoW64 seul"
-        exit 1
+        die "prefix win32, mais le runner choisi (--wine ${WINE_OVERRIDE}) est WoW64 seul"
     fi
-    while IFS= read -r -d '' w; do
-        wine_supports_win32 "$w" && { alt="$w"; break; }
-    done < <(find /usr/wine /opt "$HOME/.local/share/wsquashfs/wine" -maxdepth 3 \
-                 -path '*/bin/wine' -print0 2>/dev/null)
-    if [[ -n "$alt" ]]; then
-        WINE_BINARY="$alt"
+    alt=$(find_win32_wine) || die "prefix win32, mais $(runner_name "$WINE_BINARY") est un Wine WoW64 seul" \
+        "  (pas de lib/wine/i386-unix) qui ne peut pas lancer de prefix 32 bits." \
+        "  → Installer un Wine classique (ex. Kron4ek wine-*-amd64, non wow64)" \
+        "    dans /opt ou ~/.local/share/wsquashfs/wine"
+    WINE_BINARY="$alt"
+}
+
+# Overrides DLL : DXVK/VKD3D/d7vk en Wine direct, équivalents Proton sous umu.
+configure_dll_overrides() {
+    if [[ -n "$UMU_RUN" ]]; then
+        # Proton pose lui-même DXVK/VKD3D/NVAPI dans le prefix. DXVK=0
+        # (autorun ou WSQUASHFS_DXVK=0) passe par son équivalent Proton :
+        # sans lui, Proton gardait DXVK (01/10). DXVK_WANTED et non DXVK :
+        # sans /usr/share/dxvk, DXVK valait 0 et tout jeu Proton passait en
+        # wined3d (Ride 6, 10/10 : image qui clignote).
+        [[ "$DXVK_WANTED" == "0" ]] && export PROTON_USE_WINED3D=1
+        DXVK=0 VKD3D=0 D7VK=0
+        # Proton COPIE ~560 DLL de son default_pfx (d3dx9, msvcp, xaudio...)
+        # dans chaque prefix au lieu de les lier : ~190 Mo identiques par jeu,
+        # 5 Go sur 27 jeux (01/10). PROTON_DLL_COPY vide → liens. Proton
+        # convertit lui-même les copies existantes et gère les liens vers un
+        # Proton supprimé. Surchargeable (ENV= de l'autorun.cmd).
+        export PROTON_DLL_COPY="${PROTON_DLL_COPY-}"
     else
-        echo "Erreur : prefix win32, mais $(basename "$WINE_BINARY") est un Wine WoW64 seul"
-        echo "  (pas de lib/wine/i386-unix) qui ne peut pas lancer de prefix 32 bits."
-        echo "  → Installer un Wine classique (ex. Kron4ek wine-*-amd64, non wow64)"
-        echo "    dans /opt ou ~/.local/share/wsquashfs/wine"
-        exit 1
+        [[ "$D7VK" == "1" ]] && add_dll_override "ddraw=n,b"
+        if [[ "$DXVK" == "1" ]]; then
+            add_dll_override "d3d8,d3d9,d3d10core,d3d11,dxgi=n,b"
+        else
+            # Explicite, comme Batocera : un prefix peut contenir des copies
+            # natives de DXVK que Wine chargerait sinon.
+            add_dll_override "d3d8,d3d9,d3d10core,d3d11,dxgi=b"
+        fi
+        [[ "$VKD3D" == "1" ]] && add_dll_override "d3d12,d3d12core=n,b"
     fi
-fi
 
-export WINEPREFIX="$WINEPOINT"
-export WINEARCH="$WINE_ARCH"
+    # Borne arcade : Wine ne doit rien ouvrir côté Linux. winebrowser ouvrait
+    # Chrome (profil réel de l'utilisateur) sur la session du stream quand
+    # TeknoParrot affichait une page (Initial D Zero) ; winemenubuilder crée
+    # des raccourcis de menu (batocera-wine le coupe aussi).
+    add_dll_override "winemenubuilder.exe=d;winebrowser.exe=d"
+}
 
-# Adapter le nom d'utilisateur Wine au prefix (évite l'erreur de création de profil).
-# Les prefixes Batocera sont packagés avec "steamuser" — si on tourne sous un autre user,
-# Wine essaie de créer drive_c/users/$USER à travers l'overlay, ce qui produit ESTALE.
-PREFIX_USERNAME=$(detect_wine_username)
-# Comparer contre TARGET_USER (pas $USER, qui vaudrait "root" ici) quand on
-# a été élevé : c'est TARGET_USER qui lancera réellement Wine plus loin.
-EFFECTIVE_USER="$USER"
-[[ "$RUN_AS_ROOT" == true && -n "$TARGET_USER" ]] && EFFECTIVE_USER="$TARGET_USER"
-if [[ -n "$PREFIX_USERNAME" && "$PREFIX_USERNAME" != "$EFFECTIVE_USER" ]]; then
-    export WINEUSERNAME="$PREFIX_USERNAME"
-fi
+# Parse "KEY=VAL KEY2=VAL2" (ENV= de l'autorun.cmd) et exporte, sans eval.
+apply_wine_env() {
+    local pair
+    while IFS= read -r pair; do
+        if [[ "$pair" =~ ^[A-Za-z_][A-Za-z0-9_]*=.* ]]; then
+            # shellcheck disable=SC2163  # export de "VAR=valeur" voulu
+            export "$pair"
+        fi
+    done <<< "$(tr ' ' '\n' <<< "$1")"
+}
 
-[[ "$ESYNC" == "1" ]] && export WINEESYNC=1
-[[ "$FSYNC" == "1" ]] && export WINEFSYNC=1
+configure_wine() {
+    local prefix_user effective_user
+    # Architecture : autorun.cmd → system.reg → défaut win64
+    [[ -n "$WINE_ARCH" ]] || WINE_ARCH=$(detect_prefix_arch)
+    ensure_win32_runner
 
-if [[ -n "$UMU_RUN" ]]; then
-    # Proton pose lui-même DXVK/VKD3D/NVAPI dans le prefix. DXVK=0 (autorun
-    # ou WSQUASHFS_DXVK=0) passe par son équivalent Proton : sans lui, Proton
-    # gardait DXVK et DXVK=0 était ignoré (constaté le 01/10, variable bien
-    # reçue par le jeu après correction).
-    # DXVK_WANTED et non DXVK : sans /usr/share/dxvk, DXVK valait 0 et tout
-    # jeu Proton passait en wined3d (Ride 6, 10/10 : image qui clignote).
-    [[ "$DXVK_WANTED" == "0" ]] && export PROTON_USE_WINED3D=1
-    DXVK=0 VKD3D=0 D7VK=0
-    # Proton COPIE ~560 DLL de son default_pfx (d3dx9, msvcp, xaudio...,
-    # motifs builtin_dll_copy) dans chaque prefix au lieu de les lier :
-    # ~190 Mo identiques par jeu, 5 Go sur 27 jeux dans les saves (01/10).
-    # PROTON_DLL_COPY vide → liens, comme ses autres DLL Wine. Proton
-    # convertit lui-même les copies existantes (changement de config_info)
-    # et gère les liens vers un Proton supprimé. Surchargeable (ENV= de
-    # l'autorun.cmd) pour un jeu qui doit remplacer ces DLL.
-    export PROTON_DLL_COPY="${PROTON_DLL_COPY-}"
-else
-if [[ "$D7VK" == "1" ]]; then
-    export WINEDLLOVERRIDES="${WINEDLLOVERRIDES:+${WINEDLLOVERRIDES};}ddraw=n,b"
-fi
-if [[ "$DXVK" == "1" ]]; then
-    export WINEDLLOVERRIDES="${WINEDLLOVERRIDES:+${WINEDLLOVERRIDES};}d3d8,d3d9,d3d10core,d3d11,dxgi=n,b"
-else
-    # Explicite, comme Batocera : un prefix peut contenir des copies natives
-    # de DXVK que Wine chargerait sinon.
-    export WINEDLLOVERRIDES="${WINEDLLOVERRIDES:+${WINEDLLOVERRIDES};}d3d8,d3d9,d3d10core,d3d11,dxgi=b"
-fi
-if [[ "$VKD3D" == "1" ]]; then
-    export WINEDLLOVERRIDES="${WINEDLLOVERRIDES:+${WINEDLLOVERRIDES};}d3d12,d3d12core=n,b"
-fi
-fi
+    # Outils Wine lancés sur le prefix (regedit, reg) : par umu pour un prefix
+    # Proton — lancés par un autre wine, ils mettraient le prefix à jour pour
+    # ce wine, hors de Proton. Fixé ici, une fois le runner définitif (un
+    # prefix win32 peut avoir changé de Wine juste au-dessus).
+    WINE_TOOL=("$WINE_BINARY")
+    [[ -n "$UMU_RUN" ]] && WINE_TOOL=("$UMU_RUN")
 
-# Borne arcade : Wine ne doit rien ouvrir côté Linux. winebrowser ouvrait
-# Chrome (profil réel de l'utilisateur) sur la session du stream quand
-# TeknoParrot affichait une page — confirmé en direct (Initial D Zero) ;
-# winemenubuilder crée des raccourcis de menu (batocera-wine le coupe aussi).
-export WINEDLLOVERRIDES="${WINEDLLOVERRIDES:+${WINEDLLOVERRIDES};}winemenubuilder.exe=d;winebrowser.exe=d"
+    export WINEPREFIX="$WINEPOINT"
+    export WINEARCH="$WINE_ARCH"
 
-# Batocera exporte WINEDEBUG=-all (les fixme ralentissent certains jeux) ;
-# on garde les err: pour le diagnostic. Surchargeable depuis l'environnement.
-export WINEDEBUG="${WINEDEBUG:-fixme-all}"
+    # Nom d'utilisateur Wine adapté au prefix : les prefixes Batocera sont
+    # packagés avec "steamuser" ; sous un autre nom, Wine crée
+    # drive_c/users/$USER à travers l'overlay, ce qui produit ESTALE.
+    # Comparé à TARGET_USER (pas $USER, "root" ici) quand on a été élevé.
+    prefix_user=$(detect_wine_username)
+    effective_user="$USER"
+    drops_to_target_user && effective_user="$TARGET_USER"
+    if [[ -n "$prefix_user" && "$prefix_user" != "$effective_user" ]]; then
+        export WINEUSERNAME="$prefix_user"
+    fi
 
-[[ -n "$WINE_LANG" ]] && export LC_ALL="$WINE_LANG"
-[[ -n "$WINE_ENV" ]] && apply_wine_env "$WINE_ENV"
+    [[ "$ESYNC" == "1" ]] && export WINEESYNC=1
+    [[ "$FSYNC" == "1" ]] && export WINEFSYNC=1
 
-# Jeu seul dont le prefix a perdu son system32 (effacé à chaque lancement
-# par les versions du 25-26/09, voir PACKAGED_PREFIX) : réparé par wineboot.
-if [[ -n "$UMU_RUN" ]]; then
-    # Prefix créé ou mis à jour par Proton lui-même au lancement.
-    [[ -f "${WINEPOINT}/system.reg" ]] || echo "Initialisation du préfixe par Proton au premier lancement..."
-elif [[ -f "${WINEPOINT}/system.reg" ]] && [[ -d "${WINEPOINT}/drive_c" ]] \
-   && { [[ "$PACKAGED_PREFIX" == "1" ]] || [[ -f "${WINEPOINT}/drive_c/windows/system32/explorer.exe" ]]; }; then
-    echo "✓ Préfixe Wine détecté (structure Batocera)"
-else
+    configure_dll_overrides
+
+    # Batocera exporte WINEDEBUG=-all (les fixme ralentissent certains jeux) ;
+    # on garde les err: pour le diagnostic. Surchargeable depuis l'environnement.
+    export WINEDEBUG="${WINEDEBUG:-fixme-all}"
+
+    # shellcheck disable=SC2031  # sans rapport avec le sous-shell de text_width
+    [[ -n "$WINE_LANG" ]] && export LC_ALL="$WINE_LANG"
+    [[ -n "$WINE_ENV" ]] && apply_wine_env "$WINE_ENV"
+    return 0
+}
+
+# ── 9.8 Préparation du prefix ──────────────────────────────────────────
+
+# Crée le prefix d'un jeu seul, ou répare celui qui a perdu son system32
+# (effacé à chaque lancement par les versions du 25-26/09, voir
+# clear_generated_system_dlls).
+init_prefix_if_needed() {
+    if [[ -n "$UMU_RUN" ]]; then
+        # Prefix créé ou mis à jour par Proton lui-même au lancement.
+        [[ -f "${WINEPOINT}/system.reg" ]] || echo "Initialisation du préfixe par Proton au premier lancement..."
+        return 0
+    fi
+    if [[ -f "${WINEPOINT}/system.reg" && -d "${WINEPOINT}/drive_c" ]] \
+       && [[ "$PACKAGED_PREFIX" == "1" || -f "${WINEPOINT}/drive_c/windows/system32/explorer.exe" ]]; then
+        echo "✓ Préfixe Wine détecté (structure Batocera)"
+        return 0
+    fi
     # .wsquashfs sans prefix (jeu seul : NBA 2K23, Robin Hood...) : prefix
-    # créé dans l'overlay. En tant qu'utilisateur Wine — lancé en root, Wine
-    # refusait ("... is not owned by you", confirmé en campagne de test) et
-    # le lanceur restait bloqué.
+    # créé dans l'overlay, en utilisateur Wine — lancé en root, Wine refusait
+    # ("... is not owned by you") et le lanceur restait bloqué.
     echo "Initialisation du préfixe Wine ($WINE_ARCH)..."
     # Réparation : wineboot -u ne réinstalle RIEN tant que .update-timestamp
-    # correspond à la version de Wine (vérifié le 26/09 : 0 fichier recréé,
-    # 816 sans l'horodatage). Sans effet sur un prefix neuf.
+    # correspond à la version de Wine (26/09 : 0 fichier recréé, 816 sans
+    # l'horodatage). Sans effet sur un prefix neuf.
     rm -f "${WINEPOINT}/.update-timestamp"
-    as_wine_user env DISPLAY="${DISPLAY:-}" WINEPREFIX="$WINEPOINT" WINEARCH="$WINE_ARCH" \
-        WINEDEBUG="$WINEDEBUG" WINEDLLOVERRIDES="mscoree,mshtml=;winemenubuilder.exe=d" \
-        "$WINE_BINARY" wineboot -u 2>&1 | grep -v "fixme:" || true
-    as_wine_user env WINEPREFIX="$WINEPOINT" wineserver -w 2>/dev/null || true
-    # Overlay : JAMAIS de chown -R sur WINEPOINT (le montage) — chaque fichier
-    # du jeu serait recopié dans SAVEPOINT (confirmé en direct : 70 Go sur
-    # NBA 2K23). L'upperdir suffit, squash_to_uid s'occupe du reste.
+    run_wineboot_update "$WINEDEBUG" 2>&1 | grep -v "fixme:" || true
+    run_wineserver "$WINEPOINT" -w || true
+    # Overlay : JAMAIS de chown sur WINEPOINT (le montage) — chaque fichier
+    # du jeu serait recopié dans SAVEPOINT (70 Go sur NBA 2K23). L'upperdir
+    # suffit, squash_to_uid s'occupe du reste.
     if [[ "$MOUNT_MODE" == "overlay" ]]; then
         chown_to_target "$SAVEPOINT"
     else
         chown_to_target "$WINEPOINT"
     fi
-fi
+}
 
-[[ -z "$UMU_RUN" ]] && update_prefix_if_needed
-fix_userdata_links
+# DLL du runner, DXVK, VKD3D, d7vk (compatibilité prefixes Batocera / Wine
+# 10+). Sous umu, Proton s'en charge.
+install_prefix_dlls() {
+    [[ -z "$UMU_RUN" ]] || return 0
+    if [[ "$MOUNT_MODE" == "overlay" ]]; then
+        # Écriture dans l'upperdir (voir sync_wine_stubs), rendue au
+        # propriétaire de Wine, puis overlay rechargé : fuse-overlayfs ne
+        # voit pas les fichiers ajoutés dans l'upperdir après le montage.
+        link_runtime_dlls "$SAVEPOINT"
+        chown_to_target "$SAVEPOINT"
+        reload_overlay "après sync DLLs"
+    else
+        link_runtime_dlls "$WINEPOINT"
+        chown_to_target "$WINEPOINT"
+    fi
+}
 
-# Synchroniser les DLLs Wine manquantes (compatibilité prefixes Batocera / Wine 10+).
-# En mode overlay : écriture dans SAVEPOINT (upperdir) pour éviter EPERM copy-up sur
-# les répertoires root-owned (system32, syswow64) par fuse-overlayfs non-privilégié.
-# Après écriture dans l'upperdir, on recharge l'overlay pour que les DLLs soient visibles
-# (fuse-overlayfs cache les listdir au montage et ne voit pas les fichiers ajoutés après).
-if [[ -n "$UMU_RUN" ]]; then
-    :   # prefix géré par Proton
-elif [[ "$MOUNT_MODE" == "overlay" ]]; then
-    sync_wine_stubs "$WINE_BINARY" "$SAVEPOINT"
-    [[ "$DXVK" == "1" ]] && install_dxvk "$SAVEPOINT"
-    [[ "$VKD3D" == "1" ]] && install_vkd3d "$SAVEPOINT"
-    [[ "$D7VK" == "1" ]] && install_d7vk "$SAVEPOINT"
-    # Les DLLs viennent d'être copiées en root dans l'upperdir — sans ce
-    # chown, Wine (relancé en TARGET_USER) verrait un prefix appartenant en
-    # partie à root une fois l'overlay rechargé.
-    chown_to_target "$SAVEPOINT"
-    # Recharger l'overlay pour que fuse-overlayfs voie les nouveaux fichiers dans l'upperdir
-    reload_overlay "après sync DLLs"
-else
-    sync_wine_stubs "$WINE_BINARY"
-    [[ "$DXVK" == "1" ]] && install_dxvk
-    [[ "$VKD3D" == "1" ]] && install_vkd3d
-    [[ "$D7VK" == "1" ]] && install_d7vk
-    chown_to_target "$WINEPOINT"
-fi
-
-if [[ -d "${WINEPOINT}/regs" ]]; then
+# Fichiers .reg du dossier regs/ du prefix, importés à chaque lancement.
+import_registry_files() {
+    local regfile
+    [[ -d "${WINEPOINT}/regs" ]] || return 0
     echo "Import des fichiers de registre..."
     while IFS= read -r -d '' regfile; do
         echo "  → $(basename "$regfile")"
-        as_wine_user env DISPLAY="${DISPLAY:-}" WINEPREFIX="$WINEPOINT" WINEARCH="$WINE_ARCH" \
-            WINEDEBUG="$WINEDEBUG" WINEDLLOVERRIDES="$WINEDLLOVERRIDES" \
-            GAMEID="${GAMEID:-}" PROTONPATH="${PROTONPATH:-}" \
-            "${WINE_TOOL[@]}" regedit "//?/unix${regfile}" 2>/dev/null || true
+        run_wine_tool regedit "//?/unix${regfile}" 2>/dev/null || true
     done < <(find "${WINEPOINT}/regs" -maxdepth 1 -type f -iname "*.reg" -print0)
-fi
+}
+
+prepare_prefix() {
+    init_prefix_if_needed
+    [[ -z "$UMU_RUN" ]] && update_prefix_if_needed
+    fix_userdata_links
+    install_prefix_dlls
+    import_registry_files
+}
+
+# ── 9.9 Manettes ───────────────────────────────────────────────────────
 
 # Manettes par hidraw dans Wine — option enable_hidraw de batocera-wine,
-# DÉSACTIVÉE par défaut comme chez Batocera : XInput (manette Xbox via
-# SDL), que tous les jeux comprennent. Essayée par défaut deux fois, deux
-# fois abandonnée avec la DualSense virtuelle de Sunshine (uhid, seule
-# lisible par hidraw) : touches décalées (24/09 : SNK Heroines, Sonic &
-# All-Stars Racing), puis aucune commande reçue par un jeu XInput seul
-# (27/09 : DRAGON BALL Sparking! ZERO, icônes Xbox même en hidraw).
-# HIDRAW=1 dans l'autorun.cmd (par jeu, emballé avec lui) ou
+# DÉSACTIVÉE par défaut comme chez Batocera : XInput (manette Xbox via SDL),
+# que tous les jeux comprennent. Essayée par défaut deux fois, deux fois
+# abandonnée avec la DualSense virtuelle de Sunshine (uhid, seule lisible
+# par hidraw) : touches décalées (24/09 : SNK Heroines, Sonic & All-Stars
+# Racing), puis aucune commande reçue par un jeu XInput seul (27/09 : DRAGON
+# BALL Sparking! ZERO). HIDRAW=1 dans l'autorun.cmd (par jeu) ou
 # WSQUASHFS_HIDRAW=1 (prioritaire) pour un jeu qui gère la DualSense
-# lui-même — seulement si la manette Sony est lisible (hidraw_usable),
-# sinon repli XInput : le jeu n'aurait aucune manette. La valeur est
-# imposée dans les deux sens à chaque lancement.
+# lui-même — seulement si la manette Sony est lisible (hidraw_usable), sinon
+# repli XInput. La valeur est imposée dans les deux sens à chaque lancement.
 # HIDRAW=1 (02/10) : une DualSense Bluetooth (celle de Sunshine) est
 # présentée au jeu en DualSense USB par dualsense-usb-bridge — les libScePad
-# de 2022 (F1 22) refusent la Bluetooth, aucune touche reçue. HIDRAW=bt garde
-# la DualSense Bluetooth en direct : ses haptiques passent en rapports HID
-# (Until Dawn), alors qu'en USB les jeux les jouent en audio, non transmis.
-HIDRAW_DISABLE=1 HIDRAW_MSG="XInput, manette Xbox"
-HIDRAW_MODE="${WSQUASHFS_HIDRAW:-$(getWine_var "$WINEPOINT" "HIDRAW" "0")}"
-if [[ "$HIDRAW_MODE" == "1" || "$HIDRAW_MODE" == "bt" ]]; then
-    if hidraw_usable; then
-        HIDRAW_DISABLE=0 HIDRAW_MSG="DualSense/DualShock en direct (hidraw)"
-        [[ "$HIDRAW_MODE" == "1" ]] && start_dualsense_bridge \
-            && HIDRAW_MSG="DualSense USB (dualsense-usb-bridge, depuis la DualSense Bluetooth)"
-    else
+# de 2022 (F1 22) refusent la Bluetooth. HIDRAW=bt garde la DualSense
+# Bluetooth en direct : ses haptiques passent en rapports HID (Until Dawn),
+# alors qu'en USB les jeux les jouent en audio, non transmis.
+choose_hidraw_mode() {
+    local mode
+    HIDRAW_DISABLE=1
+    HIDRAW_MSG="XInput, manette Xbox"
+    mode="${WSQUASHFS_HIDRAW:-$(autorun_var HIDRAW "0")}"
+    [[ "$mode" == "1" || "$mode" == "bt" ]] || return 0
+    if ! hidraw_usable; then
         HIDRAW_MSG="XInput, manette Xbox (hidraw demandé : ${HIDRAW_REASON})"
+        return 0
     fi
-fi
+    HIDRAW_DISABLE=0
+    HIDRAW_MSG="DualSense/DualShock en direct (hidraw)"
+    if [[ "$mode" == "1" ]] && start_dualsense_bridge; then
+        HIDRAW_MSG="DualSense USB (dualsense-usb-bridge, depuis la DualSense Bluetooth)"
+    fi
+}
+
 # GE-Proton (30/09) : sa SDL ignore TOUJOURS les manettes Sony ("ignoring SDL
 # DualSense device; hidraw handles native reports") et les laisse au backend
 # hidraw. Hidraw coupé (mode XInput par défaut), la DualSense n'était gérée
 # par personne : aucune manette dans Kena, The Devil in Me, Like a Dragon...
-# quand Pinball FX (wine-tkg, prefix Batocera) marchait. En mode XInput, on
-# garde donc hidraw et GE-Proton présente la manette Sony en XInput
-# (PROTON_SONY_HIDRAW_XINPUT). Les Proton de Valve (UMU-Proton,
+# En mode XInput, on garde donc hidraw et GE-Proton présente la manette Sony
+# en XInput (PROTON_SONY_HIDRAW_XINPUT). Les Proton de Valve (UMU-Proton,
 # proton-cachyos) n'ont pas ce correctif : leur SDL gère la DualSense.
-PROTON_ROOT=""
-[[ "$WINE_BINARY" == */files/bin/wine ]] && PROTON_ROOT="${WINE_BINARY%/files/bin/wine}"
-if [[ "$HIDRAW_DISABLE" == "1" && -n "$PROTON_ROOT" ]] \
-   && grep -aqs "hidraw handles native reports" "${PROTON_ROOT}/files/lib/wine/x86_64-unix/winebus.so" \
-   && hidraw_usable; then
-    HIDRAW_DISABLE=0
-    export PROTON_SONY_HIDRAW_XINPUT=1
-    HIDRAW_MSG="XInput, manette Xbox (manette Sony par hidraw, convertie par GE-Proton)"
-fi
-# Prefix Proton : registre dans pfx/ (sinon reg add à chaque lancement).
-if ! grep -qs "\"DisableHidraw\"=dword:0000000${HIDRAW_DISABLE}" "${WINEPOINT}/system.reg" "${WINEPOINT}/pfx/system.reg"; then
-    as_wine_user env DISPLAY="${DISPLAY:-}" WINEPREFIX="$WINEPOINT" WINEARCH="$WINE_ARCH" \
-        WINEDEBUG="$WINEDEBUG" WINEDLLOVERRIDES="$WINEDLLOVERRIDES" \
-        GAMEID="${GAMEID:-}" PROTONPATH="${PROTONPATH:-}" \
-        "${WINE_TOOL[@]}" reg add 'HKLM\System\CurrentControlSet\Services\winebus' \
+apply_ge_proton_sony_fix() {
+    local proton_root=""
+    [[ "$WINE_BINARY" == */files/bin/wine ]] && proton_root="${WINE_BINARY%/files/bin/wine}"
+    if [[ "$HIDRAW_DISABLE" == "1" && -n "$proton_root" ]] \
+       && grep -aqs "hidraw handles native reports" "${proton_root}/files/lib/wine/x86_64-unix/winebus.so" \
+       && hidraw_usable; then
+        HIDRAW_DISABLE=0
+        export PROTON_SONY_HIDRAW_XINPUT=1
+        HIDRAW_MSG="XInput, manette Xbox (manette Sony par hidraw, convertie par GE-Proton)"
+    fi
+}
+
+# Inscrit DisableHidraw dans le registre s'il diffère (prefix Proton :
+# registre dans pfx/).
+write_hidraw_setting() {
+    if grep -qs "\"DisableHidraw\"=dword:0000000${HIDRAW_DISABLE}" "${WINEPOINT}/system.reg" "${WINEPOINT}/pfx/system.reg"; then
+        return 0
+    fi
+    run_wine_tool reg add 'HKLM\System\CurrentControlSet\Services\winebus' \
         /v DisableHidraw /t REG_DWORD /d "${HIDRAW_DISABLE}" /f >/dev/null 2>&1 || true
-    as_wine_user env WINEPREFIX="$WINEPOINT" wineserver -k 2>/dev/null || true
-    as_wine_user env WINEPREFIX="$WINEPOINT" wineserver -w 2>/dev/null || true
-fi
+    run_wineserver "$WINEPOINT" -k || true
+    run_wineserver "$WINEPOINT" -w || true
+}
 
-apply_savedir "$SAVEDIR" "$SAVEFILES"
+configure_controllers() {
+    choose_hidraw_mode
+    apply_ge_proton_sony_fix
+    write_hidraw_setting
+}
 
-# ============================================================
-# RÉCAPITULATIF
-# ============================================================
+# ── 9.10 Récapitulatif et exécution ────────────────────────────────────
 
-echo "-----------------------------------------"
-echo "Exécutable    : $EXEC_PATH"
-echo "Arguments     : ${EXEC_ARGS:-<aucun>}"
-if [[ -n "$UMU_RUN" ]]; then
-    echo "Proton        : $(basename "$PROTON_DIR") via umu ($PROTON_DIR)"
-else
-    echo "Wine          : $WINE_BINARY ($WINE_ARCH)"
-fi
-echo "Préfixe       : $WINEPREFIX"
-[[ -n "$WINEUSERNAME" ]] && echo "Utilisateur   : $WINEUSERNAME (adapté au prefix)"
-if [[ "$RUN_AS_ROOT" == true ]]; then
-    if [[ -n "$TARGET_USER" ]]; then
-        echo "Privilège     : montage en root, Wine relancé en $TARGET_USER"
+print_summary() {
+    echo "-----------------------------------------"
+    echo "Exécutable    : $EXEC_PATH"
+    echo "Arguments     : ${EXEC_ARGS:-<aucun>}"
+    local version
+    if [[ -n "$UMU_RUN" ]]; then
+        echo "Proton        : $(basename "$PROTON_DIR") via umu ($PROTON_DIR)"
+        version=$(runner_version "${PROTON_DIR}/files/bin/wine")
+        [[ -n "$version" ]] && echo "Version Proton: $version"
     else
-        echo "Attention     : lancé en root sans SUDO_USER — l'affichage risque d'échouer (pas de cookie X11)"
+        echo "Wine          : $WINE_BINARY ($WINE_ARCH)"
+        version=$(runner_version "$WINE_BINARY")
+        [[ -n "$version" ]] && echo "Version Wine  : $version"
     fi
-fi
-[[ "$MOUNT_MODE" == "overlay" ]] && echo "Sauvegardes   : $SAVEPOINT"
-echo "Manettes      : $HIDRAW_MSG"
-[[ "$DXVK"  == "1" ]] && echo "DXVK          : activé"
-[[ "$VKD3D" == "1" ]] && echo "VKD3D         : activé"
-[[ "$D7VK"  == "1" ]] && echo "D7VK          : activé (DirectDraw → Vulkan)"
-[[ "$ESYNC" == "1" ]] && echo "ESYNC         : activé"
-[[ "$FSYNC" == "1" ]] && echo "FSYNC         : activé"
-[[ -n "$WINE_LANG" ]] && echo "Langue        : $WINE_LANG"
-[[ -n "$VIRTUAL_DESKTOP" ]] && echo "Bureau virtuel: ${VIRTUAL_DESKTOP}"
-echo "========================================="
-echo ""
-
-# ============================================================
-# EXÉCUTION
-# ============================================================
-
-WORKDIR="$WINEPOINT"
-[[ -n "$DIR" ]] && WORKDIR="${WINEPOINT}/${DIR}"
-cd "$WORKDIR" || exit 1
-
-declare -a RUN_CMD
-
-if [[ -n "$VIRTUAL_DESKTOP" ]]; then
-    # Bureau virtuel : empêche le jeu de changer la résolution système (crash KDE/WM)
-    DESKTOP_NAME=$(echo "$GAME_NAME" | tr ' ' '_' | tr -cd 'a-zA-Z0-9_')
-    if [[ "$EXT" == "bat" ]]; then
-        RUN_CMD=("$WINE_BINARY" explorer "/desktop=${DESKTOP_NAME},${VIRTUAL_DESKTOP}" \
-                 cmd /c "$EXEC_PATH" "${EXEC_ARGS_ARR[@]}")
-    else
-        RUN_CMD=("$WINE_BINARY" explorer "/desktop=${DESKTOP_NAME},${VIRTUAL_DESKTOP}" \
-                 "$EXEC_PATH" "${EXEC_ARGS_ARR[@]}")
+    echo "Préfixe       : $WINEPREFIX"
+    [[ -n "${WINEUSERNAME:-}" ]] && echo "Utilisateur   : $WINEUSERNAME (adapté au prefix)"
+    if [[ "$RUN_AS_ROOT" == true ]]; then
+        if [[ -n "$TARGET_USER" ]]; then
+            echo "Privilège     : montage en root, Wine relancé en $TARGET_USER"
+        else
+            warn "lancé en root sans SUDO_USER — l'affichage risque d'échouer (pas de cookie X11)"
+        fi
     fi
-elif [[ "$EXT" == "bat" ]]; then
-    RUN_CMD=("$WINE_BINARY" cmd /c "$EXEC_PATH" "${EXEC_ARGS_ARR[@]}")
-else
-    RUN_CMD=("$WINE_BINARY" "$EXEC_PATH" "${EXEC_ARGS_ARR[@]}")
-fi
-# umu-run prend la place de wine : même ligne de commande (exécutable Unix,
-# explorer, cmd /c...), transmise au script proton.
-[[ -n "$UMU_RUN" ]] && RUN_CMD[0]="$UMU_RUN"
+    [[ "$MOUNT_MODE" == "overlay" ]] && echo "Sauvegardes   : $SAVEPOINT"
+    echo "Manettes      : $HIDRAW_MSG"
+    [[ "$DXVK"  == "1" ]] && echo "DXVK          : activé"
+    [[ "$VKD3D" == "1" ]] && echo "VKD3D         : activé"
+    [[ "$D7VK"  == "1" ]] && echo "D7VK          : activé (DirectDraw → Vulkan)"
+    [[ "$ESYNC" == "1" ]] && echo "ESYNC         : activé"
+    [[ "$FSYNC" == "1" ]] && echo "FSYNC         : activé"
+    [[ -n "$WINE_LANG" ]] && echo "Langue        : $WINE_LANG"
+    [[ -n "$VIRTUAL_DESKTOP" ]] && echo "Bureau virtuel: ${VIRTUAL_DESKTOP}"
+    echo "========================================="
+    echo ""
+}
 
-if [[ "$RUN_AS_ROOT" == true ]] && [[ -n "$TARGET_USER" ]]; then
-    # SDL_* : winebus (manettes Wine) lit les manettes via SDL — sans ces
-    # variables, un mapping SDL_GAMECONTROLLERCONFIG et
-    # SDL_JOYSTICK_DISABLE_UDEV de la session étaient perdus ici.
-    # env explicite plutôt que `sudo --preserve-env` : certaines politiques
-    # sudoers restreignent --preserve-env (env_reset sans autorisation
-    # explicite), alors que passer des VAR=valeur à `env` en argument
-    # fonctionne toujours, quelle que soit la politique de l'appelant.
+# Ligne de commande du jeu dans RUN_CMD : wine [explorer /desktop=…]
+# [cmd /c] exe args. umu-run prend la place de wine : même ligne de commande
+# (exécutable Unix, explorer, cmd /c...), transmise au script proton.
+build_run_command() {
+    local desktop_name
+    RUN_CMD=("$WINE_BINARY")
+    if [[ -n "$VIRTUAL_DESKTOP" ]]; then
+        # Bureau virtuel : empêche le jeu de changer la résolution système
+        # (crash KDE/WM).
+        desktop_name=$(printf '%s\n' "$GAME_NAME" | tr ' ' '_' | tr -cd 'a-zA-Z0-9_')
+        RUN_CMD+=(explorer "/desktop=${desktop_name},${VIRTUAL_DESKTOP}")
+    fi
+    [[ "$EXT" == "bat" ]] && RUN_CMD+=(cmd /c)
+    RUN_CMD+=("$EXEC_PATH" "${EXEC_ARGS_ARR[@]}")
+    [[ -n "$UMU_RUN" ]] && RUN_CMD[0]="$UMU_RUN"
+    return 0
+}
+
+# Lance la commande en TARGET_USER avec l'environnement du jeu. SDL_* :
+# winebus lit les manettes via SDL — sans elles, un mapping
+# SDL_GAMECONTROLLERCONFIG et SDL_JOYSTICK_DISABLE_UDEV de la session étaient
+# perdus. env explicite plutôt que `sudo --preserve-env` : certaines
+# politiques sudoers restreignent --preserve-env, alors que des VAR=valeur
+# passées à `env` fonctionnent toujours.
+run_as_target_user() {
     sudo -u "$TARGET_USER" env \
         DISPLAY="${DISPLAY:-}" \
         WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-}" \
@@ -2131,22 +2694,156 @@ if [[ "$RUN_AS_ROOT" == true ]] && [[ -n "$TARGET_USER" ]]; then
         MANGOHUD="${MANGOHUD:-}" \
         MANGOHUD_CONFIG="${MANGOHUD_CONFIG:-}" \
         MANGOHUD_CONFIGFILE="${MANGOHUD_CONFIGFILE:-}" \
+        "$@"
+}
+
+run_game() {
+    local exit_code
+    cd "${WINEPOINT}${DIR:+/$DIR}" || exit 1
+    build_run_command
+
+    if drops_to_target_user; then
+        run_as_target_user "${RUN_CMD[@]}"
+    else
         "${RUN_CMD[@]}"
-else
-    "${RUN_CMD[@]}"
+    fi
+    exit_code=$?
+
+    # Beaucoup de jeux passent par un lanceur qui démarre le vrai exécutable
+    # puis quitte aussitôt (ring_loader.exe → DOA5A.exe, TeknoParrotUi →
+    # OpenParrot) : sans cette attente, cleanup() tuait le jeu à peine lancé
+    # (Dead or Alive 5 Ultimate). Comme Batocera : on attend que tous les
+    # processus du prefix aient terminé.
+    run_wineserver "$WINEPOINT" -w || true
+
+    echo ""
+    echo "========================================="
+    echo "Jeu terminé (code : $exit_code)"
+    echo "========================================="
+    exit "$exit_code"
+}
+
+launch_game() {
+    resolve_game_path
+    check_dependencies
+    init_game_paths
+    print_header
+    acquire_game_lock || die "${GAME_NAME} est déjà lancé"
+    if [[ "$DIR_MODE" == "1" ]]; then
+        use_installed_dir
+    else
+        mount_image
+    fi
+    [[ "$ACTION" == "mount" ]] && report_mount_and_exit
+    read_autorun
+    resolve_executable
+    select_runner
+    configure_wine
+    prepare_prefix
+    configure_controllers
+    apply_savedir "$SAVEDIR" "$SAVEFILES"
+    print_summary
+    run_game
+}
+
+# ════════════════════════════════════════════════════════════════════════
+# 10. POINT D'ENTRÉE
+# ════════════════════════════════════════════════════════════════════════
+
+# Fin du script (normale, erreur ou signal) : arrête le pont DualSense, le
+# wineserver et démonte le jeu (mode overlay ; la copie persiste).
+# shellcheck disable=SC2317  # appelée par trap
+cleanup() {
+    local exit_code=$?
+    trap - EXIT INT TERM
+    # Le script a fait un cd dans WINEPOINT pour lancer le jeu : sans en
+    # sortir, son propre CWD rend l'overlay "busy" et le démontage échouait
+    # à chaque fois — d'où les montages orphelins (confirmé en direct).
+    cd / || true
+    stop_dualsense_bridge
+    if [[ "$MOUNTED" == true ]]; then
+        stop_wineserver
+        if [[ "$MOUNT_MODE" == "overlay" ]]; then
+            umount_retry "$WINEPOINT"
+            umount_retry "$SQUASHFSPOINT"
+            [[ -d "$WORKPOINT" ]] && rm -rf "$WORKPOINT"
+        fi
+    fi
+    exit "$exit_code"
+}
+
+parse_args() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --help|-h)
+                ACTION="help"
+                return 0
+                ;;
+            --clean|--clear|--umount|--pack|--install|--info|--backup|--list|--doctor)
+                # Commandes autonomes : le reste de la ligne leur appartient.
+                ACTION="${1#--}"
+                CMD_ARGS=("${@:2}")
+                return 0
+                ;;
+            --wine)
+                [[ -n "${2:-}" ]] || die "--wine attend une version ou un chemin"
+                WINE_OVERRIDE="$2"
+                shift 2
+                ;;
+            --mount)
+                ACTION="mount"
+                shift
+                ;;
+            --exec)
+                ACTION="exec"
+                GAME_ARG="${2:-}"
+                EXEC_CMD=("${@:3}")
+                if [[ -z "$GAME_ARG" || ${#EXEC_CMD[@]} -eq 0 ]]; then
+                    usage_error "$0 --exec <jeu.wsquashfs> <programme> [arguments...]"
+                fi
+                return 0
+                ;;
+            -*)
+                die "option inconnue : $1  (voir $0 --help)"
+                ;;
+            *)
+                [[ -z "$GAME_ARG" ]] || die "un seul jeu attendu (voir $0 --help)"
+                GAME_ARG="$1"
+                shift
+                ;;
+        esac
+    done
+}
+
+main() {
+    restore_sudo_user_session
+    limit_stack_size
+    init_config
+    trap cleanup EXIT INT TERM
+
+    fix_ownership "$CACHE_DIR"
+    fix_ownership "$SAVES_DIR"
+
+    parse_args "$@"
+    case "$ACTION" in
+        help)    usage ;;
+        clean)   cmd_clean ;;
+        clear)   cmd_clear "${CMD_ARGS[@]}" ;;
+        umount)  cmd_umount "${CMD_ARGS[@]}" ;;
+        pack)    pack_prefix "${CMD_ARGS[@]}" ;;
+        install) install_game "${CMD_ARGS[@]}" ;;
+        info)    show_info "${CMD_ARGS[@]}" ;;
+        backup)  cmd_backup "${CMD_ARGS[@]}" ;;
+        list)    cmd_list ;;
+        doctor)  cmd_doctor ;;
+        *)       launch_game ;;   # run, mount, exec : ne revient pas
+    esac
+}
+
+# Exécuté (et non chargé par « source », comme le font les tests) : on lance.
+# exit dans le même bloc : bash lit un script au fur et à mesure ; un lanceur
+# mis à jour pendant une partie ne doit pas être relu après main.
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+    exit
 fi
-EXIT_CODE=$?
-
-# Beaucoup de jeux passent par un lanceur qui démarre le vrai exécutable puis
-# quitte aussitôt (ring_loader.exe → DOA5A.exe, TeknoParrotUi → OpenParrot) :
-# sans cette attente, cleanup() tuait le jeu à peine lancé via
-# stop_wineserver — confirmé en direct sur Dead or Alive 5 Ultimate (segare).
-# Comme Batocera : on attend que tous les processus du prefix aient terminé.
-as_wine_user env WINEPREFIX="$WINEPOINT" wineserver -w 2>/dev/null || true
-
-echo ""
-echo "========================================="
-echo "Jeu terminé (code : $EXIT_CODE)"
-echo "========================================="
-
-exit $EXIT_CODE

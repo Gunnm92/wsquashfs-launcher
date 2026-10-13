@@ -1,6 +1,6 @@
 # Makefile pour WSquashFS Launcher
 
-.PHONY: help install uninstall test clean build-docker run-docker
+.PHONY: help install uninstall test test-update lint deps clean build-docker run-docker
 
 INSTALL_DIR ?= /usr/local/bin
 
@@ -10,7 +10,10 @@ help:
 	@echo ""
 	@echo "  make install        Installer wsquashfs-launcher (lance install.sh)"
 	@echo "  make uninstall      Désinstaller wsquashfs-launcher"
-	@echo "  make test           Vérifier les dépendances"
+	@echo "  make test           Lancer les tests de non-régression (tests/)"
+	@echo "  make test-update    Réécrire la trace attendue des tests"
+	@echo "  make lint           Analyser les scripts avec shellcheck"
+	@echo "  make deps           Vérifier les dépendances"
 	@echo "  make clean          Supprimer les copies de travail"
 	@echo "  make build-docker   Construire l'image Docker"
 	@echo "  make run-docker     Aide pour lancer un jeu via Docker"
@@ -25,6 +28,16 @@ uninstall:
 	@./install.sh --uninstall
 
 test:
+	@tests/run-tests.sh
+
+test-update:
+	@tests/run-tests.sh --update
+
+lint:
+	@command -v shellcheck >/dev/null || { echo "shellcheck absent"; exit 1; }
+	@shellcheck wsquashfs-launcher tests/run-tests.sh && echo "✓ shellcheck"
+
+deps:
 	@echo "Vérification des dépendances..."
 	@echo ""
 	@command -v wine          >/dev/null && echo "✓ wine"          || echo "✗ wine (requis)"
@@ -44,11 +57,11 @@ clean:
 
 build-docker:
 	@echo "Construction de l'image Docker..."
-	@docker-compose build
+	@docker compose build
 	@echo "✓ Image construite"
 
 run-docker:
 	@echo "Lancer un jeu avec Docker :"
 	@echo "  ./run-docker.sh /path/to/game.wsquashfs"
 	@echo "Ou :"
-	@echo "  docker-compose run --rm wsquashfs-launcher /games/game.wsquashfs"
+	@echo "  docker compose run --rm wsquashfs-launcher --doctor"

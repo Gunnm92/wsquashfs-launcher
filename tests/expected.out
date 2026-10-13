@@ -1,0 +1,3597 @@
+################ unit runner_name
+[] → aucun Wine
+[/usr/local/bin/proton] → proton (/usr/local/bin/proton)
+[/usr/bin/wine64] → wine64 (/usr/bin/wine64)
+[/x/wine-tkg/bin/wine] → wine-tkg
+[/x/GE-Proton9-1/files/bin/wine] → GE-Proton9-1
+################ unit split_command_line
+-a -b → [-a] [-b]
+-path "C:\Mon Jeu\x" -n → [-path] [C:\Mon Jeu\x] [-n]
+"" fin → [] [fin]
+  x   y   → [x] [y]
+a"b c"d → [ab cd]
+################ unit backup_suffix
+  g : archivé dans ROOT/home/unit-backups/g-fige.tar.zst (SIZE)
+  g : archivé dans ROOT/home/unit-backups/g-fige-2.tar.zst (SIZE)
+absent : rien à archiver
+g-fige-2.tar.zst
+g-fige.tar.zst
+################ help
+Usage :
+  wsquashfs-launcher [--wine <version>] <jeu.wsquashfs>
+        Lance le jeu (autorun.cmd).
+  wsquashfs-launcher [--wine <version>] --exec <jeu.wsquashfs> <programme> [arguments...]
+        Lance un autre programme dans le prefix du jeu : un exécutable du jeu
+        (chemin relatif au prefix ou au DIR de l'autorun.cmd, ex. JConfig.exe,
+        drive_c/teknoparrot/TeknoParrotUi.exe) ou un outil Wine (winecfg,
+        regedit, cmd, explorer, control joy.cpl...).
+  wsquashfs-launcher --mount <jeu.wsquashfs>
+        Monte le jeu et le laisse monté pour le modifier à la main ; les
+        changements vont dans le dossier de sauvegardes du jeu.
+  wsquashfs-launcher --umount [<jeu.wsquashfs>]
+        Démonte un jeu (ou tous les jeux montés).
+  wsquashfs-launcher --pack <Jeu.wine> [sortie.wsquashfs]
+        Crée un .wsquashfs (zstd) à partir d'un prefix Wine.
+  wsquashfs-launcher --install <jeu.wsquashfs> [dossier]
+        Extrait le jeu dans <dossier>/<Jeu> (défaut : à côté de l'image), pour
+        jouer sans FUSE ; l'image est conservée, ses sauvegardes non reprises.
+  wsquashfs-launcher --info <jeu.wsquashfs | dossier>
+        Affiche la version du jeu (GAME_VERSION= de l'autorun.cmd), son type
+        de prefix, sa commande et sa taille, sans monter l'image.
+  wsquashfs-launcher [--wine <version>] <dossier du jeu>
+        Lance un jeu installé (dossier contenant autorun.cmd) sur place, sans
+        montage : le jeu écrit directement dans son dossier.
+  wsquashfs-launcher --clean
+        Supprime les copies de travail (cache) et les doublons des sauvegardes :
+        fichiers identiques à l'image du jeu, DLL que Proton recopie à chaque
+        lancement. Tout ce que le jeu a écrit est gardé ; jeux en cours exceptés.
+  wsquashfs-launcher --clear [jeu]
+        Ne garde que drive_c/users des sauvegardes (de tous les jeux, ou d'un
+        seul) : le reste (prefix, registre, scores et réglages écrits dans le
+        dossier du jeu) est supprimé, après archivage (--backup).
+        Confirmation au terminal.
+  wsquashfs-launcher --backup [jeu]
+        Archive les sauvegardes (de tous les jeux, ou d'un seul) dans
+        ~/.local/share/wsquashfs/backups ; jeux en cours exceptés.
+  wsquashfs-launcher --list
+        Liste les jeux connus : état (en cours, monté), version, taille des
+        sauvegardes et image.
+  wsquashfs-launcher --doctor
+        Vérifie l'installation (FUSE, Wine/Proton, umu, DXVK, VKD3D, d7vk,
+        manettes, dossiers) et indique ce qui manque.
+
+Options :
+  --wine <version>  Runner Wine/Proton à utiliser : nom (ou partie du nom) d'un
+                    runner installé dans /opt, /usr/wine ou
+                    ~/.local/share/wsquashfs/wine, chemin d'un binaire wine,
+                    ou "system". Un Proton (Heroic, Steam) est lancé via umu
+                    sur un jeu à prefix Proton ou sans prefix.
+
+Modes de montage (automatique) :
+  overlay   squashfuse + fuse-overlayfs (sauvegardes isolées, idéal)
+  copy      squashfuse ou unsquashfs + cache persistant
+  dossier   jeu installé (--install) lancé sur place, sans FUSE
+
+Variables d'environnement :
+  WSQUASHFS_SAVES_DIR        Sauvegardes overlay (défaut: ~/.local/share/wsquashfs/saves)
+  WSQUASHFS_CACHE            Cache de travail   (défaut: ~/.cache/wsquashfs)
+  WSQUASHFS_BACKUP_DIR       Archives --backup  (défaut: ~/.local/share/wsquashfs/backups)
+  WSQUASHFS_DXVK=0           Désactive DXVK (défaut : activé)
+  WSQUASHFS_HIDRAW=1         Manettes Sony par hidraw si lisibles (défaut : XInput,
+                             comme Batocera ; aussi par jeu via HIDRAW=1 dans autorun.cmd) ;
+                             DualSense Bluetooth présentée en USB (dualsense-usb-bridge)
+  WSQUASHFS_HIDRAW=bt        Idem, DualSense Bluetooth en direct (haptiques Bluetooth)
+  (MangoHud, gamemode... : outils extérieurs, ex. "mangohud wsquashfs-launcher jeu.wsquashfs" —
+   leurs variables sont transmises au jeu, y compris lancé en root)
+  WSQUASHFS_VIRTUAL_DESKTOP  Bureau virtuel Wine pour tous les jeux (ex: 1920x1080),
+                             aussi par jeu via VIRTUAL_DESKTOP= dans autorun.cmd
+== rc=0
+################ doctor
+Montage des images
+  ✓ /dev/fuse accessible
+  ✓ squashfuse (PATH) : montage de l'image
+  ✓ fuse-overlayfs (ROOT/bin/fuse-overlayfs) : mode overlay, sauvegardes séparées (sinon mode copy)
+  ✓ unsquashfs (PATH) : mode copy, --info, --install
+  ✓ mksquashfs (PATH) : --pack
+  ✓ getfattr (PATH) : --clean (doublons des sauvegardes)
+  ✓ flock (PATH) : verrou par jeu (double lancement)
+  ✓ zstd (PATH) : archives --backup compactes (sinon gzip)
+Wine / Proton
+  ✓ Wine par défaut : wine-tkg-fake wine-9.0 (fake) (ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/bin/wine)
+  ✓ prefixes 32 bits (win32) pris en charge
+  ✓ runners installés (--wine) :
+      wine-tkg-fake  ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake
+      GE-Proton9-1  ROOT/home/.local/share/Steam/compatibilitytools.d/GE-Proton9-1
+  ✓ umu-run (ROOT/bin/umu-run) : prefixes Proton et jeux seuls lancés par Proton
+Rendu
+  ✓ DXVK (ROOT/dxvk)
+  ✓ VKD3D-Proton (ROOT/vkd3d)
+  ✓ d7vk (ROOT/d7vk/x32/ddraw.dll)
+Manettes
+  – hidraw : /dev/hidraw99 illisible (HIDRAW=1 retombe en XInput)
+  ✓ dualsense-usb-bridge (PATH)
+Dossiers
+  – ROOT/saves : pas encore créé
+  – ROOT/cache : pas encore créé
+  – ROOT/home/.local/share/wsquashfs/backups : pas encore créé
+
+✓ Prêt à lancer des jeux
+== rc=0
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+################ list-empty
+Aucun jeu connu (aucun lancement enregistré dans ROOT/saves)
+== rc=0
+################ backup-empty
+Aucune sauvegarde à archiver (ROOT/saves)
+== rc=0
+################ noarg
+-- stderr
+Erreur : fichier .wsquashfs ou dossier de jeu requis
+Usage : LAUNCHER <fichier.wsquashfs | dossier du jeu>  |  LAUNCHER --help
+== rc=1
+################ badopt
+-- stderr
+Erreur : option inconnue : --nope  (voir LAUNCHER --help)
+== rc=1
+################ badext
+-- stderr
+Erreur : extension .wsquashfs attendue (ou dossier de jeu installé)
+== rc=1
+################ two-games
+-- stderr
+Erreur : un seul jeu attendu (voir LAUNCHER --help)
+== rc=1
+################ wine-noarg
+-- stderr
+Erreur : --wine attend une version ou un chemin
+== rc=1
+################ exec-usage
+-- stderr
+Usage : LAUNCHER --exec <jeu.wsquashfs> <programme> [arguments...]
+== rc=1
+################ pack1
+Création de ROOT/userdata/roms/windows/Arcade Game.wsquashfs depuis ROOT/src/Arcade Game.wine...
+[===================================================================|] 8/8 100%
+✓ ROOT/userdata/roms/windows/Arcade Game.wsquashfs (SIZE)
+  Version : 1.2.3
+== rc=0
+################ pack-exist
+-- stderr
+Erreur : ROOT/userdata/roms/windows/Arcade Game.wsquashfs existe déjà (jamais écrasé sans confirmation au terminal)
+== rc=1
+################ pack2
+Création de ROOT/userdata/roms/windows/Solo Game.wsquashfs depuis ROOT/src/Solo Game...
+[===================================================================|] 2/2 100%
+✓ ROOT/userdata/roms/windows/Solo Game.wsquashfs (SIZE)
+  Version non renseignée (GAME_VERSION=... dans l'autorun.cmd, voir --info)
+== rc=0
+################ pack3
+Création de ROOT/src/Old32.wsquashfs depuis ROOT/src/Old32.wine...
+[===================================================================|] 3/3 100%
+✓ ROOT/src/Old32.wsquashfs (SIZE)
+  Version non renseignée (GAME_VERSION=... dans l'autorun.cmd, voir --info)
+== rc=0
+################ pack4
+Création de ROOT/userdata/roms/windows/Proton Game.wsquashfs depuis ROOT/src/Proton Game.wine...
+[===================================================================|] 4/4 100%
+✓ ROOT/userdata/roms/windows/Proton Game.wsquashfs (SIZE)
+  Version non renseignée (GAME_VERSION=... dans l'autorun.cmd, voir --info)
+== rc=0
+################ pack-usage
+-- stderr
+Usage : LAUNCHER --pack <dossier.wine> [sortie.wsquashfs]
+== rc=1
+################ info1
+Jeu           : Arcade Game
+Version       : 1.2.3
+Type          : prefix Wine (Batocera)
+Commande      : game.exe -fullscreen -w 1
+Taille        : SIZE
+== rc=0
+################ info2
+Jeu           : Solo Game
+Version       : non renseignée (GAME_VERSION= dans l'autorun.cmd)
+Type          : jeu seul (prefix créé au premier lancement)
+Commande      : "game/run me.exe" --arg
+Taille        : SIZE
+== rc=0
+################ info3
+Jeu           : Proton Game.wine
+Version       : non renseignée (GAME_VERSION= dans l'autorun.cmd)
+Type          : prefix Proton (GE-Proton9-1)
+Commande      : pg.exe
+Taille        : SIZE
+== rc=0
+################ info-usage
+-- stderr
+Usage : LAUNCHER --info <jeu.wsquashfs | dossier du jeu>
+== rc=1
+################ run-arcade
+=========================================
+WSquashFS Launcher
+=========================================
+Environnement : ENV
+Jeu           : Arcade Game
+Version       : 1.2.3
+Fichier       : ROOT/userdata/roms/windows/Arcade Game.wsquashfs
+Mode          : overlay (squashfuse + fuse-overlayfs)
+✓ Préfixe Wine détecté (structure Batocera)
+Préfixe       : mise à jour pour wine-9.0 (fake)
+Import des fichiers de registre...
+  → a.reg
+Sauvegardes   : ROOT/userdata/saves/windows/Arcade Game (SAVEDIR/SAVEFILES)
+-----------------------------------------
+Exécutable    : ROOT/cache/wine/Arcade Game/drive_c/Game Dir/Bin/Game.EXE
+Arguments     : -fullscreen -w 1
+Wine          : ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/bin/wine (win64)
+Version Wine  : wine-9.0 (fake)
+Préfixe       : ROOT/cache/wine/Arcade Game
+Utilisateur   : steamuser (adapté au prefix)
+Sauvegardes   : ROOT/saves/Arcade Game
+Manettes      : XInput, manette Xbox
+DXVK          : activé
+VKD3D         : activé
+D7VK          : activé (DirectDraw → Vulkan)
+ESYNC         : activé
+Langue        : fr_FR.UTF-8
+=========================================
+
+
+=========================================
+Jeu terminé (code : 0)
+=========================================
+== rc=0
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Arcade Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINEUSERNAME=steamuser
+  WINEESYNC=1
+  LC_ALL=fr_FR.UTF-8
+  FOO=bar
+WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
+  WINEPREFIX=ROOT/cache/wine/Arcade Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
+  WINEDEBUG=-all
+  WINEUSERNAME=steamuser
+  WINEESYNC=1
+  LC_ALL=fr_FR.UTF-8
+  FOO=bar
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [regedit] [//?/unixROOT/cache/wine/Arcade Game/regs/a.reg]
+  WINEPREFIX=ROOT/cache/wine/Arcade Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINEUSERNAME=steamuser
+  WINEESYNC=1
+  LC_ALL=fr_FR.UTF-8
+  GAMEID=
+  PROTONPATH=
+  FOO=bar
+WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Services\winebus] [/v] [DisableHidraw] [/t] [REG_DWORD] [/d] [1] [/f]
+  WINEPREFIX=ROOT/cache/wine/Arcade Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINEUSERNAME=steamuser
+  WINEESYNC=1
+  LC_ALL=fr_FR.UTF-8
+  GAMEID=
+  PROTONPATH=
+  FOO=bar
+WINESERVER -k
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Arcade Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINEUSERNAME=steamuser
+  WINEESYNC=1
+  LC_ALL=fr_FR.UTF-8
+  FOO=bar
+WINE wine-tkg-fake cwd=ROOT/cache/wine/Arcade Game/drive_c/Game Dir/Bin args: [ROOT/cache/wine/Arcade Game/drive_c/Game Dir/Bin/Game.EXE] [-fullscreen] [-w] [1]
+  WINEPREFIX=ROOT/cache/wine/Arcade Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINEUSERNAME=steamuser
+  WINEESYNC=1
+  LC_ALL=fr_FR.UTF-8
+  FOO=bar
+WINESERVER -w
+WINESERVER -k
+WINESERVER -w
+################ TREE after-arcade
+d cache -> 
+d cache/locks -> 
+d cache/mnt -> 
+d cache/mnt/Arcade Game -> 
+d cache/wine -> 
+d cache/wine/Arcade Game -> 
+d saves -> 
+d saves/.images -> 
+d saves/.work -> 
+d saves/Arcade Game -> 
+d saves/Arcade Game/drive_c -> 
+d saves/Arcade Game/drive_c/Game Dir -> 
+d saves/Arcade Game/drive_c/users -> 
+d saves/Arcade Game/drive_c/users/steamuser -> 
+d saves/Arcade Game/drive_c/users/steamuser/Music -> 
+d saves/Arcade Game/drive_c/users/wsqtest -> 
+d saves/Arcade Game/drive_c/windows -> 
+d saves/Arcade Game/drive_c/windows/system32 -> 
+d saves/Arcade Game/drive_c/windows/syswow64 -> 
+d src -> 
+d src/Arcade Game.wine -> 
+d src/Arcade Game.wine/drive_c -> 
+d src/Arcade Game.wine/drive_c/Game Dir -> 
+d src/Arcade Game.wine/drive_c/Game Dir/Bin -> 
+d src/Arcade Game.wine/drive_c/Game Dir/Saves -> 
+d src/Arcade Game.wine/drive_c/users -> 
+d src/Arcade Game.wine/drive_c/users/steamuser -> 
+d src/Arcade Game.wine/drive_c/users/steamuser/Documents -> 
+d src/Arcade Game.wine/drive_c/windows -> 
+d src/Arcade Game.wine/drive_c/windows/system32 -> 
+d src/Arcade Game.wine/drive_c/windows/syswow64 -> 
+d src/Arcade Game.wine/regs -> 
+d src/Old32.wine -> 
+d src/Old32.wine/drive_c -> 
+d src/Old32.wine/drive_c/game -> 
+d src/Old32.wine/drive_c/windows -> 
+d src/Old32.wine/drive_c/windows/system32 -> 
+d src/Proton Game.wine -> 
+d src/Proton Game.wine/drive_c -> 
+d src/Proton Game.wine/drive_c/pg -> 
+d src/Proton Game.wine/drive_c/windows -> 
+d src/Proton Game.wine/drive_c/windows/system32 -> 
+d src/Solo Game -> 
+d src/Solo Game/game -> 
+d userdata -> 
+d userdata/roms -> 
+d userdata/roms/windows -> 
+d userdata/saves -> 
+d userdata/saves/windows -> 
+d userdata/saves/windows/Arcade Game -> 
+f cache/locks/Arcade Game.lock -> 
+f saves/.images/Arcade Game -> 
+f saves/Arcade Game/drive_c/users/steamuser/Music/.wh..wh..opq -> 
+f saves/Arcade Game/drive_c/users/wsqtest/.wh..wh..opq -> 
+f saves/Arcade Game/system.reg -> 
+f src/Arcade Game.wine/autorun.cmd -> 
+f src/Arcade Game.wine/drive_c/Game Dir/Bin/Config.exe -> 
+f src/Arcade Game.wine/drive_c/Game Dir/Bin/Game.EXE -> 
+f src/Arcade Game.wine/drive_c/Game Dir/Saves/slot1 -> 
+f src/Arcade Game.wine/drive_c/windows/system32/d3dx9_42.dll -> 
+f src/Arcade Game.wine/drive_c/windows/system32/explorer.exe -> 
+f src/Arcade Game.wine/drive_c/windows/system32/kernel32.dll -> 
+f src/Arcade Game.wine/regs/a.reg -> 
+f src/Arcade Game.wine/system.reg -> 
+f src/Old32.wine/autorun.cmd -> 
+f src/Old32.wine/drive_c/game/start.bat -> 
+f src/Old32.wine/drive_c/windows/system32/explorer.exe -> 
+f src/Old32.wine/system.reg -> 
+f src/Proton Game.wine/autorun.cmd -> 
+f src/Proton Game.wine/config_info -> 
+f src/Proton Game.wine/drive_c/pg/pg.exe -> 
+f src/Proton Game.wine/system.reg -> 
+f src/Solo Game/autorun.cmd -> 
+f src/Solo Game/game/run me.exe -> 
+f userdata/roms/windows/Arcade Game.wsquashfs -> 
+f userdata/roms/windows/Old32.wsquashfs -> 
+f userdata/roms/windows/Proton Game.wsquashfs -> 
+f userdata/roms/windows/Solo Game.wsquashfs -> 
+f userdata/saves/windows/Arcade Game/slot1 -> 
+l saves/Arcade Game/drive_c/Game Dir/Saves -> ROOT/userdata/saves/windows/Arcade Game
+l saves/Arcade Game/drive_c/windows/system32/d3d11.dll -> ROOT/dxvk/x64/d3d11.dll
+l saves/Arcade Game/drive_c/windows/system32/d3d12.dll -> ROOT/vkd3d/x64/d3d12.dll
+l saves/Arcade Game/drive_c/windows/system32/d3d9.dll -> ROOT/dxvk/x64/d3d9.dll
+l saves/Arcade Game/drive_c/windows/system32/dxgi.dll -> ROOT/dxvk/x64/dxgi.dll
+l saves/Arcade Game/drive_c/windows/system32/kernel32.dll -> ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/lib/wine/x86_64-windows/kernel32.dll
+l saves/Arcade Game/drive_c/windows/syswow64/d3d11.dll -> ROOT/dxvk/x32/d3d11.dll
+l saves/Arcade Game/drive_c/windows/syswow64/d3d12.dll -> ROOT/vkd3d/x86/d3d12.dll
+l saves/Arcade Game/drive_c/windows/syswow64/d3d9.dll -> ROOT/dxvk/x32/d3d9.dll
+l saves/Arcade Game/drive_c/windows/syswow64/ddraw.dll -> ROOT/d7vk/x32/ddraw.dll
+l saves/Arcade Game/drive_c/windows/syswow64/ddraw_.dll -> ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/lib/wine/i386-windows/ddraw.dll
+l saves/Arcade Game/drive_c/windows/syswow64/dxgi.dll -> ROOT/dxvk/x32/dxgi.dll
+l saves/Arcade Game/drive_c/windows/syswow64/kernel32.dll -> ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/lib/wine/i386-windows/kernel32.dll
+l src/Arcade Game.wine/drive_c/users/steamuser/Music -> /userdata/system/Music
+l src/Arcade Game.wine/drive_c/windows/system32/dxgi.dll -> /userdata/system/wine/dxvk/x64/dxgi.dll
+## verrou Arcade Game après la partie : libre
+################ run-arcade2
+=========================================
+WSquashFS Launcher
+=========================================
+Environnement : ENV
+Jeu           : Arcade Game
+Version       : 1.2.3
+Fichier       : ROOT/userdata/roms/windows/Arcade Game.wsquashfs
+Mode          : overlay (squashfuse + fuse-overlayfs)
+✓ Préfixe Wine détecté (structure Batocera)
+Préfixe       : mise à jour pour wine-9.0 (fake)
+Import des fichiers de registre...
+  → a.reg
+Sauvegardes   : ROOT/userdata/saves/windows/Arcade Game (SAVEDIR/SAVEFILES)
+-----------------------------------------
+Exécutable    : ROOT/cache/wine/Arcade Game/drive_c/Game Dir/Bin/Game.EXE
+Arguments     : -fullscreen -w 1
+Wine          : ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/bin/wine (win64)
+Version Wine  : wine-9.0 (fake)
+Préfixe       : ROOT/cache/wine/Arcade Game
+Utilisateur   : steamuser (adapté au prefix)
+Sauvegardes   : ROOT/saves/Arcade Game
+Manettes      : XInput, manette Xbox
+DXVK          : activé
+VKD3D         : activé
+D7VK          : activé (DirectDraw → Vulkan)
+ESYNC         : activé
+Langue        : fr_FR.UTF-8
+=========================================
+
+
+=========================================
+Jeu terminé (code : 0)
+=========================================
+== rc=0
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Arcade Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINEUSERNAME=steamuser
+  WINEESYNC=1
+  LC_ALL=fr_FR.UTF-8
+  FOO=bar
+WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
+  WINEPREFIX=ROOT/cache/wine/Arcade Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
+  WINEDEBUG=-all
+  WINEUSERNAME=steamuser
+  WINEESYNC=1
+  LC_ALL=fr_FR.UTF-8
+  FOO=bar
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [regedit] [//?/unixROOT/cache/wine/Arcade Game/regs/a.reg]
+  WINEPREFIX=ROOT/cache/wine/Arcade Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINEUSERNAME=steamuser
+  WINEESYNC=1
+  LC_ALL=fr_FR.UTF-8
+  GAMEID=
+  PROTONPATH=
+  FOO=bar
+WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Services\winebus] [/v] [DisableHidraw] [/t] [REG_DWORD] [/d] [1] [/f]
+  WINEPREFIX=ROOT/cache/wine/Arcade Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINEUSERNAME=steamuser
+  WINEESYNC=1
+  LC_ALL=fr_FR.UTF-8
+  GAMEID=
+  PROTONPATH=
+  FOO=bar
+WINESERVER -k
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Arcade Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINEUSERNAME=steamuser
+  WINEESYNC=1
+  LC_ALL=fr_FR.UTF-8
+  FOO=bar
+WINE wine-tkg-fake cwd=ROOT/cache/wine/Arcade Game/drive_c/Game Dir/Bin args: [ROOT/cache/wine/Arcade Game/drive_c/Game Dir/Bin/Game.EXE] [-fullscreen] [-w] [1]
+  WINEPREFIX=ROOT/cache/wine/Arcade Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINEUSERNAME=steamuser
+  WINEESYNC=1
+  LC_ALL=fr_FR.UTF-8
+  FOO=bar
+WINESERVER -w
+WINESERVER -k
+WINESERVER -w
+################ run-override
+=========================================
+WSquashFS Launcher
+=========================================
+Environnement : ENV
+Jeu           : Arcade Game
+Version       : 9.9
+Fichier       : ROOT/userdata/roms/windows/Arcade Game.wsquashfs
+Surcharge     : Arcade Game.wsquashfs.autorun (CMD DXVK GAME_VERSION)
+Mode          : overlay (squashfuse + fuse-overlayfs)
+✓ Préfixe Wine détecté (structure Batocera)
+Préfixe       : mise à jour pour wine-9.0 (fake)
+Import des fichiers de registre...
+  → a.reg
+Sauvegardes   : ROOT/userdata/saves/windows/Arcade Game (SAVEDIR/SAVEFILES)
+-----------------------------------------
+Exécutable    : ROOT/cache/wine/Arcade Game/drive_c/Game Dir/Bin/Config.exe
+Arguments     : <aucun>
+Wine          : ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/bin/wine (win64)
+Version Wine  : wine-9.0 (fake)
+Préfixe       : ROOT/cache/wine/Arcade Game
+Utilisateur   : steamuser (adapté au prefix)
+Sauvegardes   : ROOT/saves/Arcade Game
+Manettes      : XInput, manette Xbox
+DXVK          : activé
+VKD3D         : activé
+D7VK          : activé (DirectDraw → Vulkan)
+ESYNC         : activé
+Langue        : fr_FR.UTF-8
+=========================================
+
+
+=========================================
+Jeu terminé (code : 0)
+=========================================
+== rc=0
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Arcade Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINEUSERNAME=steamuser
+  WINEESYNC=1
+  LC_ALL=fr_FR.UTF-8
+  FOO=bar
+WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
+  WINEPREFIX=ROOT/cache/wine/Arcade Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
+  WINEDEBUG=-all
+  WINEUSERNAME=steamuser
+  WINEESYNC=1
+  LC_ALL=fr_FR.UTF-8
+  FOO=bar
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [regedit] [//?/unixROOT/cache/wine/Arcade Game/regs/a.reg]
+  WINEPREFIX=ROOT/cache/wine/Arcade Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINEUSERNAME=steamuser
+  WINEESYNC=1
+  LC_ALL=fr_FR.UTF-8
+  GAMEID=
+  PROTONPATH=
+  FOO=bar
+WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Services\winebus] [/v] [DisableHidraw] [/t] [REG_DWORD] [/d] [1] [/f]
+  WINEPREFIX=ROOT/cache/wine/Arcade Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINEUSERNAME=steamuser
+  WINEESYNC=1
+  LC_ALL=fr_FR.UTF-8
+  GAMEID=
+  PROTONPATH=
+  FOO=bar
+WINESERVER -k
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Arcade Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINEUSERNAME=steamuser
+  WINEESYNC=1
+  LC_ALL=fr_FR.UTF-8
+  FOO=bar
+WINE wine-tkg-fake cwd=ROOT/cache/wine/Arcade Game/drive_c/Game Dir/Bin args: [ROOT/cache/wine/Arcade Game/drive_c/Game Dir/Bin/Config.exe]
+  WINEPREFIX=ROOT/cache/wine/Arcade Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINEUSERNAME=steamuser
+  WINEESYNC=1
+  LC_ALL=fr_FR.UTF-8
+  FOO=bar
+WINESERVER -w
+WINESERVER -k
+WINESERVER -w
+################ info-override
+Jeu           : Arcade Game
+Version       : 9.9
+Type          : prefix Wine (Batocera)
+Commande      : Config.exe
+Surcharge     : Arcade Game.wsquashfs.autorun (CMD DXVK GAME_VERSION) — non lue par Batocera
+Taille        : SIZE
+== rc=0
+################ exec-tool
+=========================================
+WSquashFS Launcher
+=========================================
+Environnement : ENV
+Jeu           : Arcade Game
+Version       : 1.2.3
+Fichier       : ROOT/userdata/roms/windows/Arcade Game.wsquashfs
+Action        : exec (winecfg)
+Mode          : overlay (squashfuse + fuse-overlayfs)
+✓ Préfixe Wine détecté (structure Batocera)
+Préfixe       : mise à jour pour wine-9.0 (fake)
+Import des fichiers de registre...
+  → a.reg
+Sauvegardes   : ROOT/userdata/saves/windows/Arcade Game (SAVEDIR/SAVEFILES)
+-----------------------------------------
+Exécutable    : winecfg
+Arguments     : <aucun>
+Wine          : ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/bin/wine (win64)
+Version Wine  : wine-9.0 (fake)
+Préfixe       : ROOT/cache/wine/Arcade Game
+Utilisateur   : steamuser (adapté au prefix)
+Sauvegardes   : ROOT/saves/Arcade Game
+Manettes      : XInput, manette Xbox
+DXVK          : activé
+VKD3D         : activé
+D7VK          : activé (DirectDraw → Vulkan)
+ESYNC         : activé
+Langue        : fr_FR.UTF-8
+=========================================
+
+
+=========================================
+Jeu terminé (code : 0)
+=========================================
+== rc=0
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Arcade Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINEUSERNAME=steamuser
+  WINEESYNC=1
+  LC_ALL=fr_FR.UTF-8
+  FOO=bar
+WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
+  WINEPREFIX=ROOT/cache/wine/Arcade Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
+  WINEDEBUG=-all
+  WINEUSERNAME=steamuser
+  WINEESYNC=1
+  LC_ALL=fr_FR.UTF-8
+  FOO=bar
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [regedit] [//?/unixROOT/cache/wine/Arcade Game/regs/a.reg]
+  WINEPREFIX=ROOT/cache/wine/Arcade Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINEUSERNAME=steamuser
+  WINEESYNC=1
+  LC_ALL=fr_FR.UTF-8
+  GAMEID=
+  PROTONPATH=
+  FOO=bar
+WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Services\winebus] [/v] [DisableHidraw] [/t] [REG_DWORD] [/d] [1] [/f]
+  WINEPREFIX=ROOT/cache/wine/Arcade Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINEUSERNAME=steamuser
+  WINEESYNC=1
+  LC_ALL=fr_FR.UTF-8
+  GAMEID=
+  PROTONPATH=
+  FOO=bar
+WINESERVER -k
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Arcade Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINEUSERNAME=steamuser
+  WINEESYNC=1
+  LC_ALL=fr_FR.UTF-8
+  FOO=bar
+WINE wine-tkg-fake cwd=ROOT/cache/wine/Arcade Game args: [winecfg]
+  WINEPREFIX=ROOT/cache/wine/Arcade Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINEUSERNAME=steamuser
+  WINEESYNC=1
+  LC_ALL=fr_FR.UTF-8
+  FOO=bar
+WINESERVER -w
+WINESERVER -k
+WINESERVER -w
+################ exec-rel
+=========================================
+WSquashFS Launcher
+=========================================
+Environnement : ENV
+Jeu           : Arcade Game
+Version       : 1.2.3
+Fichier       : ROOT/userdata/roms/windows/Arcade Game.wsquashfs
+Action        : exec (config.exe)
+Mode          : overlay (squashfuse + fuse-overlayfs)
+✓ Préfixe Wine détecté (structure Batocera)
+Préfixe       : mise à jour pour wine-9.0 (fake)
+Import des fichiers de registre...
+  → a.reg
+Sauvegardes   : ROOT/userdata/saves/windows/Arcade Game (SAVEDIR/SAVEFILES)
+-----------------------------------------
+Exécutable    : ROOT/cache/wine/Arcade Game/drive_c/Game Dir/Bin/Config.exe
+Arguments     : /x
+Wine          : ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/bin/wine (win64)
+Version Wine  : wine-9.0 (fake)
+Préfixe       : ROOT/cache/wine/Arcade Game
+Utilisateur   : steamuser (adapté au prefix)
+Sauvegardes   : ROOT/saves/Arcade Game
+Manettes      : XInput, manette Xbox
+DXVK          : activé
+VKD3D         : activé
+D7VK          : activé (DirectDraw → Vulkan)
+ESYNC         : activé
+Langue        : fr_FR.UTF-8
+=========================================
+
+
+=========================================
+Jeu terminé (code : 0)
+=========================================
+== rc=0
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Arcade Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINEUSERNAME=steamuser
+  WINEESYNC=1
+  LC_ALL=fr_FR.UTF-8
+  FOO=bar
+WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
+  WINEPREFIX=ROOT/cache/wine/Arcade Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
+  WINEDEBUG=-all
+  WINEUSERNAME=steamuser
+  WINEESYNC=1
+  LC_ALL=fr_FR.UTF-8
+  FOO=bar
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [regedit] [//?/unixROOT/cache/wine/Arcade Game/regs/a.reg]
+  WINEPREFIX=ROOT/cache/wine/Arcade Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINEUSERNAME=steamuser
+  WINEESYNC=1
+  LC_ALL=fr_FR.UTF-8
+  GAMEID=
+  PROTONPATH=
+  FOO=bar
+WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Services\winebus] [/v] [DisableHidraw] [/t] [REG_DWORD] [/d] [1] [/f]
+  WINEPREFIX=ROOT/cache/wine/Arcade Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINEUSERNAME=steamuser
+  WINEESYNC=1
+  LC_ALL=fr_FR.UTF-8
+  GAMEID=
+  PROTONPATH=
+  FOO=bar
+WINESERVER -k
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Arcade Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINEUSERNAME=steamuser
+  WINEESYNC=1
+  LC_ALL=fr_FR.UTF-8
+  FOO=bar
+WINE wine-tkg-fake cwd=ROOT/cache/wine/Arcade Game/drive_c/Game Dir/Bin args: [ROOT/cache/wine/Arcade Game/drive_c/Game Dir/Bin/Config.exe] [/x]
+  WINEPREFIX=ROOT/cache/wine/Arcade Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINEUSERNAME=steamuser
+  WINEESYNC=1
+  LC_ALL=fr_FR.UTF-8
+  FOO=bar
+WINESERVER -w
+WINESERVER -k
+WINESERVER -w
+################ wine-missing
+=========================================
+WSquashFS Launcher
+=========================================
+Environnement : ENV
+Jeu           : Arcade Game
+Version       : 1.2.3
+Fichier       : ROOT/userdata/roms/windows/Arcade Game.wsquashfs
+Mode          : overlay (squashfuse + fuse-overlayfs)
+-- stderr
+Erreur : runner Wine introuvable : nonexistent
+  Runners installés :
+    ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake
+    ROOT/home/.local/share/Steam/compatibilitytools.d/GE-Proton9-1
+    system (absent)
+== rc=1
+WINESERVER -k
+WINESERVER -w
+################ wine-proton
+=========================================
+WSquashFS Launcher
+=========================================
+Environnement : ENV
+Jeu           : Arcade Game
+Version       : 1.2.3
+Fichier       : ROOT/userdata/roms/windows/Arcade Game.wsquashfs
+Mode          : overlay (squashfuse + fuse-overlayfs)
+✓ Préfixe Wine détecté (structure Batocera)
+Préfixe       : mise à jour pour wine-9.0 (fake)
+Import des fichiers de registre...
+  → a.reg
+Sauvegardes   : ROOT/userdata/saves/windows/Arcade Game (SAVEDIR/SAVEFILES)
+-----------------------------------------
+Exécutable    : ROOT/cache/wine/Arcade Game/drive_c/Game Dir/Bin/Game.EXE
+Arguments     : -fullscreen -w 1
+Wine          : ROOT/home/.local/share/Steam/compatibilitytools.d/GE-Proton9-1/files/bin/wine (win64)
+Version Wine  : GE-Proton9-1
+Préfixe       : ROOT/cache/wine/Arcade Game
+Utilisateur   : steamuser (adapté au prefix)
+Sauvegardes   : ROOT/saves/Arcade Game
+Manettes      : XInput, manette Xbox
+DXVK          : activé
+VKD3D         : activé
+D7VK          : activé (DirectDraw → Vulkan)
+ESYNC         : activé
+Langue        : fr_FR.UTF-8
+=========================================
+
+
+=========================================
+Jeu terminé (code : 0)
+=========================================
+== rc=0
+WINE files cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Arcade Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINEUSERNAME=steamuser
+  WINEESYNC=1
+  LC_ALL=fr_FR.UTF-8
+  FOO=bar
+WINE files cwd=ROOT args: [wineboot] [-u]
+  WINEPREFIX=ROOT/cache/wine/Arcade Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
+  WINEDEBUG=-all
+  WINEUSERNAME=steamuser
+  WINEESYNC=1
+  LC_ALL=fr_FR.UTF-8
+  FOO=bar
+WINESERVER -w
+WINE files cwd=ROOT args: [regedit] [//?/unixROOT/cache/wine/Arcade Game/regs/a.reg]
+  WINEPREFIX=ROOT/cache/wine/Arcade Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINEUSERNAME=steamuser
+  WINEESYNC=1
+  LC_ALL=fr_FR.UTF-8
+  GAMEID=
+  PROTONPATH=
+  FOO=bar
+WINE files cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Services\winebus] [/v] [DisableHidraw] [/t] [REG_DWORD] [/d] [1] [/f]
+  WINEPREFIX=ROOT/cache/wine/Arcade Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINEUSERNAME=steamuser
+  WINEESYNC=1
+  LC_ALL=fr_FR.UTF-8
+  GAMEID=
+  PROTONPATH=
+  FOO=bar
+WINESERVER -k
+WINESERVER -w
+WINE files cwd=ROOT/cache/wine/Arcade Game/drive_c/Game Dir/Bin args: [ROOT/cache/wine/Arcade Game/drive_c/Game Dir/Bin/Game.EXE] [-fullscreen] [-w] [1]
+  WINEPREFIX=ROOT/cache/wine/Arcade Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINEUSERNAME=steamuser
+  WINEESYNC=1
+  LC_ALL=fr_FR.UTF-8
+  FOO=bar
+WINESERVER -w
+WINESERVER -k
+WINESERVER -w
+################ solo-noumu
+=========================================
+WSquashFS Launcher
+=========================================
+Environnement : ENV
+Jeu           : Solo Game
+Fichier       : ROOT/userdata/roms/windows/Solo Game.wsquashfs
+Mode          : overlay (squashfuse + fuse-overlayfs)
+Initialisation du préfixe Wine (win64)...
+Préfixe       : mise à jour pour wine-9.0 (fake)
+-----------------------------------------
+Exécutable    : ROOT/cache/wine/Solo Game/game/run me.exe
+Arguments     : --arg
+Wine          : ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/bin/wine (win64)
+Version Wine  : wine-9.0 (fake)
+Préfixe       : ROOT/cache/wine/Solo Game
+Sauvegardes   : ROOT/saves/Solo Game
+Manettes      : XInput, manette Xbox
+DXVK          : activé
+VKD3D         : activé
+D7VK          : activé (DirectDraw → Vulkan)
+Bureau virtuel: 1280x720
+=========================================
+
+
+=========================================
+Jeu terminé (code : 0)
+=========================================
+-- stderr
+Attention : umu-run absent, prefix créé par wine-tkg-fake au lieu de Proton
+== rc=0
+WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
+  WINEPREFIX=ROOT/cache/wine/Solo Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
+  WINEDEBUG=fixme-all
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Solo Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
+  WINEPREFIX=ROOT/cache/wine/Solo Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
+  WINEDEBUG=-all
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Services\winebus] [/v] [DisableHidraw] [/t] [REG_DWORD] [/d] [1] [/f]
+  WINEPREFIX=ROOT/cache/wine/Solo Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  GAMEID=
+  PROTONPATH=
+WINESERVER -k
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Solo Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+WINE wine-tkg-fake cwd=ROOT/cache/wine/Solo Game args: [explorer] [/desktop=Solo_Game,1280x720] [ROOT/cache/wine/Solo Game/game/run me.exe] [--arg]
+  WINEPREFIX=ROOT/cache/wine/Solo Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+WINESERVER -w
+WINESERVER -k
+WINESERVER -w
+################ TREE after-solo
+d cache -> 
+d cache/locks -> 
+d cache/mnt -> 
+d cache/mnt/Arcade Game -> 
+d cache/mnt/Solo Game -> 
+d cache/wine -> 
+d cache/wine/Arcade Game -> 
+d cache/wine/Solo Game -> 
+d saves -> 
+d saves/.images -> 
+d saves/.work -> 
+d saves/Arcade Game -> 
+d saves/Arcade Game/drive_c -> 
+d saves/Arcade Game/drive_c/Game Dir -> 
+d saves/Arcade Game/drive_c/users -> 
+d saves/Arcade Game/drive_c/users/steamuser -> 
+d saves/Arcade Game/drive_c/users/steamuser/Music -> 
+d saves/Arcade Game/drive_c/users/wsqtest -> 
+d saves/Arcade Game/drive_c/windows -> 
+d saves/Arcade Game/drive_c/windows/system32 -> 
+d saves/Arcade Game/drive_c/windows/syswow64 -> 
+d saves/Solo Game -> 
+d saves/Solo Game/drive_c -> 
+d saves/Solo Game/drive_c/users -> 
+d saves/Solo Game/drive_c/users/wsqtest -> 
+d saves/Solo Game/drive_c/windows -> 
+d saves/Solo Game/drive_c/windows/system32 -> 
+d saves/Solo Game/drive_c/windows/syswow64 -> 
+d src -> 
+d src/Arcade Game.wine -> 
+d src/Arcade Game.wine/drive_c -> 
+d src/Arcade Game.wine/drive_c/Game Dir -> 
+d src/Arcade Game.wine/drive_c/Game Dir/Bin -> 
+d src/Arcade Game.wine/drive_c/Game Dir/Saves -> 
+d src/Arcade Game.wine/drive_c/users -> 
+d src/Arcade Game.wine/drive_c/users/steamuser -> 
+d src/Arcade Game.wine/drive_c/users/steamuser/Documents -> 
+d src/Arcade Game.wine/drive_c/windows -> 
+d src/Arcade Game.wine/drive_c/windows/system32 -> 
+d src/Arcade Game.wine/drive_c/windows/syswow64 -> 
+d src/Arcade Game.wine/regs -> 
+d src/Old32.wine -> 
+d src/Old32.wine/drive_c -> 
+d src/Old32.wine/drive_c/game -> 
+d src/Old32.wine/drive_c/windows -> 
+d src/Old32.wine/drive_c/windows/system32 -> 
+d src/Proton Game.wine -> 
+d src/Proton Game.wine/drive_c -> 
+d src/Proton Game.wine/drive_c/pg -> 
+d src/Proton Game.wine/drive_c/windows -> 
+d src/Proton Game.wine/drive_c/windows/system32 -> 
+d src/Solo Game -> 
+d src/Solo Game/game -> 
+d userdata -> 
+d userdata/roms -> 
+d userdata/roms/windows -> 
+d userdata/saves -> 
+d userdata/saves/windows -> 
+d userdata/saves/windows/Arcade Game -> 
+f cache/locks/Arcade Game.lock -> 
+f cache/locks/Solo Game.lock -> 
+f saves/.images/Arcade Game -> 
+f saves/.images/Solo Game -> 
+f saves/Arcade Game/drive_c/users/steamuser/Music/.wh..wh..opq -> 
+f saves/Arcade Game/drive_c/users/wsqtest/.wh..wh..opq -> 
+f saves/Arcade Game/system.reg -> 
+f saves/Solo Game/drive_c/.wh..wh..opq -> 
+f saves/Solo Game/drive_c/users/.wh..wh..opq -> 
+f saves/Solo Game/drive_c/users/wsqtest/.wh..wh..opq -> 
+f saves/Solo Game/drive_c/windows/.wh..wh..opq -> 
+f saves/Solo Game/drive_c/windows/system32/.wh..wh..opq -> 
+f saves/Solo Game/drive_c/windows/system32/explorer.exe -> 
+f saves/Solo Game/system.reg -> 
+f src/Arcade Game.wine/autorun.cmd -> 
+f src/Arcade Game.wine/drive_c/Game Dir/Bin/Config.exe -> 
+f src/Arcade Game.wine/drive_c/Game Dir/Bin/Game.EXE -> 
+f src/Arcade Game.wine/drive_c/Game Dir/Saves/slot1 -> 
+f src/Arcade Game.wine/drive_c/windows/system32/d3dx9_42.dll -> 
+f src/Arcade Game.wine/drive_c/windows/system32/explorer.exe -> 
+f src/Arcade Game.wine/drive_c/windows/system32/kernel32.dll -> 
+f src/Arcade Game.wine/regs/a.reg -> 
+f src/Arcade Game.wine/system.reg -> 
+f src/Old32.wine/autorun.cmd -> 
+f src/Old32.wine/drive_c/game/start.bat -> 
+f src/Old32.wine/drive_c/windows/system32/explorer.exe -> 
+f src/Old32.wine/system.reg -> 
+f src/Proton Game.wine/autorun.cmd -> 
+f src/Proton Game.wine/config_info -> 
+f src/Proton Game.wine/drive_c/pg/pg.exe -> 
+f src/Proton Game.wine/system.reg -> 
+f src/Solo Game/autorun.cmd -> 
+f src/Solo Game/game/run me.exe -> 
+f userdata/roms/windows/Arcade Game.wsquashfs -> 
+f userdata/roms/windows/Old32.wsquashfs -> 
+f userdata/roms/windows/Proton Game.wsquashfs -> 
+f userdata/roms/windows/Solo Game.wsquashfs -> 
+f userdata/saves/windows/Arcade Game/slot1 -> 
+l saves/Arcade Game/drive_c/Game Dir/Saves -> ROOT/userdata/saves/windows/Arcade Game
+l saves/Arcade Game/drive_c/windows/system32/d3d11.dll -> ROOT/dxvk/x64/d3d11.dll
+l saves/Arcade Game/drive_c/windows/system32/d3d12.dll -> ROOT/vkd3d/x64/d3d12.dll
+l saves/Arcade Game/drive_c/windows/system32/d3d9.dll -> ROOT/dxvk/x64/d3d9.dll
+l saves/Arcade Game/drive_c/windows/system32/dxgi.dll -> ROOT/dxvk/x64/dxgi.dll
+l saves/Arcade Game/drive_c/windows/system32/kernel32.dll -> ROOT/home/.local/share/Steam/compatibilitytools.d/GE-Proton9-1/files/lib/wine/x86_64-windows/kernel32.dll
+l saves/Arcade Game/drive_c/windows/syswow64/d3d11.dll -> ROOT/dxvk/x32/d3d11.dll
+l saves/Arcade Game/drive_c/windows/syswow64/d3d12.dll -> ROOT/vkd3d/x86/d3d12.dll
+l saves/Arcade Game/drive_c/windows/syswow64/d3d9.dll -> ROOT/dxvk/x32/d3d9.dll
+l saves/Arcade Game/drive_c/windows/syswow64/ddraw.dll -> ROOT/d7vk/x32/ddraw.dll
+l saves/Arcade Game/drive_c/windows/syswow64/ddraw_.dll -> ROOT/home/.local/share/Steam/compatibilitytools.d/GE-Proton9-1/files/lib/wine/i386-windows/ddraw.dll
+l saves/Arcade Game/drive_c/windows/syswow64/dxgi.dll -> ROOT/dxvk/x32/dxgi.dll
+l saves/Arcade Game/drive_c/windows/syswow64/kernel32.dll -> ROOT/home/.local/share/Steam/compatibilitytools.d/GE-Proton9-1/files/lib/wine/i386-windows/kernel32.dll
+l saves/Solo Game/drive_c/windows/system32/d3d11.dll -> ROOT/dxvk/x64/d3d11.dll
+l saves/Solo Game/drive_c/windows/system32/d3d12.dll -> ROOT/vkd3d/x64/d3d12.dll
+l saves/Solo Game/drive_c/windows/system32/d3d9.dll -> ROOT/dxvk/x64/d3d9.dll
+l saves/Solo Game/drive_c/windows/system32/dxgi.dll -> ROOT/dxvk/x64/dxgi.dll
+l saves/Solo Game/drive_c/windows/system32/kernel32.dll -> ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/lib/wine/x86_64-windows/kernel32.dll
+l saves/Solo Game/drive_c/windows/syswow64/d3d11.dll -> ROOT/dxvk/x32/d3d11.dll
+l saves/Solo Game/drive_c/windows/syswow64/d3d12.dll -> ROOT/vkd3d/x86/d3d12.dll
+l saves/Solo Game/drive_c/windows/syswow64/d3d9.dll -> ROOT/dxvk/x32/d3d9.dll
+l saves/Solo Game/drive_c/windows/syswow64/ddraw.dll -> ROOT/d7vk/x32/ddraw.dll
+l saves/Solo Game/drive_c/windows/syswow64/ddraw_.dll -> ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/lib/wine/i386-windows/ddraw.dll
+l saves/Solo Game/drive_c/windows/syswow64/dxgi.dll -> ROOT/dxvk/x32/dxgi.dll
+l saves/Solo Game/drive_c/windows/syswow64/kernel32.dll -> ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/lib/wine/i386-windows/kernel32.dll
+l src/Arcade Game.wine/drive_c/users/steamuser/Music -> /userdata/system/Music
+l src/Arcade Game.wine/drive_c/windows/system32/dxgi.dll -> /userdata/system/wine/dxvk/x64/dxgi.dll
+################ solo-again
+=========================================
+WSquashFS Launcher
+=========================================
+Environnement : ENV
+Jeu           : Solo Game
+Fichier       : ROOT/userdata/roms/windows/Solo Game.wsquashfs
+Mode          : overlay (squashfuse + fuse-overlayfs)
+✓ Préfixe Wine détecté (structure Batocera)
+Préfixe       : mise à jour pour wine-9.0 (fake)
+-----------------------------------------
+Exécutable    : ROOT/cache/wine/Solo Game/game/run me.exe
+Arguments     : --arg
+Wine          : ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/bin/wine (win64)
+Version Wine  : wine-9.0 (fake)
+Préfixe       : ROOT/cache/wine/Solo Game
+Sauvegardes   : ROOT/saves/Solo Game
+Manettes      : XInput, manette Xbox
+DXVK          : activé
+VKD3D         : activé
+D7VK          : activé (DirectDraw → Vulkan)
+Bureau virtuel: 1280x720
+=========================================
+
+
+=========================================
+Jeu terminé (code : 0)
+=========================================
+-- stderr
+Attention : prefix Wine déjà créé dans les sauvegardes, gardé sous wine-tkg-fake — supprimer ROOT/saves/Solo Game (sauvegardes du jeu comprises) pour passer sous Proton
+== rc=0
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Solo Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
+  WINEPREFIX=ROOT/cache/wine/Solo Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
+  WINEDEBUG=-all
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Services\winebus] [/v] [DisableHidraw] [/t] [REG_DWORD] [/d] [1] [/f]
+  WINEPREFIX=ROOT/cache/wine/Solo Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  GAMEID=
+  PROTONPATH=
+WINESERVER -k
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Solo Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+WINE wine-tkg-fake cwd=ROOT/cache/wine/Solo Game args: [explorer] [/desktop=Solo_Game,1280x720] [ROOT/cache/wine/Solo Game/game/run me.exe] [--arg]
+  WINEPREFIX=ROOT/cache/wine/Solo Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+WINESERVER -w
+WINESERVER -k
+WINESERVER -w
+################ proton-umu
+=========================================
+WSquashFS Launcher
+=========================================
+Environnement : ENV
+Jeu           : Proton Game
+Fichier       : ROOT/userdata/roms/windows/Proton Game.wsquashfs
+Mode          : overlay (squashfuse + fuse-overlayfs)
+-----------------------------------------
+Exécutable    : ROOT/cache/wine/Proton Game/drive_c/pg/pg.exe
+Arguments     : <aucun>
+Proton        : GE-Proton9-1 via umu (ROOT/home/.local/share/Steam/compatibilitytools.d/GE-Proton9-1)
+Version Proton: GE-Proton9-1
+Préfixe       : ROOT/cache/wine/Proton Game
+Sauvegardes   : ROOT/saves/Proton Game
+Manettes      : XInput, manette Xbox
+=========================================
+
+
+=========================================
+Jeu terminé (code : 0)
+=========================================
+== rc=0
+UMU args: [reg] [add] [HKLM\System\CurrentControlSet\Services\winebus] [/v] [DisableHidraw] [/t] [REG_DWORD] [/d] [1] [/f]
+  PROTONPATH=ROOT/home/.local/share/Steam/compatibilitytools.d/GE-Proton9-1 GAMEID=umu-default WINEPREFIX=ROOT/cache/wine/Proton Game PROTON_DLL_COPY= PROTON_USE_WINED3D=1
+WINESERVER -k
+WINESERVER -w
+UMU args: [ROOT/cache/wine/Proton Game/drive_c/pg/pg.exe]
+  PROTONPATH=ROOT/home/.local/share/Steam/compatibilitytools.d/GE-Proton9-1 GAMEID=umu-default WINEPREFIX=ROOT/cache/wine/Proton Game PROTON_DLL_COPY= PROTON_USE_WINED3D=1
+WINESERVER -w
+WINESERVER -k
+WINESERVER -w
+################ proton-nodxvk
+=========================================
+WSquashFS Launcher
+=========================================
+Environnement : ENV
+Jeu           : Proton Game
+Fichier       : ROOT/userdata/roms/windows/Proton Game.wsquashfs
+Mode          : overlay (squashfuse + fuse-overlayfs)
+-----------------------------------------
+Exécutable    : ROOT/cache/wine/Proton Game/drive_c/pg/pg.exe
+Arguments     : <aucun>
+Proton        : GE-Proton9-1 via umu (ROOT/home/.local/share/Steam/compatibilitytools.d/GE-Proton9-1)
+Version Proton: GE-Proton9-1
+Préfixe       : ROOT/cache/wine/Proton Game
+Sauvegardes   : ROOT/saves/Proton Game
+Manettes      : XInput, manette Xbox
+=========================================
+
+
+=========================================
+Jeu terminé (code : 0)
+=========================================
+== rc=0
+UMU args: [reg] [add] [HKLM\System\CurrentControlSet\Services\winebus] [/v] [DisableHidraw] [/t] [REG_DWORD] [/d] [1] [/f]
+  PROTONPATH=ROOT/home/.local/share/Steam/compatibilitytools.d/GE-Proton9-1 GAMEID=umu-default WINEPREFIX=ROOT/cache/wine/Proton Game PROTON_DLL_COPY= PROTON_USE_WINED3D=1
+WINESERVER -k
+WINESERVER -w
+UMU args: [ROOT/cache/wine/Proton Game/drive_c/pg/pg.exe]
+  PROTONPATH=ROOT/home/.local/share/Steam/compatibilitytools.d/GE-Proton9-1 GAMEID=umu-default WINEPREFIX=ROOT/cache/wine/Proton Game PROTON_DLL_COPY= PROTON_USE_WINED3D=1
+WINESERVER -w
+WINESERVER -k
+WINESERVER -w
+################ win32-hidraw
+=========================================
+WSquashFS Launcher
+=========================================
+Environnement : ENV
+Jeu           : Old32
+Fichier       : ROOT/userdata/roms/windows/Old32.wsquashfs
+Mode          : overlay (squashfuse + fuse-overlayfs)
+✓ Préfixe Wine détecté (structure Batocera)
+Préfixe       : mise à jour pour wine-9.0 (fake)
+-----------------------------------------
+Exécutable    : ROOT/cache/wine/Old32/drive_c/game/start.bat
+Arguments     : <aucun>
+Wine          : ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/bin/wine (win32)
+Version Wine  : wine-9.0 (fake)
+Préfixe       : ROOT/cache/wine/Old32
+Sauvegardes   : ROOT/saves/Old32
+Manettes      : XInput, manette Xbox (hidraw demandé : /dev/hidraw99 illisible)
+VKD3D         : activé
+D7VK          : activé (DirectDraw → Vulkan)
+=========================================
+
+
+=========================================
+Jeu terminé (code : 0)
+=========================================
+== rc=0
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Old32
+  WINEARCH=win32
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
+  WINEPREFIX=ROOT/cache/wine/Old32
+  WINEARCH=win32
+  WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
+  WINEDEBUG=-all
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Services\winebus] [/v] [DisableHidraw] [/t] [REG_DWORD] [/d] [1] [/f]
+  WINEPREFIX=ROOT/cache/wine/Old32
+  WINEARCH=win32
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  GAMEID=
+  PROTONPATH=
+WINESERVER -k
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Old32
+  WINEARCH=win32
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+WINE wine-tkg-fake cwd=ROOT/cache/wine/Old32/drive_c/game args: [cmd] [/c] [ROOT/cache/wine/Old32/drive_c/game/start.bat]
+  WINEPREFIX=ROOT/cache/wine/Old32
+  WINEARCH=win32
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+WINESERVER -w
+WINESERVER -k
+WINESERVER -w
+################ mount
+=========================================
+WSquashFS Launcher
+=========================================
+Environnement : ENV
+Jeu           : Solo Game
+Fichier       : ROOT/userdata/roms/windows/Solo Game.wsquashfs
+Action        : mount
+Mode          : overlay (squashfuse + fuse-overlayfs)
+-----------------------------------------
+Monté dans    : ROOT/cache/wine/Solo Game
+Modifications : enregistrées dans ROOT/saves/Solo Game (le .wsquashfs n'est jamais modifié)
+Démontage     : LAUNCHER --umount "ROOT/userdata/roms/windows/Solo Game.wsquashfs"
+  (tout lancement d'un autre jeu démonte aussi les montages inutilisés)
+== rc=0
+## verrou Solo Game pendant --mount : libre
+################ list-mounted
+Jeu          État        Version     Sauvegardes  Image
+Arcade Game  -           1.2.3       8.0K         ROOT/userdata/roms/windows/Arcade Game.wsquashfs
+Old32        -           -           4.0K         ROOT/userdata/roms/windows/Old32.wsquashfs
+Proton Game  -           -           0            ROOT/userdata/roms/windows/Proton Game.wsquashfs
+Solo Game    monté       -           4.0K         ROOT/userdata/roms/windows/Solo Game.wsquashfs
+
+Sauvegardes : ROOT/saves (32K au total)
+== rc=0
+################ backup-busy
+Archivage des sauvegardes dans ROOT/home/.local/share/wsquashfs/backups...
+  Solo Game : monté ou en cours, ignoré
+Restauration (jeu arrêté) :
+  tar -C "ROOT/saves" --xattrs --xattrs-include='user.*' -xpf <archive>
+== rc=0
+################ mount-run
+=========================================
+WSquashFS Launcher
+=========================================
+Environnement : ENV
+Jeu           : Solo Game
+Fichier       : ROOT/userdata/roms/windows/Solo Game.wsquashfs
+Mode          : overlay (squashfuse + fuse-overlayfs)
+✓ Préfixe Wine détecté (structure Batocera)
+Préfixe       : mise à jour pour wine-9.0 (fake)
+-----------------------------------------
+Exécutable    : ROOT/cache/wine/Solo Game/game/run me.exe
+Arguments     : --arg
+Wine          : ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/bin/wine (win64)
+Version Wine  : wine-9.0 (fake)
+Préfixe       : ROOT/cache/wine/Solo Game
+Sauvegardes   : ROOT/saves/Solo Game
+Manettes      : XInput, manette Xbox
+DXVK          : activé
+VKD3D         : activé
+D7VK          : activé (DirectDraw → Vulkan)
+Bureau virtuel: 1280x720
+=========================================
+
+
+=========================================
+Jeu terminé (code : 0)
+=========================================
+-- stderr
+Attention : prefix Wine déjà créé dans les sauvegardes, gardé sous wine-tkg-fake — supprimer ROOT/saves/Solo Game (sauvegardes du jeu comprises) pour passer sous Proton
+== rc=0
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Solo Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
+  WINEPREFIX=ROOT/cache/wine/Solo Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
+  WINEDEBUG=-all
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Services\winebus] [/v] [DisableHidraw] [/t] [REG_DWORD] [/d] [1] [/f]
+  WINEPREFIX=ROOT/cache/wine/Solo Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  GAMEID=
+  PROTONPATH=
+WINESERVER -k
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Solo Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+WINE wine-tkg-fake cwd=ROOT/cache/wine/Solo Game args: [explorer] [/desktop=Solo_Game,1280x720] [ROOT/cache/wine/Solo Game/game/run me.exe] [--arg]
+  WINEPREFIX=ROOT/cache/wine/Solo Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+WINESERVER -w
+WINESERVER -k
+WINESERVER -w
+################ umount
+✓ Démonté : Solo Game
+== rc=0
+WINESERVER -k
+################ install
+Installation de Arcade Game dans ROOT/installed/Arcade Game...
+Parallel unsquashfs: Using 32 processors
+11 inodes (8 blocks) to write
+
+[=================================================================|] 19/19 100%
+
+created 9 files
+created 12 directories
+created 2 symlinks
+created 0 devices
+created 0 fifos
+created 0 sockets
+created 0 hardlinks
+✓ ROOT/installed/Arcade Game (SIZE)
+  Version : 1.2.3
+  Lancement : LAUNCHER "ROOT/installed/Arcade Game"
+== rc=0
+################ install-exist
+-- stderr
+Erreur : ROOT/installed/Arcade Game existe déjà (jamais écrasé)
+== rc=1
+################ run-dir
+=========================================
+WSquashFS Launcher
+=========================================
+Environnement : ENV
+Jeu           : Arcade Game
+Version       : 1.2.3
+Fichier       : ROOT/installed/Arcade Game
+Mode          : dossier (jeu installé, sans FUSE)
+✓ Préfixe Wine détecté (structure Batocera)
+Préfixe       : mise à jour pour wine-9.0 (fake)
+Import des fichiers de registre...
+  → a.reg
+-----------------------------------------
+Exécutable    : ROOT/installed/Arcade Game/drive_c/Game Dir/Bin/Game.EXE
+Arguments     : -fullscreen -w 1
+Wine          : ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/bin/wine (win64)
+Version Wine  : wine-9.0 (fake)
+Préfixe       : ROOT/installed/Arcade Game
+Utilisateur   : steamuser (adapté au prefix)
+Manettes      : XInput, manette Xbox
+DXVK          : activé
+VKD3D         : activé
+D7VK          : activé (DirectDraw → Vulkan)
+ESYNC         : activé
+Langue        : fr_FR.UTF-8
+=========================================
+
+
+=========================================
+Jeu terminé (code : 0)
+=========================================
+-- stderr
+Attention : SAVEDIR/SAVEFILES ignorés (jeu hors d'un dossier roms/<système>/ ;
+  définir WSQUASHFS_BATOCERA_SAVES)
+== rc=0
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/installed/Arcade Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINEUSERNAME=steamuser
+  WINEESYNC=1
+  LC_ALL=fr_FR.UTF-8
+  FOO=bar
+WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
+  WINEPREFIX=ROOT/installed/Arcade Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
+  WINEDEBUG=-all
+  WINEUSERNAME=steamuser
+  WINEESYNC=1
+  LC_ALL=fr_FR.UTF-8
+  FOO=bar
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [regedit] [//?/unixROOT/installed/Arcade Game/regs/a.reg]
+  WINEPREFIX=ROOT/installed/Arcade Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINEUSERNAME=steamuser
+  WINEESYNC=1
+  LC_ALL=fr_FR.UTF-8
+  GAMEID=
+  PROTONPATH=
+  FOO=bar
+WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Services\winebus] [/v] [DisableHidraw] [/t] [REG_DWORD] [/d] [1] [/f]
+  WINEPREFIX=ROOT/installed/Arcade Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINEUSERNAME=steamuser
+  WINEESYNC=1
+  LC_ALL=fr_FR.UTF-8
+  GAMEID=
+  PROTONPATH=
+  FOO=bar
+WINESERVER -k
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/installed/Arcade Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINEUSERNAME=steamuser
+  WINEESYNC=1
+  LC_ALL=fr_FR.UTF-8
+  FOO=bar
+WINE wine-tkg-fake cwd=ROOT/installed/Arcade Game/drive_c/Game Dir/Bin args: [ROOT/installed/Arcade Game/drive_c/Game Dir/Bin/Game.EXE] [-fullscreen] [-w] [1]
+  WINEPREFIX=ROOT/installed/Arcade Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINEUSERNAME=steamuser
+  WINEESYNC=1
+  LC_ALL=fr_FR.UTF-8
+  FOO=bar
+WINESERVER -w
+################ mount-dir
+-- stderr
+Erreur : --mount sert aux .wsquashfs ; un dossier installé se modifie directement
+== rc=1
+################ backup-one
+Archivage des sauvegardes dans ROOT/home/.local/share/wsquashfs/backups...
+  Arcade Game : archivé dans ROOT/home/.local/share/wsquashfs/backups/Arcade Game-DATE.tar.zst (SIZE)
+Restauration (jeu arrêté) :
+  tar -C "ROOT/saves" --xattrs --xattrs-include='user.*' -xpf <archive>
+== rc=0
+## archives de Arcade Game : 1
+##   Arcade Game/
+##   Arcade Game/drive_c/
+##   Arcade Game/drive_c/Game Dir/
+##   Arcade Game/drive_c/Game Dir/Saves
+##   Arcade Game/drive_c/users/
+##   Arcade Game/drive_c/users/steamuser/
+##   Arcade Game/drive_c/users/steamuser/Music/
+##   Arcade Game/drive_c/users/steamuser/Music/.wh..wh..opq
+##   Arcade Game/drive_c/users/wsqtest/
+##   Arcade Game/drive_c/users/wsqtest/.wh..wh..opq
+##   Arcade Game/drive_c/windows/
+##   Arcade Game/drive_c/windows/system32/
+##   Arcade Game/drive_c/windows/system32/d3d11.dll
+##   Arcade Game/drive_c/windows/system32/d3d12.dll
+##   Arcade Game/drive_c/windows/system32/d3d9.dll
+##   Arcade Game/drive_c/windows/system32/dxgi.dll
+##   Arcade Game/drive_c/windows/system32/kernel32.dll
+##   Arcade Game/drive_c/windows/syswow64/
+##   Arcade Game/drive_c/windows/syswow64/d3d11.dll
+##   Arcade Game/drive_c/windows/syswow64/d3d12.dll
+##   Arcade Game/drive_c/windows/syswow64/d3d9.dll
+##   Arcade Game/drive_c/windows/syswow64/ddraw.dll
+##   Arcade Game/drive_c/windows/syswow64/ddraw_.dll
+##   Arcade Game/drive_c/windows/syswow64/dxgi.dll
+##   Arcade Game/drive_c/windows/syswow64/kernel32.dll
+##   Arcade Game/system.reg
+## attribut après restauration : archive-ok
+################ backup-unknown
+-- stderr
+Erreur : aucune sauvegarde pour Unknown
+== rc=1
+################ TREE before-clean
+d cache -> 
+d cache/locks -> 
+d cache/mnt -> 
+d cache/mnt/Arcade Game -> 
+d cache/mnt/Old32 -> 
+d cache/mnt/Proton Game -> 
+d cache/mnt/Solo Game -> 
+d cache/wine -> 
+d cache/wine/Arcade Game -> 
+d cache/wine/Old32 -> 
+d cache/wine/Proton Game -> 
+d cache/wine/Solo Game -> 
+d saves -> 
+d saves/.images -> 
+d saves/.work -> 
+d saves/Arcade Game -> 
+d saves/Arcade Game/drive_c -> 
+d saves/Arcade Game/drive_c/Game Dir -> 
+d saves/Arcade Game/drive_c/users -> 
+d saves/Arcade Game/drive_c/users/steamuser -> 
+d saves/Arcade Game/drive_c/users/steamuser/Music -> 
+d saves/Arcade Game/drive_c/users/wsqtest -> 
+d saves/Arcade Game/drive_c/windows -> 
+d saves/Arcade Game/drive_c/windows/system32 -> 
+d saves/Arcade Game/drive_c/windows/syswow64 -> 
+d saves/Old32 -> 
+d saves/Old32/drive_c -> 
+d saves/Old32/drive_c/users -> 
+d saves/Old32/drive_c/users/wsqtest -> 
+d saves/Old32/drive_c/windows -> 
+d saves/Old32/drive_c/windows/system32 -> 
+d saves/Proton Game -> 
+d saves/Solo Game -> 
+d saves/Solo Game/drive_c -> 
+d saves/Solo Game/drive_c/users -> 
+d saves/Solo Game/drive_c/users/wsqtest -> 
+d saves/Solo Game/drive_c/windows -> 
+d saves/Solo Game/drive_c/windows/system32 -> 
+d saves/Solo Game/drive_c/windows/syswow64 -> 
+d src -> 
+d src/Arcade Game.wine -> 
+d src/Arcade Game.wine/drive_c -> 
+d src/Arcade Game.wine/drive_c/Game Dir -> 
+d src/Arcade Game.wine/drive_c/Game Dir/Bin -> 
+d src/Arcade Game.wine/drive_c/Game Dir/Saves -> 
+d src/Arcade Game.wine/drive_c/users -> 
+d src/Arcade Game.wine/drive_c/users/steamuser -> 
+d src/Arcade Game.wine/drive_c/users/steamuser/Documents -> 
+d src/Arcade Game.wine/drive_c/windows -> 
+d src/Arcade Game.wine/drive_c/windows/system32 -> 
+d src/Arcade Game.wine/drive_c/windows/syswow64 -> 
+d src/Arcade Game.wine/regs -> 
+d src/Old32.wine -> 
+d src/Old32.wine/drive_c -> 
+d src/Old32.wine/drive_c/game -> 
+d src/Old32.wine/drive_c/windows -> 
+d src/Old32.wine/drive_c/windows/system32 -> 
+d src/Proton Game.wine -> 
+d src/Proton Game.wine/drive_c -> 
+d src/Proton Game.wine/drive_c/pg -> 
+d src/Proton Game.wine/drive_c/windows -> 
+d src/Proton Game.wine/drive_c/windows/system32 -> 
+d src/Solo Game -> 
+d src/Solo Game/game -> 
+d userdata -> 
+d userdata/roms -> 
+d userdata/roms/windows -> 
+d userdata/saves -> 
+d userdata/saves/windows -> 
+d userdata/saves/windows/Arcade Game -> 
+f cache/locks/Arcade Game.lock -> 
+f cache/locks/Old32.lock -> 
+f cache/locks/Proton Game.lock -> 
+f cache/locks/Solo Game.lock -> 
+f saves/.images/Arcade Game -> 
+f saves/.images/Old32 -> 
+f saves/.images/Proton Game -> 
+f saves/.images/Solo Game -> 
+f saves/Arcade Game/drive_c/users/steamuser/Music/.wh..wh..opq -> 
+f saves/Arcade Game/drive_c/users/wsqtest/.wh..wh..opq -> 
+f saves/Arcade Game/system.reg -> 
+f saves/Old32/drive_c/users/.wh..wh..opq -> 
+f saves/Old32/drive_c/users/wsqtest/.wh..wh..opq -> 
+f saves/Old32/system.reg -> 
+f saves/Solo Game/drive_c/.wh..wh..opq -> 
+f saves/Solo Game/drive_c/users/.wh..wh..opq -> 
+f saves/Solo Game/drive_c/users/wsqtest/.wh..wh..opq -> 
+f saves/Solo Game/drive_c/windows/.wh..wh..opq -> 
+f saves/Solo Game/drive_c/windows/system32/.wh..wh..opq -> 
+f saves/Solo Game/drive_c/windows/system32/explorer.exe -> 
+f saves/Solo Game/system.reg -> 
+f src/Arcade Game.wine/autorun.cmd -> 
+f src/Arcade Game.wine/drive_c/Game Dir/Bin/Config.exe -> 
+f src/Arcade Game.wine/drive_c/Game Dir/Bin/Game.EXE -> 
+f src/Arcade Game.wine/drive_c/Game Dir/Saves/slot1 -> 
+f src/Arcade Game.wine/drive_c/windows/system32/d3dx9_42.dll -> 
+f src/Arcade Game.wine/drive_c/windows/system32/explorer.exe -> 
+f src/Arcade Game.wine/drive_c/windows/system32/kernel32.dll -> 
+f src/Arcade Game.wine/regs/a.reg -> 
+f src/Arcade Game.wine/system.reg -> 
+f src/Old32.wine/autorun.cmd -> 
+f src/Old32.wine/drive_c/game/start.bat -> 
+f src/Old32.wine/drive_c/windows/system32/explorer.exe -> 
+f src/Old32.wine/system.reg -> 
+f src/Proton Game.wine/autorun.cmd -> 
+f src/Proton Game.wine/config_info -> 
+f src/Proton Game.wine/drive_c/pg/pg.exe -> 
+f src/Proton Game.wine/system.reg -> 
+f src/Solo Game/autorun.cmd -> 
+f src/Solo Game/game/run me.exe -> 
+f userdata/roms/windows/Arcade Game.wsquashfs -> 
+f userdata/roms/windows/Old32.wsquashfs -> 
+f userdata/roms/windows/Proton Game.wsquashfs -> 
+f userdata/roms/windows/Solo Game.wsquashfs -> 
+f userdata/saves/windows/Arcade Game/slot1 -> 
+l saves/Arcade Game/drive_c/Game Dir/Saves -> ROOT/userdata/saves/windows/Arcade Game
+l saves/Arcade Game/drive_c/windows/system32/d3d11.dll -> ROOT/dxvk/x64/d3d11.dll
+l saves/Arcade Game/drive_c/windows/system32/d3d12.dll -> ROOT/vkd3d/x64/d3d12.dll
+l saves/Arcade Game/drive_c/windows/system32/d3d9.dll -> ROOT/dxvk/x64/d3d9.dll
+l saves/Arcade Game/drive_c/windows/system32/dxgi.dll -> ROOT/dxvk/x64/dxgi.dll
+l saves/Arcade Game/drive_c/windows/system32/kernel32.dll -> ROOT/home/.local/share/Steam/compatibilitytools.d/GE-Proton9-1/files/lib/wine/x86_64-windows/kernel32.dll
+l saves/Arcade Game/drive_c/windows/syswow64/d3d11.dll -> ROOT/dxvk/x32/d3d11.dll
+l saves/Arcade Game/drive_c/windows/syswow64/d3d12.dll -> ROOT/vkd3d/x86/d3d12.dll
+l saves/Arcade Game/drive_c/windows/syswow64/d3d9.dll -> ROOT/dxvk/x32/d3d9.dll
+l saves/Arcade Game/drive_c/windows/syswow64/ddraw.dll -> ROOT/d7vk/x32/ddraw.dll
+l saves/Arcade Game/drive_c/windows/syswow64/ddraw_.dll -> ROOT/home/.local/share/Steam/compatibilitytools.d/GE-Proton9-1/files/lib/wine/i386-windows/ddraw.dll
+l saves/Arcade Game/drive_c/windows/syswow64/dxgi.dll -> ROOT/dxvk/x32/dxgi.dll
+l saves/Arcade Game/drive_c/windows/syswow64/kernel32.dll -> ROOT/home/.local/share/Steam/compatibilitytools.d/GE-Proton9-1/files/lib/wine/i386-windows/kernel32.dll
+l saves/Old32/drive_c/windows/system32/d3d12.dll -> ROOT/vkd3d/x86/d3d12.dll
+l saves/Old32/drive_c/windows/system32/ddraw.dll -> ROOT/d7vk/x32/ddraw.dll
+l saves/Old32/drive_c/windows/system32/ddraw_.dll -> ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/lib/wine/i386-windows/ddraw.dll
+l saves/Old32/drive_c/windows/system32/kernel32.dll -> ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/lib/wine/i386-windows/kernel32.dll
+l saves/Solo Game/drive_c/windows/system32/d3d11.dll -> ROOT/dxvk/x64/d3d11.dll
+l saves/Solo Game/drive_c/windows/system32/d3d12.dll -> ROOT/vkd3d/x64/d3d12.dll
+l saves/Solo Game/drive_c/windows/system32/d3d9.dll -> ROOT/dxvk/x64/d3d9.dll
+l saves/Solo Game/drive_c/windows/system32/dxgi.dll -> ROOT/dxvk/x64/dxgi.dll
+l saves/Solo Game/drive_c/windows/system32/kernel32.dll -> ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/lib/wine/x86_64-windows/kernel32.dll
+l saves/Solo Game/drive_c/windows/syswow64/d3d11.dll -> ROOT/dxvk/x32/d3d11.dll
+l saves/Solo Game/drive_c/windows/syswow64/d3d12.dll -> ROOT/vkd3d/x86/d3d12.dll
+l saves/Solo Game/drive_c/windows/syswow64/d3d9.dll -> ROOT/dxvk/x32/d3d9.dll
+l saves/Solo Game/drive_c/windows/syswow64/ddraw.dll -> ROOT/d7vk/x32/ddraw.dll
+l saves/Solo Game/drive_c/windows/syswow64/ddraw_.dll -> ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/lib/wine/i386-windows/ddraw.dll
+l saves/Solo Game/drive_c/windows/syswow64/dxgi.dll -> ROOT/dxvk/x32/dxgi.dll
+l saves/Solo Game/drive_c/windows/syswow64/kernel32.dll -> ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/lib/wine/i386-windows/kernel32.dll
+l src/Arcade Game.wine/drive_c/users/steamuser/Music -> /userdata/system/Music
+l src/Arcade Game.wine/drive_c/windows/system32/dxgi.dll -> /userdata/system/wine/dxvk/x64/dxgi.dll
+################ clean
+Nettoyage des copies de travail et des doublons des sauvegardes...
+✓ Copies de travail supprimées
+✓ Sauvegardes gardées dans : ROOT/saves
+== rc=0
+################ TREE after-clean
+d cache -> 
+d cache/locks -> 
+d cache/mnt -> 
+d cache/wine -> 
+d saves -> 
+d saves/.images -> 
+d saves/.work -> 
+d saves/Arcade Game -> 
+d saves/Arcade Game/drive_c -> 
+d saves/Arcade Game/drive_c/Game Dir -> 
+d saves/Arcade Game/drive_c/users -> 
+d saves/Arcade Game/drive_c/users/steamuser -> 
+d saves/Arcade Game/drive_c/users/steamuser/Music -> 
+d saves/Arcade Game/drive_c/users/wsqtest -> 
+d saves/Arcade Game/drive_c/windows -> 
+d saves/Arcade Game/drive_c/windows/system32 -> 
+d saves/Arcade Game/drive_c/windows/syswow64 -> 
+d saves/Old32 -> 
+d saves/Old32/drive_c -> 
+d saves/Old32/drive_c/users -> 
+d saves/Old32/drive_c/users/wsqtest -> 
+d saves/Old32/drive_c/windows -> 
+d saves/Old32/drive_c/windows/system32 -> 
+d saves/Proton Game -> 
+d saves/Solo Game -> 
+d saves/Solo Game/drive_c -> 
+d saves/Solo Game/drive_c/users -> 
+d saves/Solo Game/drive_c/users/wsqtest -> 
+d saves/Solo Game/drive_c/windows -> 
+d saves/Solo Game/drive_c/windows/system32 -> 
+d saves/Solo Game/drive_c/windows/syswow64 -> 
+d src -> 
+d src/Arcade Game.wine -> 
+d src/Arcade Game.wine/drive_c -> 
+d src/Arcade Game.wine/drive_c/Game Dir -> 
+d src/Arcade Game.wine/drive_c/Game Dir/Bin -> 
+d src/Arcade Game.wine/drive_c/Game Dir/Saves -> 
+d src/Arcade Game.wine/drive_c/users -> 
+d src/Arcade Game.wine/drive_c/users/steamuser -> 
+d src/Arcade Game.wine/drive_c/users/steamuser/Documents -> 
+d src/Arcade Game.wine/drive_c/windows -> 
+d src/Arcade Game.wine/drive_c/windows/system32 -> 
+d src/Arcade Game.wine/drive_c/windows/syswow64 -> 
+d src/Arcade Game.wine/regs -> 
+d src/Old32.wine -> 
+d src/Old32.wine/drive_c -> 
+d src/Old32.wine/drive_c/game -> 
+d src/Old32.wine/drive_c/windows -> 
+d src/Old32.wine/drive_c/windows/system32 -> 
+d src/Proton Game.wine -> 
+d src/Proton Game.wine/drive_c -> 
+d src/Proton Game.wine/drive_c/pg -> 
+d src/Proton Game.wine/drive_c/windows -> 
+d src/Proton Game.wine/drive_c/windows/system32 -> 
+d src/Solo Game -> 
+d src/Solo Game/game -> 
+d userdata -> 
+d userdata/roms -> 
+d userdata/roms/windows -> 
+d userdata/saves -> 
+d userdata/saves/windows -> 
+d userdata/saves/windows/Arcade Game -> 
+f cache/locks/Arcade Game.lock -> 
+f cache/locks/Old32.lock -> 
+f cache/locks/Proton Game.lock -> 
+f cache/locks/Solo Game.lock -> 
+f saves/.images/Arcade Game -> 
+f saves/.images/Old32 -> 
+f saves/.images/Proton Game -> 
+f saves/.images/Solo Game -> 
+f saves/Arcade Game/drive_c/users/steamuser/Music/.wh..wh..opq -> 
+f saves/Arcade Game/drive_c/users/wsqtest/.wh..wh..opq -> 
+f saves/Arcade Game/system.reg -> 
+f saves/Old32/drive_c/users/.wh..wh..opq -> 
+f saves/Old32/drive_c/users/wsqtest/.wh..wh..opq -> 
+f saves/Old32/system.reg -> 
+f saves/Solo Game/drive_c/.wh..wh..opq -> 
+f saves/Solo Game/drive_c/users/.wh..wh..opq -> 
+f saves/Solo Game/drive_c/users/wsqtest/.wh..wh..opq -> 
+f saves/Solo Game/drive_c/windows/.wh..wh..opq -> 
+f saves/Solo Game/drive_c/windows/system32/.wh..wh..opq -> 
+f saves/Solo Game/drive_c/windows/system32/explorer.exe -> 
+f saves/Solo Game/system.reg -> 
+f src/Arcade Game.wine/autorun.cmd -> 
+f src/Arcade Game.wine/drive_c/Game Dir/Bin/Config.exe -> 
+f src/Arcade Game.wine/drive_c/Game Dir/Bin/Game.EXE -> 
+f src/Arcade Game.wine/drive_c/Game Dir/Saves/slot1 -> 
+f src/Arcade Game.wine/drive_c/windows/system32/d3dx9_42.dll -> 
+f src/Arcade Game.wine/drive_c/windows/system32/explorer.exe -> 
+f src/Arcade Game.wine/drive_c/windows/system32/kernel32.dll -> 
+f src/Arcade Game.wine/regs/a.reg -> 
+f src/Arcade Game.wine/system.reg -> 
+f src/Old32.wine/autorun.cmd -> 
+f src/Old32.wine/drive_c/game/start.bat -> 
+f src/Old32.wine/drive_c/windows/system32/explorer.exe -> 
+f src/Old32.wine/system.reg -> 
+f src/Proton Game.wine/autorun.cmd -> 
+f src/Proton Game.wine/config_info -> 
+f src/Proton Game.wine/drive_c/pg/pg.exe -> 
+f src/Proton Game.wine/system.reg -> 
+f src/Solo Game/autorun.cmd -> 
+f src/Solo Game/game/run me.exe -> 
+f userdata/roms/windows/Arcade Game.wsquashfs -> 
+f userdata/roms/windows/Old32.wsquashfs -> 
+f userdata/roms/windows/Proton Game.wsquashfs -> 
+f userdata/roms/windows/Solo Game.wsquashfs -> 
+f userdata/saves/windows/Arcade Game/slot1 -> 
+l saves/Arcade Game/drive_c/Game Dir/Saves -> ROOT/userdata/saves/windows/Arcade Game
+l saves/Arcade Game/drive_c/windows/system32/d3d11.dll -> ROOT/dxvk/x64/d3d11.dll
+l saves/Arcade Game/drive_c/windows/system32/d3d12.dll -> ROOT/vkd3d/x64/d3d12.dll
+l saves/Arcade Game/drive_c/windows/system32/d3d9.dll -> ROOT/dxvk/x64/d3d9.dll
+l saves/Arcade Game/drive_c/windows/system32/dxgi.dll -> ROOT/dxvk/x64/dxgi.dll
+l saves/Arcade Game/drive_c/windows/system32/kernel32.dll -> ROOT/home/.local/share/Steam/compatibilitytools.d/GE-Proton9-1/files/lib/wine/x86_64-windows/kernel32.dll
+l saves/Arcade Game/drive_c/windows/syswow64/d3d11.dll -> ROOT/dxvk/x32/d3d11.dll
+l saves/Arcade Game/drive_c/windows/syswow64/d3d12.dll -> ROOT/vkd3d/x86/d3d12.dll
+l saves/Arcade Game/drive_c/windows/syswow64/d3d9.dll -> ROOT/dxvk/x32/d3d9.dll
+l saves/Arcade Game/drive_c/windows/syswow64/ddraw.dll -> ROOT/d7vk/x32/ddraw.dll
+l saves/Arcade Game/drive_c/windows/syswow64/ddraw_.dll -> ROOT/home/.local/share/Steam/compatibilitytools.d/GE-Proton9-1/files/lib/wine/i386-windows/ddraw.dll
+l saves/Arcade Game/drive_c/windows/syswow64/dxgi.dll -> ROOT/dxvk/x32/dxgi.dll
+l saves/Arcade Game/drive_c/windows/syswow64/kernel32.dll -> ROOT/home/.local/share/Steam/compatibilitytools.d/GE-Proton9-1/files/lib/wine/i386-windows/kernel32.dll
+l saves/Old32/drive_c/windows/system32/d3d12.dll -> ROOT/vkd3d/x86/d3d12.dll
+l saves/Old32/drive_c/windows/system32/ddraw.dll -> ROOT/d7vk/x32/ddraw.dll
+l saves/Old32/drive_c/windows/system32/ddraw_.dll -> ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/lib/wine/i386-windows/ddraw.dll
+l saves/Old32/drive_c/windows/system32/kernel32.dll -> ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/lib/wine/i386-windows/kernel32.dll
+l saves/Solo Game/drive_c/windows/system32/d3d11.dll -> ROOT/dxvk/x64/d3d11.dll
+l saves/Solo Game/drive_c/windows/system32/d3d12.dll -> ROOT/vkd3d/x64/d3d12.dll
+l saves/Solo Game/drive_c/windows/system32/d3d9.dll -> ROOT/dxvk/x64/d3d9.dll
+l saves/Solo Game/drive_c/windows/system32/dxgi.dll -> ROOT/dxvk/x64/dxgi.dll
+l saves/Solo Game/drive_c/windows/system32/kernel32.dll -> ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/lib/wine/x86_64-windows/kernel32.dll
+l saves/Solo Game/drive_c/windows/syswow64/d3d11.dll -> ROOT/dxvk/x32/d3d11.dll
+l saves/Solo Game/drive_c/windows/syswow64/d3d12.dll -> ROOT/vkd3d/x86/d3d12.dll
+l saves/Solo Game/drive_c/windows/syswow64/d3d9.dll -> ROOT/dxvk/x32/d3d9.dll
+l saves/Solo Game/drive_c/windows/syswow64/ddraw.dll -> ROOT/d7vk/x32/ddraw.dll
+l saves/Solo Game/drive_c/windows/syswow64/ddraw_.dll -> ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/lib/wine/i386-windows/ddraw.dll
+l saves/Solo Game/drive_c/windows/syswow64/dxgi.dll -> ROOT/dxvk/x32/dxgi.dll
+l saves/Solo Game/drive_c/windows/syswow64/kernel32.dll -> ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/lib/wine/i386-windows/kernel32.dll
+l src/Arcade Game.wine/drive_c/users/steamuser/Music -> /userdata/system/Music
+l src/Arcade Game.wine/drive_c/windows/system32/dxgi.dll -> /userdata/system/wine/dxvk/x64/dxgi.dll
+################ clear-one
+--clear ne garde que drive_c/users de 1 jeu(x) : scores et réglages
+  enregistrés ailleurs (jeux arcade, dossier du jeu, registre) seront perdus.
+  Chaque jeu est d'abord archivé dans ROOT/home/.local/share/wsquashfs/backups (voir --backup).
+✓ Copies de travail supprimées
+  Solo Game : archivé dans ROOT/home/.local/share/wsquashfs/backups/Solo Game-DATE.tar.zst (SIZE)
+  Solo Game : gardé SIZE (drive_c/users)
+== rc=0
+################ clear-none
+Aucune sauvegarde pour Unknown
+== rc=0
+################ clear-all
+--clear ne garde que drive_c/users de 4 jeu(x) : scores et réglages
+  enregistrés ailleurs (jeux arcade, dossier du jeu, registre) seront perdus.
+  Chaque jeu est d'abord archivé dans ROOT/home/.local/share/wsquashfs/backups (voir --backup).
+✓ Copies de travail supprimées
+  Arcade Game : archivé dans ROOT/home/.local/share/wsquashfs/backups/Arcade Game-DATE.tar.zst (SIZE)
+  Arcade Game : gardé SIZE (drive_c/users)
+  Old32 : archivé dans ROOT/home/.local/share/wsquashfs/backups/Old32-DATE.tar.zst (SIZE)
+  Old32 : gardé SIZE (drive_c/users)
+  Proton Game : archivé dans ROOT/home/.local/share/wsquashfs/backups/Proton Game-DATE.tar.zst (SIZE)
+  Proton Game : rien à garder, supprimé
+  Solo Game : archivé dans ROOT/home/.local/share/wsquashfs/backups/Solo Game-DATE.tar.zst (SIZE)
+  Solo Game : gardé SIZE (drive_c/users)
+== rc=0
+################ TREE after-clear
+d cache -> 
+d cache/locks -> 
+d cache/mnt -> 
+d cache/wine -> 
+d saves -> 
+d saves/.images -> 
+d saves/.work -> 
+d saves/Arcade Game -> 
+d saves/Arcade Game/drive_c -> 
+d saves/Arcade Game/drive_c/users -> 
+d saves/Arcade Game/drive_c/users/steamuser -> 
+d saves/Arcade Game/drive_c/users/steamuser/Music -> 
+d saves/Arcade Game/drive_c/users/wsqtest -> 
+d saves/Old32 -> 
+d saves/Old32/drive_c -> 
+d saves/Old32/drive_c/users -> 
+d saves/Old32/drive_c/users/wsqtest -> 
+d saves/Solo Game -> 
+d saves/Solo Game/drive_c -> 
+d saves/Solo Game/drive_c/users -> 
+d saves/Solo Game/drive_c/users/wsqtest -> 
+d src -> 
+d src/Arcade Game.wine -> 
+d src/Arcade Game.wine/drive_c -> 
+d src/Arcade Game.wine/drive_c/Game Dir -> 
+d src/Arcade Game.wine/drive_c/Game Dir/Bin -> 
+d src/Arcade Game.wine/drive_c/Game Dir/Saves -> 
+d src/Arcade Game.wine/drive_c/users -> 
+d src/Arcade Game.wine/drive_c/users/steamuser -> 
+d src/Arcade Game.wine/drive_c/users/steamuser/Documents -> 
+d src/Arcade Game.wine/drive_c/windows -> 
+d src/Arcade Game.wine/drive_c/windows/system32 -> 
+d src/Arcade Game.wine/drive_c/windows/syswow64 -> 
+d src/Arcade Game.wine/regs -> 
+d src/Old32.wine -> 
+d src/Old32.wine/drive_c -> 
+d src/Old32.wine/drive_c/game -> 
+d src/Old32.wine/drive_c/windows -> 
+d src/Old32.wine/drive_c/windows/system32 -> 
+d src/Proton Game.wine -> 
+d src/Proton Game.wine/drive_c -> 
+d src/Proton Game.wine/drive_c/pg -> 
+d src/Proton Game.wine/drive_c/windows -> 
+d src/Proton Game.wine/drive_c/windows/system32 -> 
+d src/Solo Game -> 
+d src/Solo Game/game -> 
+d userdata -> 
+d userdata/roms -> 
+d userdata/roms/windows -> 
+d userdata/saves -> 
+d userdata/saves/windows -> 
+d userdata/saves/windows/Arcade Game -> 
+f cache/locks/Arcade Game.lock -> 
+f cache/locks/Old32.lock -> 
+f cache/locks/Proton Game.lock -> 
+f cache/locks/Solo Game.lock -> 
+f saves/.images/Arcade Game -> 
+f saves/.images/Old32 -> 
+f saves/.images/Proton Game -> 
+f saves/.images/Solo Game -> 
+f saves/Arcade Game/drive_c/users/steamuser/Music/.wh..wh..opq -> 
+f saves/Arcade Game/drive_c/users/wsqtest/.wh..wh..opq -> 
+f saves/Old32/drive_c/users/.wh..wh..opq -> 
+f saves/Old32/drive_c/users/wsqtest/.wh..wh..opq -> 
+f saves/Solo Game/drive_c/users/.wh..wh..opq -> 
+f saves/Solo Game/drive_c/users/wsqtest/.wh..wh..opq -> 
+f src/Arcade Game.wine/autorun.cmd -> 
+f src/Arcade Game.wine/drive_c/Game Dir/Bin/Config.exe -> 
+f src/Arcade Game.wine/drive_c/Game Dir/Bin/Game.EXE -> 
+f src/Arcade Game.wine/drive_c/Game Dir/Saves/slot1 -> 
+f src/Arcade Game.wine/drive_c/windows/system32/d3dx9_42.dll -> 
+f src/Arcade Game.wine/drive_c/windows/system32/explorer.exe -> 
+f src/Arcade Game.wine/drive_c/windows/system32/kernel32.dll -> 
+f src/Arcade Game.wine/regs/a.reg -> 
+f src/Arcade Game.wine/system.reg -> 
+f src/Old32.wine/autorun.cmd -> 
+f src/Old32.wine/drive_c/game/start.bat -> 
+f src/Old32.wine/drive_c/windows/system32/explorer.exe -> 
+f src/Old32.wine/system.reg -> 
+f src/Proton Game.wine/autorun.cmd -> 
+f src/Proton Game.wine/config_info -> 
+f src/Proton Game.wine/drive_c/pg/pg.exe -> 
+f src/Proton Game.wine/system.reg -> 
+f src/Solo Game/autorun.cmd -> 
+f src/Solo Game/game/run me.exe -> 
+f userdata/roms/windows/Arcade Game.wsquashfs -> 
+f userdata/roms/windows/Old32.wsquashfs -> 
+f userdata/roms/windows/Proton Game.wsquashfs -> 
+f userdata/roms/windows/Solo Game.wsquashfs -> 
+f userdata/saves/windows/Arcade Game/slot1 -> 
+l src/Arcade Game.wine/drive_c/users/steamuser/Music -> /userdata/system/Music
+l src/Arcade Game.wine/drive_c/windows/system32/dxgi.dll -> /userdata/system/wine/dxvk/x64/dxgi.dll
+## archives de Solo Game : 2
+##   Solo Game/
+##   Solo Game/drive_c/
+##   Solo Game/drive_c/users/
+##   Solo Game/drive_c/users/.wh..wh..opq
+##   Solo Game/drive_c/users/wsqtest/
+##   Solo Game/drive_c/users/wsqtest/.wh..wh..opq
+################ list-after-clear
+Jeu          État        Version     Sauvegardes  Image
+Arcade Game  -           1.2.3       0            ROOT/userdata/roms/windows/Arcade Game.wsquashfs
+Old32        -           -           0            ROOT/userdata/roms/windows/Old32.wsquashfs
+Proton Game  -           -           aucune       ROOT/userdata/roms/windows/Proton Game.wsquashfs
+Solo Game    -           -           0            ROOT/userdata/roms/windows/Solo Game.wsquashfs
+
+Sauvegardes : ROOT/saves (16K au total)
+== rc=0
+################ umount-all
+== rc=0
+################ copy1
+=========================================
+WSquashFS Launcher
+=========================================
+Environnement : ENV
+Jeu           : Arcade Game
+Version       : 1.2.3
+Fichier       : ROOT/userdata/roms/windows/Arcade Game.wsquashfs
+Mode          : copy (squashfuse)
+✓ Préfixe Wine détecté (structure Batocera)
+Préfixe       : mise à jour pour wine-9.0 (fake)
+Import des fichiers de registre...
+  → a.reg
+Sauvegardes   : ROOT/userdata/saves/windows/Arcade Game (SAVEDIR/SAVEFILES)
+-----------------------------------------
+Exécutable    : ROOT/cache/wine/Arcade Game/drive_c/Game Dir/Bin/Game.EXE
+Arguments     : -fullscreen -w 1
+Wine          : ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/bin/wine (win64)
+Version Wine  : wine-9.0 (fake)
+Préfixe       : ROOT/cache/wine/Arcade Game
+Utilisateur   : steamuser (adapté au prefix)
+Manettes      : XInput, manette Xbox
+DXVK          : activé
+VKD3D         : activé
+D7VK          : activé (DirectDraw → Vulkan)
+ESYNC         : activé
+Langue        : fr_FR.UTF-8
+=========================================
+
+
+=========================================
+Jeu terminé (code : 0)
+=========================================
+== rc=0
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Arcade Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINEUSERNAME=steamuser
+  WINEESYNC=1
+  LC_ALL=fr_FR.UTF-8
+  FOO=bar
+WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
+  WINEPREFIX=ROOT/cache/wine/Arcade Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
+  WINEDEBUG=-all
+  WINEUSERNAME=steamuser
+  WINEESYNC=1
+  LC_ALL=fr_FR.UTF-8
+  FOO=bar
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [regedit] [//?/unixROOT/cache/wine/Arcade Game/regs/a.reg]
+  WINEPREFIX=ROOT/cache/wine/Arcade Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINEUSERNAME=steamuser
+  WINEESYNC=1
+  LC_ALL=fr_FR.UTF-8
+  GAMEID=
+  PROTONPATH=
+  FOO=bar
+WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Services\winebus] [/v] [DisableHidraw] [/t] [REG_DWORD] [/d] [1] [/f]
+  WINEPREFIX=ROOT/cache/wine/Arcade Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINEUSERNAME=steamuser
+  WINEESYNC=1
+  LC_ALL=fr_FR.UTF-8
+  GAMEID=
+  PROTONPATH=
+  FOO=bar
+WINESERVER -k
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Arcade Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINEUSERNAME=steamuser
+  WINEESYNC=1
+  LC_ALL=fr_FR.UTF-8
+  FOO=bar
+WINE wine-tkg-fake cwd=ROOT/cache/wine/Arcade Game/drive_c/Game Dir/Bin args: [ROOT/cache/wine/Arcade Game/drive_c/Game Dir/Bin/Game.EXE] [-fullscreen] [-w] [1]
+  WINEPREFIX=ROOT/cache/wine/Arcade Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINEUSERNAME=steamuser
+  WINEESYNC=1
+  LC_ALL=fr_FR.UTF-8
+  FOO=bar
+WINESERVER -w
+WINESERVER -k
+WINESERVER -w
+################ TREE after-copy
+d cache -> 
+d cache/locks -> 
+d cache/mnt -> 
+d cache/mnt/Arcade Game -> 
+d cache/wine -> 
+d cache/wine/Arcade Game -> 
+d cache/wine/Arcade Game/drive_c -> 
+d cache/wine/Arcade Game/drive_c/Game Dir -> 
+d cache/wine/Arcade Game/drive_c/Game Dir/Bin -> 
+d cache/wine/Arcade Game/drive_c/users -> 
+d cache/wine/Arcade Game/drive_c/users/steamuser -> 
+d cache/wine/Arcade Game/drive_c/users/steamuser/Documents -> 
+d cache/wine/Arcade Game/drive_c/users/steamuser/Music -> 
+d cache/wine/Arcade Game/drive_c/users/wsqtest -> 
+d cache/wine/Arcade Game/drive_c/windows -> 
+d cache/wine/Arcade Game/drive_c/windows/system32 -> 
+d cache/wine/Arcade Game/drive_c/windows/syswow64 -> 
+d cache/wine/Arcade Game/regs -> 
+d saves -> 
+d saves/.images -> 
+d saves/.work -> 
+d saves/Arcade Game -> 
+d saves/Arcade Game/drive_c -> 
+d saves/Arcade Game/drive_c/users -> 
+d saves/Arcade Game/drive_c/users/steamuser -> 
+d saves/Arcade Game/drive_c/users/steamuser/Music -> 
+d saves/Arcade Game/drive_c/users/wsqtest -> 
+d saves/Old32 -> 
+d saves/Old32/drive_c -> 
+d saves/Old32/drive_c/users -> 
+d saves/Old32/drive_c/users/wsqtest -> 
+d saves/Solo Game -> 
+d saves/Solo Game/drive_c -> 
+d saves/Solo Game/drive_c/users -> 
+d saves/Solo Game/drive_c/users/wsqtest -> 
+d src -> 
+d src/Arcade Game.wine -> 
+d src/Arcade Game.wine/drive_c -> 
+d src/Arcade Game.wine/drive_c/Game Dir -> 
+d src/Arcade Game.wine/drive_c/Game Dir/Bin -> 
+d src/Arcade Game.wine/drive_c/Game Dir/Saves -> 
+d src/Arcade Game.wine/drive_c/users -> 
+d src/Arcade Game.wine/drive_c/users/steamuser -> 
+d src/Arcade Game.wine/drive_c/users/steamuser/Documents -> 
+d src/Arcade Game.wine/drive_c/windows -> 
+d src/Arcade Game.wine/drive_c/windows/system32 -> 
+d src/Arcade Game.wine/drive_c/windows/syswow64 -> 
+d src/Arcade Game.wine/regs -> 
+d src/Old32.wine -> 
+d src/Old32.wine/drive_c -> 
+d src/Old32.wine/drive_c/game -> 
+d src/Old32.wine/drive_c/windows -> 
+d src/Old32.wine/drive_c/windows/system32 -> 
+d src/Proton Game.wine -> 
+d src/Proton Game.wine/drive_c -> 
+d src/Proton Game.wine/drive_c/pg -> 
+d src/Proton Game.wine/drive_c/windows -> 
+d src/Proton Game.wine/drive_c/windows/system32 -> 
+d src/Solo Game -> 
+d src/Solo Game/game -> 
+d userdata -> 
+d userdata/roms -> 
+d userdata/roms/windows -> 
+d userdata/saves -> 
+d userdata/saves/windows -> 
+d userdata/saves/windows/Arcade Game -> 
+f cache/locks/Arcade Game.lock -> 
+f cache/locks/Old32.lock -> 
+f cache/locks/Proton Game.lock -> 
+f cache/locks/Solo Game.lock -> 
+f cache/wine/Arcade Game/.wsquashfs_cache -> 
+f cache/wine/Arcade Game/autorun.cmd -> 
+f cache/wine/Arcade Game/drive_c/Game Dir/Bin/Config.exe -> 
+f cache/wine/Arcade Game/drive_c/Game Dir/Bin/Game.EXE -> 
+f cache/wine/Arcade Game/drive_c/windows/system32/d3dx9_42.dll -> 
+f cache/wine/Arcade Game/drive_c/windows/system32/explorer.exe -> 
+f cache/wine/Arcade Game/regs/a.reg -> 
+f cache/wine/Arcade Game/system.reg -> 
+f saves/.images/Arcade Game -> 
+f saves/.images/Old32 -> 
+f saves/.images/Proton Game -> 
+f saves/.images/Solo Game -> 
+f saves/Arcade Game/drive_c/users/steamuser/Music/.wh..wh..opq -> 
+f saves/Arcade Game/drive_c/users/wsqtest/.wh..wh..opq -> 
+f saves/Old32/drive_c/users/.wh..wh..opq -> 
+f saves/Old32/drive_c/users/wsqtest/.wh..wh..opq -> 
+f saves/Solo Game/drive_c/users/.wh..wh..opq -> 
+f saves/Solo Game/drive_c/users/wsqtest/.wh..wh..opq -> 
+f src/Arcade Game.wine/autorun.cmd -> 
+f src/Arcade Game.wine/drive_c/Game Dir/Bin/Config.exe -> 
+f src/Arcade Game.wine/drive_c/Game Dir/Bin/Game.EXE -> 
+f src/Arcade Game.wine/drive_c/Game Dir/Saves/slot1 -> 
+f src/Arcade Game.wine/drive_c/windows/system32/d3dx9_42.dll -> 
+f src/Arcade Game.wine/drive_c/windows/system32/explorer.exe -> 
+f src/Arcade Game.wine/drive_c/windows/system32/kernel32.dll -> 
+f src/Arcade Game.wine/regs/a.reg -> 
+f src/Arcade Game.wine/system.reg -> 
+f src/Old32.wine/autorun.cmd -> 
+f src/Old32.wine/drive_c/game/start.bat -> 
+f src/Old32.wine/drive_c/windows/system32/explorer.exe -> 
+f src/Old32.wine/system.reg -> 
+f src/Proton Game.wine/autorun.cmd -> 
+f src/Proton Game.wine/config_info -> 
+f src/Proton Game.wine/drive_c/pg/pg.exe -> 
+f src/Proton Game.wine/system.reg -> 
+f src/Solo Game/autorun.cmd -> 
+f src/Solo Game/game/run me.exe -> 
+f userdata/roms/windows/Arcade Game.wsquashfs -> 
+f userdata/roms/windows/Old32.wsquashfs -> 
+f userdata/roms/windows/Proton Game.wsquashfs -> 
+f userdata/roms/windows/Solo Game.wsquashfs -> 
+f userdata/saves/windows/Arcade Game/slot1 -> 
+l cache/wine/Arcade Game/drive_c/Game Dir/Saves -> ROOT/userdata/saves/windows/Arcade Game
+l cache/wine/Arcade Game/drive_c/windows/system32/d3d11.dll -> ROOT/dxvk/x64/d3d11.dll
+l cache/wine/Arcade Game/drive_c/windows/system32/d3d12.dll -> ROOT/vkd3d/x64/d3d12.dll
+l cache/wine/Arcade Game/drive_c/windows/system32/d3d9.dll -> ROOT/dxvk/x64/d3d9.dll
+l cache/wine/Arcade Game/drive_c/windows/system32/dxgi.dll -> ROOT/dxvk/x64/dxgi.dll
+l cache/wine/Arcade Game/drive_c/windows/system32/kernel32.dll -> ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/lib/wine/x86_64-windows/kernel32.dll
+l cache/wine/Arcade Game/drive_c/windows/syswow64/d3d11.dll -> ROOT/dxvk/x32/d3d11.dll
+l cache/wine/Arcade Game/drive_c/windows/syswow64/d3d12.dll -> ROOT/vkd3d/x86/d3d12.dll
+l cache/wine/Arcade Game/drive_c/windows/syswow64/d3d9.dll -> ROOT/dxvk/x32/d3d9.dll
+l cache/wine/Arcade Game/drive_c/windows/syswow64/ddraw.dll -> ROOT/d7vk/x32/ddraw.dll
+l cache/wine/Arcade Game/drive_c/windows/syswow64/ddraw_.dll -> ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/lib/wine/i386-windows/ddraw.dll
+l cache/wine/Arcade Game/drive_c/windows/syswow64/dxgi.dll -> ROOT/dxvk/x32/dxgi.dll
+l cache/wine/Arcade Game/drive_c/windows/syswow64/kernel32.dll -> ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/lib/wine/i386-windows/kernel32.dll
+l src/Arcade Game.wine/drive_c/users/steamuser/Music -> /userdata/system/Music
+l src/Arcade Game.wine/drive_c/windows/system32/dxgi.dll -> /userdata/system/wine/dxvk/x64/dxgi.dll
+################ copy2
+=========================================
+WSquashFS Launcher
+=========================================
+Environnement : ENV
+Jeu           : Arcade Game
+Version       : 1.2.3
+Fichier       : ROOT/userdata/roms/windows/Arcade Game.wsquashfs
+Mode          : copy (cache valide, extraction ignorée)
+✓ Préfixe Wine détecté (structure Batocera)
+Préfixe       : mise à jour pour wine-9.0 (fake)
+Import des fichiers de registre...
+  → a.reg
+Sauvegardes   : ROOT/userdata/saves/windows/Arcade Game (SAVEDIR/SAVEFILES)
+-----------------------------------------
+Exécutable    : ROOT/cache/wine/Arcade Game/drive_c/Game Dir/Bin/Game.EXE
+Arguments     : -fullscreen -w 1
+Wine          : ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/bin/wine (win64)
+Version Wine  : wine-9.0 (fake)
+Préfixe       : ROOT/cache/wine/Arcade Game
+Utilisateur   : steamuser (adapté au prefix)
+Manettes      : XInput, manette Xbox
+DXVK          : activé
+VKD3D         : activé
+D7VK          : activé (DirectDraw → Vulkan)
+ESYNC         : activé
+Langue        : fr_FR.UTF-8
+=========================================
+
+
+=========================================
+Jeu terminé (code : 0)
+=========================================
+== rc=0
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Arcade Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINEUSERNAME=steamuser
+  WINEESYNC=1
+  LC_ALL=fr_FR.UTF-8
+  FOO=bar
+WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
+  WINEPREFIX=ROOT/cache/wine/Arcade Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
+  WINEDEBUG=-all
+  WINEUSERNAME=steamuser
+  WINEESYNC=1
+  LC_ALL=fr_FR.UTF-8
+  FOO=bar
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [regedit] [//?/unixROOT/cache/wine/Arcade Game/regs/a.reg]
+  WINEPREFIX=ROOT/cache/wine/Arcade Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINEUSERNAME=steamuser
+  WINEESYNC=1
+  LC_ALL=fr_FR.UTF-8
+  GAMEID=
+  PROTONPATH=
+  FOO=bar
+WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Services\winebus] [/v] [DisableHidraw] [/t] [REG_DWORD] [/d] [1] [/f]
+  WINEPREFIX=ROOT/cache/wine/Arcade Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINEUSERNAME=steamuser
+  WINEESYNC=1
+  LC_ALL=fr_FR.UTF-8
+  GAMEID=
+  PROTONPATH=
+  FOO=bar
+WINESERVER -k
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Arcade Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINEUSERNAME=steamuser
+  WINEESYNC=1
+  LC_ALL=fr_FR.UTF-8
+  FOO=bar
+WINE wine-tkg-fake cwd=ROOT/cache/wine/Arcade Game/drive_c/Game Dir/Bin args: [ROOT/cache/wine/Arcade Game/drive_c/Game Dir/Bin/Game.EXE] [-fullscreen] [-w] [1]
+  WINEPREFIX=ROOT/cache/wine/Arcade Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINEUSERNAME=steamuser
+  WINEESYNC=1
+  LC_ALL=fr_FR.UTF-8
+  FOO=bar
+WINESERVER -w
+WINESERVER -k
+WINESERVER -w
+################ in-use-default
+=========================================
+WSquashFS Launcher
+=========================================
+Environnement : ENV
+Jeu           : Old32
+Fichier       : ROOT/userdata/roms/windows/Old32.wsquashfs
+-- stderr
+Erreur : Old32 est déjà lancé
+== rc=1
+################ mount-old32
+=========================================
+WSquashFS Launcher
+=========================================
+Environnement : ENV
+Jeu           : Old32
+Fichier       : ROOT/userdata/roms/windows/Old32.wsquashfs
+Action        : mount
+Mode          : overlay (squashfuse + fuse-overlayfs)
+-----------------------------------------
+Monté dans    : ROOT/cache/wine/Old32
+Modifications : enregistrées dans ROOT/saves/Old32 (le .wsquashfs n'est jamais modifié)
+Démontage     : LAUNCHER --umount "ROOT/userdata/roms/windows/Old32.wsquashfs"
+  (tout lancement d'un autre jeu démonte aussi les montages inutilisés)
+== rc=0
+################ in-use-cache
+=========================================
+WSquashFS Launcher
+=========================================
+Environnement : ENV
+Jeu           : Old32
+Fichier       : ROOT/userdata/roms/windows/Old32.wsquashfs
+-- stderr
+Erreur : Old32 est déjà lancé
+== rc=1
+################ list-running
+Jeu          État        Version     Sauvegardes  Image
+Arcade Game  -           1.2.3       0            ROOT/userdata/roms/windows/Arcade Game.wsquashfs
+Old32        en cours    -           0            ROOT/userdata/roms/windows/Old32.wsquashfs
+Proton Game  -           -           aucune       ROOT/userdata/roms/windows/Proton Game.wsquashfs
+Solo Game    -           -           0            ROOT/userdata/roms/windows/Solo Game.wsquashfs
+
+Sauvegardes : ROOT/saves (16K au total)
+== rc=0
+################ other-game
+=========================================
+WSquashFS Launcher
+=========================================
+Environnement : ENV
+Jeu           : Solo Game
+Fichier       : ROOT/userdata/roms/windows/Solo Game.wsquashfs
+Mode          : overlay (squashfuse + fuse-overlayfs)
+Initialisation du préfixe Wine (win64)...
+Préfixe       : mise à jour pour wine-9.0 (fake)
+-----------------------------------------
+Exécutable    : ROOT/cache/wine/Solo Game/game/run me.exe
+Arguments     : --arg
+Wine          : ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/bin/wine (win64)
+Version Wine  : wine-9.0 (fake)
+Préfixe       : ROOT/cache/wine/Solo Game
+Sauvegardes   : ROOT/saves/Solo Game
+Manettes      : XInput, manette Xbox
+DXVK          : activé
+VKD3D         : activé
+D7VK          : activé (DirectDraw → Vulkan)
+Bureau virtuel: 1280x720
+=========================================
+
+
+=========================================
+Jeu terminé (code : 0)
+=========================================
+-- stderr
+Attention : umu-run absent, prefix créé par wine-tkg-fake au lieu de Proton
+== rc=0
+WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
+  WINEPREFIX=ROOT/cache/wine/Solo Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
+  WINEDEBUG=fixme-all
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Solo Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
+  WINEPREFIX=ROOT/cache/wine/Solo Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
+  WINEDEBUG=-all
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Services\winebus] [/v] [DisableHidraw] [/t] [REG_DWORD] [/d] [1] [/f]
+  WINEPREFIX=ROOT/cache/wine/Solo Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  GAMEID=
+  PROTONPATH=
+WINESERVER -k
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Solo Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+WINE wine-tkg-fake cwd=ROOT/cache/wine/Solo Game args: [explorer] [/desktop=Solo_Game,1280x720] [ROOT/cache/wine/Solo Game/game/run me.exe] [--arg]
+  WINEPREFIX=ROOT/cache/wine/Solo Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+WINESERVER -w
+WINESERVER -k
+WINESERVER -w
+## Old32 (en cours) après le lancement d'un autre jeu : monté
+################ clean-running
+Nettoyage des copies de travail et des doublons des sauvegardes...
+  Old32 : en cours, gardé
+✓ Copies de travail supprimées
+  Old32 : monté ou en cours, ignoré
+✓ Sauvegardes gardées dans : ROOT/saves
+== rc=0
+## Old32 (en cours) après --clean : monté
+################ locked
+=========================================
+WSquashFS Launcher
+=========================================
+Environnement : ENV
+Jeu           : Old32
+Fichier       : ROOT/userdata/roms/windows/Old32.wsquashfs
+-- stderr
+Erreur : Old32 est déjà lancé
+== rc=1
+################ list-locked
+Jeu          État        Version     Sauvegardes  Image
+Arcade Game  -           1.2.3       0            ROOT/userdata/roms/windows/Arcade Game.wsquashfs
+Old32        verrouillé  -           0            ROOT/userdata/roms/windows/Old32.wsquashfs
+Proton Game  -           -           aucune       ROOT/userdata/roms/windows/Proton Game.wsquashfs
+Solo Game    -           -           4.0K         ROOT/userdata/roms/windows/Solo Game.wsquashfs
+
+Sauvegardes : ROOT/saves (20K au total)
+== rc=0
+################ locked-other
+=========================================
+WSquashFS Launcher
+=========================================
+Environnement : ENV
+Jeu           : Solo Game
+Fichier       : ROOT/userdata/roms/windows/Solo Game.wsquashfs
+Mode          : overlay (squashfuse + fuse-overlayfs)
+✓ Préfixe Wine détecté (structure Batocera)
+Préfixe       : mise à jour pour wine-9.0 (fake)
+-----------------------------------------
+Exécutable    : ROOT/cache/wine/Solo Game/game/run me.exe
+Arguments     : --arg
+Wine          : ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/bin/wine (win64)
+Version Wine  : wine-9.0 (fake)
+Préfixe       : ROOT/cache/wine/Solo Game
+Sauvegardes   : ROOT/saves/Solo Game
+Manettes      : XInput, manette Xbox
+DXVK          : activé
+VKD3D         : activé
+D7VK          : activé (DirectDraw → Vulkan)
+Bureau virtuel: 1280x720
+=========================================
+
+
+=========================================
+Jeu terminé (code : 0)
+=========================================
+-- stderr
+Attention : prefix Wine déjà créé dans les sauvegardes, gardé sous wine-tkg-fake — supprimer ROOT/saves/Solo Game (sauvegardes du jeu comprises) pour passer sous Proton
+== rc=0
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Solo Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
+  WINEPREFIX=ROOT/cache/wine/Solo Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
+  WINEDEBUG=-all
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Services\winebus] [/v] [DisableHidraw] [/t] [REG_DWORD] [/d] [1] [/f]
+  WINEPREFIX=ROOT/cache/wine/Solo Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  GAMEID=
+  PROTONPATH=
+WINESERVER -k
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Solo Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+WINE wine-tkg-fake cwd=ROOT/cache/wine/Solo Game args: [explorer] [/desktop=Solo_Game,1280x720] [ROOT/cache/wine/Solo Game/game/run me.exe] [--arg]
+  WINEPREFIX=ROOT/cache/wine/Solo Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+WINESERVER -w
+WINESERVER -k
+WINESERVER -w
+## Old32 (verrouillé) après le lancement d'un autre jeu : monté
+################ clean-locked
+Nettoyage des copies de travail et des doublons des sauvegardes...
+  Old32 : en cours, gardé
+✓ Copies de travail supprimées
+  Old32 : monté ou en cours, ignoré
+✓ Sauvegardes gardées dans : ROOT/saves
+== rc=0
+## Old32 (verrouillé) après --clean : monté
+################ unlocked
+=========================================
+WSquashFS Launcher
+=========================================
+Environnement : ENV
+Jeu           : Solo Game
+Fichier       : ROOT/userdata/roms/windows/Solo Game.wsquashfs
+Mode          : overlay (squashfuse + fuse-overlayfs)
+✓ Préfixe Wine détecté (structure Batocera)
+Préfixe       : mise à jour pour wine-9.0 (fake)
+-----------------------------------------
+Exécutable    : ROOT/cache/wine/Solo Game/game/run me.exe
+Arguments     : --arg
+Wine          : ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/bin/wine (win64)
+Version Wine  : wine-9.0 (fake)
+Préfixe       : ROOT/cache/wine/Solo Game
+Sauvegardes   : ROOT/saves/Solo Game
+Manettes      : XInput, manette Xbox
+DXVK          : activé
+VKD3D         : activé
+D7VK          : activé (DirectDraw → Vulkan)
+Bureau virtuel: 1280x720
+=========================================
+
+
+=========================================
+Jeu terminé (code : 0)
+=========================================
+-- stderr
+Attention : prefix Wine déjà créé dans les sauvegardes, gardé sous wine-tkg-fake — supprimer ROOT/saves/Solo Game (sauvegardes du jeu comprises) pour passer sous Proton
+== rc=0
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Solo Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
+  WINEPREFIX=ROOT/cache/wine/Solo Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
+  WINEDEBUG=-all
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Services\winebus] [/v] [DisableHidraw] [/t] [REG_DWORD] [/d] [1] [/f]
+  WINEPREFIX=ROOT/cache/wine/Solo Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  GAMEID=
+  PROTONPATH=
+WINESERVER -k
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Solo Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+WINE wine-tkg-fake cwd=ROOT/cache/wine/Solo Game args: [explorer] [/desktop=Solo_Game,1280x720] [ROOT/cache/wine/Solo Game/game/run me.exe] [--arg]
+  WINEPREFIX=ROOT/cache/wine/Solo Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+WINESERVER -w
+WINESERVER -k
+WINESERVER -w
+## Old32 (libéré) après le lancement d'un autre jeu : non monté
+################ runner-bad
+=========================================
+WSquashFS Launcher
+=========================================
+Environnement : ENV
+Jeu           : Old32
+Fichier       : ROOT/userdata/roms/windows/Old32.wsquashfs
+Surcharge     : Old32.wsquashfs.autorun (RUNNER)
+Mode          : overlay (squashfuse + fuse-overlayfs)
+✓ Préfixe Wine détecté (structure Batocera)
+Préfixe       : mise à jour pour wine-9.0 (fake)
+-----------------------------------------
+Exécutable    : ROOT/cache/wine/Old32/drive_c/game/start.bat
+Arguments     : <aucun>
+Wine          : ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/bin/wine (win32)
+Version Wine  : wine-9.0 (fake)
+Préfixe       : ROOT/cache/wine/Old32
+Sauvegardes   : ROOT/saves/Old32
+Manettes      : XInput, manette Xbox (hidraw demandé : aucune manette Sony)
+VKD3D         : activé
+D7VK          : activé (DirectDraw → Vulkan)
+=========================================
+
+
+=========================================
+Jeu terminé (code : 0)
+=========================================
+-- stderr
+Attention : runner /nope/wine non exécutable, utilisation de wine-tkg-fake
+== rc=0
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Old32
+  WINEARCH=win32
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
+  WINEPREFIX=ROOT/cache/wine/Old32
+  WINEARCH=win32
+  WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
+  WINEDEBUG=-all
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Services\winebus] [/v] [DisableHidraw] [/t] [REG_DWORD] [/d] [1] [/f]
+  WINEPREFIX=ROOT/cache/wine/Old32
+  WINEARCH=win32
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  GAMEID=
+  PROTONPATH=
+WINESERVER -k
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Old32
+  WINEARCH=win32
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+WINE wine-tkg-fake cwd=ROOT/cache/wine/Old32/drive_c/game args: [cmd] [/c] [ROOT/cache/wine/Old32/drive_c/game/start.bat]
+  WINEPREFIX=ROOT/cache/wine/Old32
+  WINEARCH=win32
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+WINESERVER -w
+WINESERVER -k
+WINESERVER -w
+################ runner-ok
+=========================================
+WSquashFS Launcher
+=========================================
+Environnement : ENV
+Jeu           : Old32
+Fichier       : ROOT/userdata/roms/windows/Old32.wsquashfs
+Surcharge     : Old32.wsquashfs.autorun (RUNNER)
+Mode          : overlay (squashfuse + fuse-overlayfs)
+✓ Préfixe Wine détecté (structure Batocera)
+Préfixe       : mise à jour pour wine-9.0 (fake)
+-----------------------------------------
+Exécutable    : ROOT/cache/wine/Old32/drive_c/game/start.bat
+Arguments     : <aucun>
+Wine          : ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/bin/wine (win64)
+Version Wine  : wine-9.0 (fake)
+Préfixe       : ROOT/cache/wine/Old32
+Sauvegardes   : ROOT/saves/Old32
+Manettes      : XInput, manette Xbox (hidraw demandé : aucune manette Sony)
+VKD3D         : activé
+D7VK          : activé (DirectDraw → Vulkan)
+=========================================
+
+
+=========================================
+Jeu terminé (code : 0)
+=========================================
+== rc=0
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Old32
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
+  WINEPREFIX=ROOT/cache/wine/Old32
+  WINEARCH=win64
+  WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
+  WINEDEBUG=-all
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Services\winebus] [/v] [DisableHidraw] [/t] [REG_DWORD] [/d] [1] [/f]
+  WINEPREFIX=ROOT/cache/wine/Old32
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  GAMEID=
+  PROTONPATH=
+WINESERVER -k
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Old32
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+WINE wine-tkg-fake cwd=ROOT/cache/wine/Old32/drive_c/game args: [cmd] [/c] [ROOT/cache/wine/Old32/drive_c/game/start.bat]
+  WINEPREFIX=ROOT/cache/wine/Old32
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+WINESERVER -w
+WINESERVER -k
+WINESERVER -w
+################ wine-foo
+=========================================
+WSquashFS Launcher
+=========================================
+Environnement : ENV
+Jeu           : Old32
+Fichier       : ROOT/userdata/roms/windows/Old32.wsquashfs
+Surcharge     : Old32.wsquashfs.autorun (WINE)
+Mode          : overlay (squashfuse + fuse-overlayfs)
+✓ Préfixe Wine détecté (structure Batocera)
+Préfixe       : mise à jour pour wine-9.0 (fake)
+-----------------------------------------
+Exécutable    : ROOT/cache/wine/Old32/drive_c/game/start.bat
+Arguments     : <aucun>
+Wine          : ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/bin/wine (win64)
+Version Wine  : wine-9.0 (fake)
+Préfixe       : ROOT/cache/wine/Old32
+Sauvegardes   : ROOT/saves/Old32
+Manettes      : XInput, manette Xbox (hidraw demandé : aucune manette Sony)
+VKD3D         : activé
+D7VK          : activé (DirectDraw → Vulkan)
+=========================================
+
+
+=========================================
+Jeu terminé (code : 0)
+=========================================
+-- stderr
+Attention : Wine foo absent, utilisation de wine-tkg-fake
+== rc=0
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Old32
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
+  WINEPREFIX=ROOT/cache/wine/Old32
+  WINEARCH=win64
+  WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
+  WINEDEBUG=-all
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Services\winebus] [/v] [DisableHidraw] [/t] [REG_DWORD] [/d] [1] [/f]
+  WINEPREFIX=ROOT/cache/wine/Old32
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  GAMEID=
+  PROTONPATH=
+WINESERVER -k
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Old32
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+WINE wine-tkg-fake cwd=ROOT/cache/wine/Old32/drive_c/game args: [cmd] [/c] [ROOT/cache/wine/Old32/drive_c/game/start.bat]
+  WINEPREFIX=ROOT/cache/wine/Old32
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+WINESERVER -w
+WINESERVER -k
+WINESERVER -w
+################ wine-tkg
+=========================================
+WSquashFS Launcher
+=========================================
+Environnement : ENV
+Jeu           : Old32
+Fichier       : ROOT/userdata/roms/windows/Old32.wsquashfs
+Surcharge     : Old32.wsquashfs.autorun (WINE)
+Mode          : overlay (squashfuse + fuse-overlayfs)
+✓ Préfixe Wine détecté (structure Batocera)
+Préfixe       : mise à jour pour wine-9.0 (fake)
+-----------------------------------------
+Exécutable    : ROOT/cache/wine/Old32/drive_c/game/start.bat
+Arguments     : <aucun>
+Wine          : ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/bin/wine (win64)
+Version Wine  : wine-9.0 (fake)
+Préfixe       : ROOT/cache/wine/Old32
+Sauvegardes   : ROOT/saves/Old32
+Manettes      : XInput, manette Xbox (hidraw demandé : aucune manette Sony)
+VKD3D         : activé
+D7VK          : activé (DirectDraw → Vulkan)
+=========================================
+
+
+=========================================
+Jeu terminé (code : 0)
+=========================================
+== rc=0
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Old32
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
+  WINEPREFIX=ROOT/cache/wine/Old32
+  WINEARCH=win64
+  WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
+  WINEDEBUG=-all
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Services\winebus] [/v] [DisableHidraw] [/t] [REG_DWORD] [/d] [1] [/f]
+  WINEPREFIX=ROOT/cache/wine/Old32
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  GAMEID=
+  PROTONPATH=
+WINESERVER -k
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Old32
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+WINE wine-tkg-fake cwd=ROOT/cache/wine/Old32/drive_c/game args: [cmd] [/c] [ROOT/cache/wine/Old32/drive_c/game/start.bat]
+  WINEPREFIX=ROOT/cache/wine/Old32
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+WINESERVER -w
+WINESERVER -k
+WINESERVER -w
+################ wine-system
+=========================================
+WSquashFS Launcher
+=========================================
+Environnement : ENV
+Jeu           : Old32
+Fichier       : ROOT/userdata/roms/windows/Old32.wsquashfs
+Surcharge     : Old32.wsquashfs.autorun (WINE)
+Mode          : overlay (squashfuse + fuse-overlayfs)
+✓ Préfixe Wine détecté (structure Batocera)
+Préfixe       : mise à jour pour wine-9.0 (fake)
+-----------------------------------------
+Exécutable    : ROOT/cache/wine/Old32/drive_c/game/start.bat
+Arguments     : <aucun>
+Wine          : ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/bin/wine (win64)
+Version Wine  : wine-9.0 (fake)
+Préfixe       : ROOT/cache/wine/Old32
+Sauvegardes   : ROOT/saves/Old32
+Manettes      : XInput, manette Xbox (hidraw demandé : aucune manette Sony)
+VKD3D         : activé
+D7VK          : activé (DirectDraw → Vulkan)
+=========================================
+
+
+=========================================
+Jeu terminé (code : 0)
+=========================================
+-- stderr
+Attention : Wine system absent, utilisation de wine-tkg-fake
+== rc=0
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Old32
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
+  WINEPREFIX=ROOT/cache/wine/Old32
+  WINEARCH=win64
+  WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
+  WINEDEBUG=-all
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Services\winebus] [/v] [DisableHidraw] [/t] [REG_DWORD] [/d] [1] [/f]
+  WINEPREFIX=ROOT/cache/wine/Old32
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  GAMEID=
+  PROTONPATH=
+WINESERVER -k
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Old32
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+WINE wine-tkg-fake cwd=ROOT/cache/wine/Old32/drive_c/game args: [cmd] [/c] [ROOT/cache/wine/Old32/drive_c/game/start.bat]
+  WINEPREFIX=ROOT/cache/wine/Old32
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+WINESERVER -w
+WINESERVER -k
+WINESERVER -w
+################ proton-on-wine
+=========================================
+WSquashFS Launcher
+=========================================
+Environnement : ENV
+Jeu           : Old32
+Fichier       : ROOT/userdata/roms/windows/Old32.wsquashfs
+Surcharge     : Old32.wsquashfs.autorun (PROTON)
+Mode          : overlay (squashfuse + fuse-overlayfs)
+✓ Préfixe Wine détecté (structure Batocera)
+Préfixe       : mise à jour pour wine-9.0 (fake)
+-----------------------------------------
+Exécutable    : ROOT/cache/wine/Old32/drive_c/game/start.bat
+Arguments     : <aucun>
+Wine          : ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/bin/wine (win64)
+Version Wine  : wine-9.0 (fake)
+Préfixe       : ROOT/cache/wine/Old32
+Sauvegardes   : ROOT/saves/Old32
+Manettes      : XInput, manette Xbox (hidraw demandé : aucune manette Sony)
+VKD3D         : activé
+D7VK          : activé (DirectDraw → Vulkan)
+=========================================
+
+
+=========================================
+Jeu terminé (code : 0)
+=========================================
+-- stderr
+Attention : PROTON=GE-Proton9-1 ignoré, prefix Wine existant — Proton ne sait pas le convertir
+== rc=0
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Old32
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
+  WINEPREFIX=ROOT/cache/wine/Old32
+  WINEARCH=win64
+  WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
+  WINEDEBUG=-all
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Services\winebus] [/v] [DisableHidraw] [/t] [REG_DWORD] [/d] [1] [/f]
+  WINEPREFIX=ROOT/cache/wine/Old32
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  GAMEID=
+  PROTONPATH=
+WINESERVER -k
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Old32
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+WINE wine-tkg-fake cwd=ROOT/cache/wine/Old32/drive_c/game args: [cmd] [/c] [ROOT/cache/wine/Old32/drive_c/game/start.bat]
+  WINEPREFIX=ROOT/cache/wine/Old32
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+WINESERVER -w
+WINESERVER -k
+WINESERVER -w
+################ no-cmd
+=========================================
+WSquashFS Launcher
+=========================================
+Environnement : ENV
+Jeu           : Old32
+Fichier       : ROOT/userdata/roms/windows/Old32.wsquashfs
+Surcharge     : Old32.wsquashfs.autorun (CMD)
+Mode          : overlay (squashfuse + fuse-overlayfs)
+-- stderr
+Erreur : CMD non défini dans autorun.cmd
+== rc=1
+WINESERVER -k
+WINESERVER -w
+################ cmd-quotes
+=========================================
+WSquashFS Launcher
+=========================================
+Environnement : ENV
+Jeu           : Old32
+Fichier       : ROOT/userdata/roms/windows/Old32.wsquashfs
+Surcharge     : Old32.wsquashfs.autorun (CMD)
+Mode          : overlay (squashfuse + fuse-overlayfs)
+✓ Préfixe Wine détecté (structure Batocera)
+Préfixe       : mise à jour pour wine-9.0 (fake)
+-----------------------------------------
+Exécutable    : ROOT/cache/wine/Old32/drive_c/game/start.bat
+Arguments     : -path "C:\Mon Jeu\x" -n "" fin
+Wine          : ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/bin/wine (win64)
+Version Wine  : wine-9.0 (fake)
+Préfixe       : ROOT/cache/wine/Old32
+Sauvegardes   : ROOT/saves/Old32
+Manettes      : XInput, manette Xbox (hidraw demandé : aucune manette Sony)
+VKD3D         : activé
+D7VK          : activé (DirectDraw → Vulkan)
+=========================================
+
+
+=========================================
+Jeu terminé (code : 0)
+=========================================
+== rc=0
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Old32
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
+  WINEPREFIX=ROOT/cache/wine/Old32
+  WINEARCH=win64
+  WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
+  WINEDEBUG=-all
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Services\winebus] [/v] [DisableHidraw] [/t] [REG_DWORD] [/d] [1] [/f]
+  WINEPREFIX=ROOT/cache/wine/Old32
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  GAMEID=
+  PROTONPATH=
+WINESERVER -k
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Old32
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+WINE wine-tkg-fake cwd=ROOT/cache/wine/Old32/drive_c/game args: [cmd] [/c] [ROOT/cache/wine/Old32/drive_c/game/start.bat] [-path] [C:\Mon Jeu\x] [-n] [] [fin]
+  WINEPREFIX=ROOT/cache/wine/Old32
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+WINESERVER -w
+WINESERVER -k
+WINESERVER -w
+################ no-exe
+=========================================
+WSquashFS Launcher
+=========================================
+Environnement : ENV
+Jeu           : Old32
+Fichier       : ROOT/userdata/roms/windows/Old32.wsquashfs
+Surcharge     : Old32.wsquashfs.autorun (CMD)
+Mode          : overlay (squashfuse + fuse-overlayfs)
+-- stderr
+Erreur : exécutable introuvable : ROOT/cache/wine/Old32/drive_c/game/missing.exe
+  CMD : missing.exe  |  DIR : drive_c/game
+== rc=1
+WINESERVER -k
+WINESERVER -w
+################ savefiles
+=========================================
+WSquashFS Launcher
+=========================================
+Environnement : ENV
+Jeu           : Old32
+Fichier       : ROOT/userdata/roms/windows/Old32.wsquashfs
+Surcharge     : Old32.wsquashfs.autorun (SAVEDIR SAVEFILES HIDRAW FSYNC VKD3D D7VK)
+Mode          : overlay (squashfuse + fuse-overlayfs)
+✓ Préfixe Wine détecté (structure Batocera)
+Préfixe       : mise à jour pour wine-9.0 (fake)
+Sauvegardes   : ROOT/userdata/saves/windows/Old32 (SAVEDIR/SAVEFILES)
+-----------------------------------------
+Exécutable    : ROOT/cache/wine/Old32/drive_c/game/start.bat
+Arguments     : <aucun>
+Wine          : ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/bin/wine (win64)
+Version Wine  : wine-9.0 (fake)
+Préfixe       : ROOT/cache/wine/Old32
+Sauvegardes   : ROOT/saves/Old32
+Manettes      : XInput, manette Xbox
+FSYNC         : activé
+=========================================
+
+
+=========================================
+Jeu terminé (code : 0)
+=========================================
+== rc=0
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Old32
+  WINEARCH=win64
+  WINEDLLOVERRIDES=d3d8,d3d9,d3d10core,d3d11,dxgi=b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINEFSYNC=1
+WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
+  WINEPREFIX=ROOT/cache/wine/Old32
+  WINEARCH=win64
+  WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
+  WINEDEBUG=-all
+  WINEFSYNC=1
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Services\winebus] [/v] [DisableHidraw] [/t] [REG_DWORD] [/d] [1] [/f]
+  WINEPREFIX=ROOT/cache/wine/Old32
+  WINEARCH=win64
+  WINEDLLOVERRIDES=d3d8,d3d9,d3d10core,d3d11,dxgi=b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINEFSYNC=1
+  GAMEID=
+  PROTONPATH=
+WINESERVER -k
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Old32
+  WINEARCH=win64
+  WINEDLLOVERRIDES=d3d8,d3d9,d3d10core,d3d11,dxgi=b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINEFSYNC=1
+WINE wine-tkg-fake cwd=ROOT/cache/wine/Old32/drive_c/game args: [cmd] [/c] [ROOT/cache/wine/Old32/drive_c/game/start.bat]
+  WINEPREFIX=ROOT/cache/wine/Old32
+  WINEARCH=win64
+  WINEDLLOVERRIDES=d3d8,d3d9,d3d10core,d3d11,dxgi=b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINEFSYNC=1
+WINESERVER -w
+WINESERVER -k
+WINESERVER -w
+################ TREE after-savefiles
+d cache -> 
+d cache/locks -> 
+d cache/mnt -> 
+d cache/mnt/Old32 -> 
+d cache/mnt/Solo Game -> 
+d cache/wine -> 
+d cache/wine/Old32 -> 
+d cache/wine/Solo Game -> 
+d saves -> 
+d saves/.images -> 
+d saves/.work -> 
+d saves/Arcade Game -> 
+d saves/Arcade Game/drive_c -> 
+d saves/Arcade Game/drive_c/users -> 
+d saves/Arcade Game/drive_c/users/steamuser -> 
+d saves/Arcade Game/drive_c/users/steamuser/Music -> 
+d saves/Arcade Game/drive_c/users/wsqtest -> 
+d saves/Old32 -> 
+d saves/Old32/drive_c -> 
+d saves/Old32/drive_c/game -> 
+d saves/Old32/drive_c/users -> 
+d saves/Old32/drive_c/users/wsqtest -> 
+d saves/Old32/drive_c/windows -> 
+d saves/Old32/drive_c/windows/system32 -> 
+d saves/Old32/drive_c/windows/syswow64 -> 
+d saves/Solo Game -> 
+d saves/Solo Game/drive_c -> 
+d saves/Solo Game/drive_c/users -> 
+d saves/Solo Game/drive_c/users/wsqtest -> 
+d saves/Solo Game/drive_c/windows -> 
+d saves/Solo Game/drive_c/windows/system32 -> 
+d saves/Solo Game/drive_c/windows/syswow64 -> 
+d src -> 
+d src/Arcade Game.wine -> 
+d src/Arcade Game.wine/drive_c -> 
+d src/Arcade Game.wine/drive_c/Game Dir -> 
+d src/Arcade Game.wine/drive_c/Game Dir/Bin -> 
+d src/Arcade Game.wine/drive_c/Game Dir/Saves -> 
+d src/Arcade Game.wine/drive_c/users -> 
+d src/Arcade Game.wine/drive_c/users/steamuser -> 
+d src/Arcade Game.wine/drive_c/users/steamuser/Documents -> 
+d src/Arcade Game.wine/drive_c/windows -> 
+d src/Arcade Game.wine/drive_c/windows/system32 -> 
+d src/Arcade Game.wine/drive_c/windows/syswow64 -> 
+d src/Arcade Game.wine/regs -> 
+d src/Old32.wine -> 
+d src/Old32.wine/drive_c -> 
+d src/Old32.wine/drive_c/game -> 
+d src/Old32.wine/drive_c/windows -> 
+d src/Old32.wine/drive_c/windows/system32 -> 
+d src/Proton Game.wine -> 
+d src/Proton Game.wine/drive_c -> 
+d src/Proton Game.wine/drive_c/pg -> 
+d src/Proton Game.wine/drive_c/windows -> 
+d src/Proton Game.wine/drive_c/windows/system32 -> 
+d src/Solo Game -> 
+d src/Solo Game/game -> 
+d userdata -> 
+d userdata/roms -> 
+d userdata/roms/windows -> 
+d userdata/saves -> 
+d userdata/saves/windows -> 
+d userdata/saves/windows/Arcade Game -> 
+d userdata/saves/windows/Old32 -> 
+d userdata/saves/windows/Old32/drive_c -> 
+d userdata/saves/windows/Old32/drive_c/game -> 
+f cache/locks/Arcade Game.lock -> 
+f cache/locks/Old32.lock -> 
+f cache/locks/Proton Game.lock -> 
+f cache/locks/Solo Game.lock -> 
+f saves/.images/Arcade Game -> 
+f saves/.images/Old32 -> 
+f saves/.images/Proton Game -> 
+f saves/.images/Solo Game -> 
+f saves/Arcade Game/drive_c/users/steamuser/Music/.wh..wh..opq -> 
+f saves/Arcade Game/drive_c/users/wsqtest/.wh..wh..opq -> 
+f saves/Old32/drive_c/users/.wh..wh..opq -> 
+f saves/Old32/drive_c/users/wsqtest/.wh..wh..opq -> 
+f saves/Old32/system.reg -> 
+f saves/Solo Game/drive_c/users/.wh..wh..opq -> 
+f saves/Solo Game/drive_c/users/wsqtest/.wh..wh..opq -> 
+f saves/Solo Game/drive_c/windows/.wh..wh..opq -> 
+f saves/Solo Game/drive_c/windows/system32/.wh..wh..opq -> 
+f saves/Solo Game/drive_c/windows/system32/explorer.exe -> 
+f saves/Solo Game/system.reg -> 
+f src/Arcade Game.wine/autorun.cmd -> 
+f src/Arcade Game.wine/drive_c/Game Dir/Bin/Config.exe -> 
+f src/Arcade Game.wine/drive_c/Game Dir/Bin/Game.EXE -> 
+f src/Arcade Game.wine/drive_c/Game Dir/Saves/slot1 -> 
+f src/Arcade Game.wine/drive_c/windows/system32/d3dx9_42.dll -> 
+f src/Arcade Game.wine/drive_c/windows/system32/explorer.exe -> 
+f src/Arcade Game.wine/drive_c/windows/system32/kernel32.dll -> 
+f src/Arcade Game.wine/regs/a.reg -> 
+f src/Arcade Game.wine/system.reg -> 
+f src/Old32.wine/autorun.cmd -> 
+f src/Old32.wine/drive_c/game/start.bat -> 
+f src/Old32.wine/drive_c/windows/system32/explorer.exe -> 
+f src/Old32.wine/system.reg -> 
+f src/Proton Game.wine/autorun.cmd -> 
+f src/Proton Game.wine/config_info -> 
+f src/Proton Game.wine/drive_c/pg/pg.exe -> 
+f src/Proton Game.wine/system.reg -> 
+f src/Solo Game/autorun.cmd -> 
+f src/Solo Game/game/run me.exe -> 
+f userdata/roms/windows/Arcade Game.wsquashfs -> 
+f userdata/roms/windows/Old32.wsquashfs -> 
+f userdata/roms/windows/Old32.wsquashfs.autorun -> 
+f userdata/roms/windows/Proton Game.wsquashfs -> 
+f userdata/roms/windows/Solo Game.wsquashfs -> 
+f userdata/saves/windows/Arcade Game/slot1 -> 
+l saves/Old32/drive_c/game/a.sav -> ROOT/userdata/saves/windows/Old32/drive_c/game/a.sav
+l saves/Old32/drive_c/game/b.sav -> ROOT/userdata/saves/windows/Old32/drive_c/game/b.sav
+l saves/Old32/drive_c/windows/system32/kernel32.dll -> ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/lib/wine/x86_64-windows/kernel32.dll
+l saves/Old32/drive_c/windows/syswow64/ddraw.dll -> ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/lib/wine/i386-windows/ddraw.dll
+l saves/Old32/drive_c/windows/syswow64/kernel32.dll -> ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/lib/wine/i386-windows/kernel32.dll
+l saves/Solo Game/drive_c/windows/system32/d3d11.dll -> ROOT/dxvk/x64/d3d11.dll
+l saves/Solo Game/drive_c/windows/system32/d3d12.dll -> ROOT/vkd3d/x64/d3d12.dll
+l saves/Solo Game/drive_c/windows/system32/d3d9.dll -> ROOT/dxvk/x64/d3d9.dll
+l saves/Solo Game/drive_c/windows/system32/dxgi.dll -> ROOT/dxvk/x64/dxgi.dll
+l saves/Solo Game/drive_c/windows/system32/kernel32.dll -> ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/lib/wine/x86_64-windows/kernel32.dll
+l saves/Solo Game/drive_c/windows/syswow64/d3d11.dll -> ROOT/dxvk/x32/d3d11.dll
+l saves/Solo Game/drive_c/windows/syswow64/d3d12.dll -> ROOT/vkd3d/x86/d3d12.dll
+l saves/Solo Game/drive_c/windows/syswow64/d3d9.dll -> ROOT/dxvk/x32/d3d9.dll
+l saves/Solo Game/drive_c/windows/syswow64/ddraw.dll -> ROOT/d7vk/x32/ddraw.dll
+l saves/Solo Game/drive_c/windows/syswow64/ddraw_.dll -> ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/lib/wine/i386-windows/ddraw.dll
+l saves/Solo Game/drive_c/windows/syswow64/dxgi.dll -> ROOT/dxvk/x32/dxgi.dll
+l saves/Solo Game/drive_c/windows/syswow64/kernel32.dll -> ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/lib/wine/i386-windows/kernel32.dll
+l src/Arcade Game.wine/drive_c/users/steamuser/Music -> /userdata/system/Music
+l src/Arcade Game.wine/drive_c/windows/system32/dxgi.dll -> /userdata/system/wine/dxvk/x64/dxgi.dll
+################ proton-option
+=========================================
+WSquashFS Launcher
+=========================================
+Environnement : ENV
+Jeu           : Solo Game
+Fichier       : ROOT/userdata/roms/windows/Solo Game.wsquashfs
+Mode          : overlay (squashfuse + fuse-overlayfs)
+✓ Préfixe Wine détecté (structure Batocera)
+Préfixe       : mise à jour pour wine-9.0 (fake)
+-----------------------------------------
+Exécutable    : ROOT/cache/wine/Solo Game/game/run me.exe
+Arguments     : --arg
+Wine          : ROOT/home/.local/share/Steam/compatibilitytools.d/GE-Proton9-1/files/bin/wine (win64)
+Version Wine  : GE-Proton9-1
+Préfixe       : ROOT/cache/wine/Solo Game
+Sauvegardes   : ROOT/saves/Solo Game
+Manettes      : XInput, manette Xbox
+DXVK          : activé
+VKD3D         : activé
+D7VK          : activé (DirectDraw → Vulkan)
+Bureau virtuel: 1280x720
+=========================================
+
+
+=========================================
+Jeu terminé (code : 0)
+=========================================
+== rc=0
+WINE files cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Solo Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+WINE files cwd=ROOT args: [wineboot] [-u]
+  WINEPREFIX=ROOT/cache/wine/Solo Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
+  WINEDEBUG=-all
+WINESERVER -w
+WINE files cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Services\winebus] [/v] [DisableHidraw] [/t] [REG_DWORD] [/d] [1] [/f]
+  WINEPREFIX=ROOT/cache/wine/Solo Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  GAMEID=
+  PROTONPATH=
+WINESERVER -k
+WINESERVER -w
+WINE files cwd=ROOT/cache/wine/Solo Game args: [explorer] [/desktop=Solo_Game,1280x720] [ROOT/cache/wine/Solo Game/game/run me.exe] [--arg]
+  WINEPREFIX=ROOT/cache/wine/Solo Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+WINESERVER -w
+WINESERVER -k
+WINESERVER -w
+################ solo-umu
+=========================================
+WSquashFS Launcher
+=========================================
+Environnement : ENV
+Jeu           : Solo Game
+Fichier       : ROOT/userdata/roms/windows/Solo Game.wsquashfs
+Mode          : overlay (squashfuse + fuse-overlayfs)
+✓ Préfixe Wine détecté (structure Batocera)
+Préfixe       : mise à jour pour wine-9.0 (fake)
+-----------------------------------------
+Exécutable    : ROOT/cache/wine/Solo Game/game/run me.exe
+Arguments     : --arg
+Wine          : ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/bin/wine (win64)
+Version Wine  : wine-9.0 (fake)
+Préfixe       : ROOT/cache/wine/Solo Game
+Sauvegardes   : ROOT/saves/Solo Game
+Manettes      : XInput, manette Xbox
+DXVK          : activé
+VKD3D         : activé
+D7VK          : activé (DirectDraw → Vulkan)
+Bureau virtuel: 1280x720
+=========================================
+
+
+=========================================
+Jeu terminé (code : 0)
+=========================================
+-- stderr
+Attention : prefix Wine déjà créé dans les sauvegardes, gardé sous wine-tkg-fake — supprimer ROOT/saves/Solo Game (sauvegardes du jeu comprises) pour passer sous Proton
+== rc=0
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Solo Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
+  WINEPREFIX=ROOT/cache/wine/Solo Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
+  WINEDEBUG=-all
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Services\winebus] [/v] [DisableHidraw] [/t] [REG_DWORD] [/d] [1] [/f]
+  WINEPREFIX=ROOT/cache/wine/Solo Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  GAMEID=
+  PROTONPATH=
+WINESERVER -k
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Solo Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+WINE wine-tkg-fake cwd=ROOT/cache/wine/Solo Game args: [explorer] [/desktop=Solo_Game,1280x720] [ROOT/cache/wine/Solo Game/game/run me.exe] [--arg]
+  WINEPREFIX=ROOT/cache/wine/Solo Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+WINESERVER -w
+WINESERVER -k
+WINESERVER -w
+################ win32-nowine
+=========================================
+WSquashFS Launcher
+=========================================
+Environnement : ENV
+Jeu           : Old32
+Fichier       : ROOT/userdata/roms/windows/Old32.wsquashfs
+Mode          : overlay (squashfuse + fuse-overlayfs)
+-- stderr
+Erreur : prefix win32, mais wine-tkg-fake est un Wine WoW64 seul
+  (pas de lib/wine/i386-unix) qui ne peut pas lancer de prefix 32 bits.
+  → Installer un Wine classique (ex. Kron4ek wine-*-amd64, non wow64)
+    dans /opt ou ~/.local/share/wsquashfs/wine
+== rc=1
+WINESERVER -k
+WINESERVER -w
+################ win32-option
+=========================================
+WSquashFS Launcher
+=========================================
+Environnement : ENV
+Jeu           : Old32
+Fichier       : ROOT/userdata/roms/windows/Old32.wsquashfs
+Mode          : overlay (squashfuse + fuse-overlayfs)
+-- stderr
+Erreur : prefix win32, mais le runner choisi (--wine tkg-fake) est WoW64 seul
+== rc=1
+WINESERVER -k
+WINESERVER -w
+################ win32-swap
+=========================================
+WSquashFS Launcher
+=========================================
+Environnement : ENV
+Jeu           : Old32
+Fichier       : ROOT/userdata/roms/windows/Old32.wsquashfs
+Mode          : overlay (squashfuse + fuse-overlayfs)
+✓ Préfixe Wine détecté (structure Batocera)
+Préfixe       : mise à jour pour wine-9.0 (fake)
+-----------------------------------------
+Exécutable    : ROOT/cache/wine/Old32/drive_c/game/start.bat
+Arguments     : <aucun>
+Wine          : ROOT/home/.local/share/wsquashfs/wine/wine-classic/bin/wine (win32)
+Version Wine  : wine-9.0 (fake)
+Préfixe       : ROOT/cache/wine/Old32
+Sauvegardes   : ROOT/saves/Old32
+Manettes      : XInput, manette Xbox (hidraw demandé : aucune manette Sony)
+VKD3D         : activé
+D7VK          : activé (DirectDraw → Vulkan)
+=========================================
+
+
+=========================================
+Jeu terminé (code : 0)
+=========================================
+== rc=0
+WINE wine-classic cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Old32
+  WINEARCH=win32
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+WINE wine-classic cwd=ROOT args: [wineboot] [-u]
+  WINEPREFIX=ROOT/cache/wine/Old32
+  WINEARCH=win32
+  WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
+  WINEDEBUG=-all
+WINESERVER -w
+WINE wine-classic cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Services\winebus] [/v] [DisableHidraw] [/t] [REG_DWORD] [/d] [1] [/f]
+  WINEPREFIX=ROOT/cache/wine/Old32
+  WINEARCH=win32
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  GAMEID=
+  PROTONPATH=
+WINESERVER -k
+WINESERVER -w
+WINE wine-classic cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Old32
+  WINEARCH=win32
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+WINE wine-classic cwd=ROOT/cache/wine/Old32/drive_c/game args: [cmd] [/c] [ROOT/cache/wine/Old32/drive_c/game/start.bat]
+  WINEPREFIX=ROOT/cache/wine/Old32
+  WINEARCH=win32
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+WINESERVER -w
+WINESERVER -k
+WINESERVER -w
+################ clean-dup
+Nettoyage des copies de travail et des doublons des sauvegardes...
+✓ Copies de travail supprimées
+  Arcade Game : 1 doublon(s) retiré(s), 0 Mo libérés
+✓ Sauvegardes gardées dans : ROOT/saves
+== rc=0
+################ TREE after-clean-dup
+d cache -> 
+d cache/locks -> 
+d cache/mnt -> 
+d cache/wine -> 
+d saves -> 
+d saves/.images -> 
+d saves/.work -> 
+d saves/Arcade Game -> 
+d saves/Arcade Game/drive_c -> 
+d saves/Arcade Game/drive_c/Game Dir -> 
+d saves/Arcade Game/drive_c/Game Dir/Bin -> 
+d saves/Arcade Game/drive_c/users -> 
+d saves/Arcade Game/drive_c/users/steamuser -> 
+d saves/Arcade Game/drive_c/users/steamuser/Music -> 
+d saves/Arcade Game/drive_c/users/wsqtest -> 
+d saves/Old32 -> 
+d saves/Old32/drive_c -> 
+d saves/Old32/drive_c/users -> 
+d saves/Old32/drive_c/users/wsqtest -> 
+d saves/Old32/drive_c/windows -> 
+d saves/Old32/drive_c/windows/system32 -> 
+d saves/Solo Game -> 
+d saves/Solo Game/drive_c -> 
+d saves/Solo Game/drive_c/users -> 
+d saves/Solo Game/drive_c/users/wsqtest -> 
+d saves/Solo Game/drive_c/windows -> 
+d saves/Solo Game/drive_c/windows/system32 -> 
+d saves/Solo Game/drive_c/windows/syswow64 -> 
+d src -> 
+d src/Arcade Game.wine -> 
+d src/Arcade Game.wine/drive_c -> 
+d src/Arcade Game.wine/drive_c/Game Dir -> 
+d src/Arcade Game.wine/drive_c/Game Dir/Bin -> 
+d src/Arcade Game.wine/drive_c/Game Dir/Saves -> 
+d src/Arcade Game.wine/drive_c/users -> 
+d src/Arcade Game.wine/drive_c/users/steamuser -> 
+d src/Arcade Game.wine/drive_c/users/steamuser/Documents -> 
+d src/Arcade Game.wine/drive_c/windows -> 
+d src/Arcade Game.wine/drive_c/windows/system32 -> 
+d src/Arcade Game.wine/drive_c/windows/syswow64 -> 
+d src/Arcade Game.wine/regs -> 
+d src/Old32.wine -> 
+d src/Old32.wine/drive_c -> 
+d src/Old32.wine/drive_c/game -> 
+d src/Old32.wine/drive_c/windows -> 
+d src/Old32.wine/drive_c/windows/system32 -> 
+d src/Proton Game.wine -> 
+d src/Proton Game.wine/drive_c -> 
+d src/Proton Game.wine/drive_c/pg -> 
+d src/Proton Game.wine/drive_c/windows -> 
+d src/Proton Game.wine/drive_c/windows/system32 -> 
+d src/Solo Game -> 
+d src/Solo Game/game -> 
+d userdata -> 
+d userdata/roms -> 
+d userdata/roms/windows -> 
+d userdata/saves -> 
+d userdata/saves/windows -> 
+d userdata/saves/windows/Arcade Game -> 
+d userdata/saves/windows/Old32 -> 
+d userdata/saves/windows/Old32/drive_c -> 
+d userdata/saves/windows/Old32/drive_c/game -> 
+f cache/locks/Arcade Game.lock -> 
+f cache/locks/Old32.lock -> 
+f cache/locks/Proton Game.lock -> 
+f cache/locks/Solo Game.lock -> 
+f saves/.images/Arcade Game -> 
+f saves/.images/Old32 -> 
+f saves/.images/Proton Game -> 
+f saves/.images/Solo Game -> 
+f saves/Arcade Game/drive_c/Game Dir/Bin/Game.EXE -> 
+f saves/Arcade Game/drive_c/users/steamuser/Music/.wh..wh..opq -> 
+f saves/Arcade Game/drive_c/users/wsqtest/.wh..wh..opq -> 
+f saves/Old32/drive_c/users/.wh..wh..opq -> 
+f saves/Old32/drive_c/users/wsqtest/.wh..wh..opq -> 
+f saves/Old32/system.reg -> 
+f saves/Solo Game/drive_c/users/.wh..wh..opq -> 
+f saves/Solo Game/drive_c/users/wsqtest/.wh..wh..opq -> 
+f saves/Solo Game/drive_c/windows/.wh..wh..opq -> 
+f saves/Solo Game/drive_c/windows/system32/.wh..wh..opq -> 
+f saves/Solo Game/drive_c/windows/system32/explorer.exe -> 
+f saves/Solo Game/system.reg -> 
+f src/Arcade Game.wine/autorun.cmd -> 
+f src/Arcade Game.wine/drive_c/Game Dir/Bin/Config.exe -> 
+f src/Arcade Game.wine/drive_c/Game Dir/Bin/Game.EXE -> 
+f src/Arcade Game.wine/drive_c/Game Dir/Saves/slot1 -> 
+f src/Arcade Game.wine/drive_c/windows/system32/d3dx9_42.dll -> 
+f src/Arcade Game.wine/drive_c/windows/system32/explorer.exe -> 
+f src/Arcade Game.wine/drive_c/windows/system32/kernel32.dll -> 
+f src/Arcade Game.wine/regs/a.reg -> 
+f src/Arcade Game.wine/system.reg -> 
+f src/Old32.wine/autorun.cmd -> 
+f src/Old32.wine/drive_c/game/start.bat -> 
+f src/Old32.wine/drive_c/windows/system32/explorer.exe -> 
+f src/Old32.wine/system.reg -> 
+f src/Proton Game.wine/autorun.cmd -> 
+f src/Proton Game.wine/config_info -> 
+f src/Proton Game.wine/drive_c/pg/pg.exe -> 
+f src/Proton Game.wine/system.reg -> 
+f src/Solo Game/autorun.cmd -> 
+f src/Solo Game/game/run me.exe -> 
+f userdata/roms/windows/Arcade Game.wsquashfs -> 
+f userdata/roms/windows/Old32.wsquashfs -> 
+f userdata/roms/windows/Proton Game.wsquashfs -> 
+f userdata/roms/windows/Solo Game.wsquashfs -> 
+f userdata/saves/windows/Arcade Game/slot1 -> 
+l saves/Old32/drive_c/windows/system32/d3d12.dll -> ROOT/vkd3d/x86/d3d12.dll
+l saves/Old32/drive_c/windows/system32/ddraw.dll -> ROOT/d7vk/x32/ddraw.dll
+l saves/Old32/drive_c/windows/system32/ddraw_.dll -> ROOT/home/.local/share/wsquashfs/wine/wine-classic/lib/wine/i386-windows/ddraw.dll
+l saves/Old32/drive_c/windows/system32/kernel32.dll -> ROOT/home/.local/share/wsquashfs/wine/wine-classic/lib/wine/i386-windows/kernel32.dll
+l saves/Solo Game/drive_c/windows/system32/d3d11.dll -> ROOT/dxvk/x64/d3d11.dll
+l saves/Solo Game/drive_c/windows/system32/d3d12.dll -> ROOT/vkd3d/x64/d3d12.dll
+l saves/Solo Game/drive_c/windows/system32/d3d9.dll -> ROOT/dxvk/x64/d3d9.dll
+l saves/Solo Game/drive_c/windows/system32/dxgi.dll -> ROOT/dxvk/x64/dxgi.dll
+l saves/Solo Game/drive_c/windows/system32/kernel32.dll -> ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/lib/wine/x86_64-windows/kernel32.dll
+l saves/Solo Game/drive_c/windows/syswow64/d3d11.dll -> ROOT/dxvk/x32/d3d11.dll
+l saves/Solo Game/drive_c/windows/syswow64/d3d12.dll -> ROOT/vkd3d/x86/d3d12.dll
+l saves/Solo Game/drive_c/windows/syswow64/d3d9.dll -> ROOT/dxvk/x32/d3d9.dll
+l saves/Solo Game/drive_c/windows/syswow64/ddraw.dll -> ROOT/d7vk/x32/ddraw.dll
+l saves/Solo Game/drive_c/windows/syswow64/ddraw_.dll -> ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/lib/wine/i386-windows/ddraw.dll
+l saves/Solo Game/drive_c/windows/syswow64/dxgi.dll -> ROOT/dxvk/x32/dxgi.dll
+l saves/Solo Game/drive_c/windows/syswow64/kernel32.dll -> ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/lib/wine/i386-windows/kernel32.dll
+l src/Arcade Game.wine/drive_c/users/steamuser/Music -> /userdata/system/Music
+l src/Arcade Game.wine/drive_c/windows/system32/dxgi.dll -> /userdata/system/wine/dxvk/x64/dxgi.dll
+################ umount-final
+== rc=0
+## montages restants : 0

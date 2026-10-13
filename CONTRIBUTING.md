@@ -59,6 +59,22 @@ MA_CONSTANTE="valeur"
 
 ## 🧪 Tests
 
+Le lanceur a une suite de tests de non-régression (`tests/run-tests.sh`) :
+elle lance le vrai script sur des dizaines de scénarios, avec de vrais
+montages FUSE mais un faux Wine/Proton/umu qui journalise ses appels, et
+compare la trace obtenue à `tests/expected.out`.
+
+```bash
+make test          # doit afficher « ✓ N scénarios conformes »
+make lint          # shellcheck
+make test-update   # après un changement de comportement VOULU : relire
+                   # le diff de tests/expected.out avant de commiter
+```
+
+Prérequis : squashfuse, fuse-overlayfs, squashfs-tools, attr (getfattr),
+util-linux (flock) et l'accès à `/dev/fuse`. Un nouveau comportement
+s'accompagne d'un scénario dans `tests/run-tests.sh`.
+
 Avant de soumettre une PR :
 
 1. Testez votre code sur votre système
@@ -71,7 +87,7 @@ Avant de soumettre une PR :
 - [ ] Support complet de Proton
 - [ ] Installation automatique de DXVK/VKD3D
 - [ ] Support de multiples versions de Wine dans Docker
-- [ ] Tests automatisés
+- [x] Tests automatisés (`make test`)
 - [ ] CI/CD avec GitHub Actions
 - [ ] Documentation améliorée
 
