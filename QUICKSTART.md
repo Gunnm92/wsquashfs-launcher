@@ -1,195 +1,109 @@
-# 🚀 Démarrage Rapide
+# 🚀 Démarrage rapide
 
-## Installation en 3 étapes
-
-### 1. Installer les dépendances
+## 1. Installer
 
 ```bash
-# Debian/Ubuntu
-sudo apt install squashfuse wine dos2unix
-
-# Arch Linux
-sudo pacman -S squashfuse wine dos2unix
-
-# Fedora
-sudo dnf install squashfuse wine dos2unix
+curl -fsSL https://raw.githubusercontent.com/Gunnm92/wsquashfs-launcher/main/install.sh | bash
 ```
 
-### 2. Installer wsquashfs-run
+ou, depuis le dépôt cloné : `./install.sh` (ou `make install`).
 
-**Méthode automatique (recommandée)** :
+L'installeur détecte la distribution — **Debian/Ubuntu** (apt) ou **Arch,
+CachyOS, Manjaro, EndeavourOS** (pacman) — installe les paquets système
+(squashfuse, fuse-overlayfs, bibliothèques 32 bits…), puis propose wine-tkg,
+umu et un Proton, DXVK, VKD3D-Proton et d7vk. Il pose ses questions au
+terminal ; `--yes` pour tout accepter, `--dry-run` pour voir ce qu'il ferait
+sans rien modifier.
+
+## 2. Vérifier
 
 ```bash
-./install.sh
+wsquashfs-launcher --doctor      # ou ./test-setup.sh depuis le dépôt
 ```
 
-**Méthode manuelle** :
+Chaque point est marqué ✓ (en place), ✗ (manquant, avec la conséquence) ou –
+(facultatif).
+
+## 3. Lancer un jeu
 
 ```bash
-sudo cp wsquashfs-run /usr/local/bin/
-sudo chmod +x /usr/local/bin/wsquashfs-run
+wsquashfs-launcher /chemin/vers/MonJeu.wsquashfs
 ```
 
-**Avec Make** :
+Commandes utiles :
 
 ```bash
-make install
+wsquashfs-launcher --list                  # jeux connus, état, sauvegardes
+wsquashfs-launcher --info MonJeu.wsquashfs # version, type, commande
+wsquashfs-launcher --exec MonJeu.wsquashfs winecfg
+wsquashfs-launcher --backup                # archiver les sauvegardes
+wsquashfs-launcher --help
 ```
 
-### 3. Lancer un jeu
+## 🎮 Frontend (Pegasus, EmulationStation…)
 
-```bash
-wsquashfs-run /path/to/your/game.wsquashfs
+Commande de lancement : `wsquashfs-launcher "{file.path}"`.
+
+Exemple Pegasus (`metadata.pegasus.txt` dans le dossier des jeux) :
+
 ```
-
-## ✅ Vérifier l'installation
-
-```bash
-./test-setup.sh
-```
-
-## 🎮 Utilisation avec Pegasus Frontend
-
-### Configuration rapide
-
-1. Créez un dossier pour vos jeux :
-```bash
-mkdir -p ~/Games/wsquashfs
-```
-
-2. Copiez vos fichiers `.wsquashfs` :
-```bash
-cp /path/to/*.wsquashfs ~/Games/wsquashfs/
-```
-
-3. Créez le fichier metadata :
-```bash
-cat > ~/Games/wsquashfs/metadata.pegasus.txt << 'EOF'
 collection: Windows Games (WSquashFS)
 shortname: wsquashfs
 extensions: wsquashfs
-launch: wsquashfs-run "{file.path}"
-
-game: Mon Jeu
-file: monjeu.wsquashfs
-developer: Developer
-genre: Action
-description: Description de mon jeu
-EOF
+launch: wsquashfs-launcher "{file.path}"
 ```
-
-4. Ajoutez le dossier dans Pegasus :
-   - Ouvrez Pegasus → Settings → Game directories
-   - Ajoutez `~/Games/wsquashfs`
-   - Redémarrez Pegasus
 
 ## 📁 Où sont mes sauvegardes ?
 
-Vos sauvegardes et modifications de jeu sont stockées dans :
-
-```
-~/.local/share/wsquashfs/saves/<nom-du-jeu>/
-```
-
-Pour sauvegarder :
+Ce que le jeu écrit (sauvegardes, réglages) va dans
+`~/.local/share/wsquashfs/saves/<Nom du jeu>/` ; le `.wsquashfs` n'est jamais
+modifié.
 
 ```bash
-# Sauvegarder toutes les sauvegardes
-tar -czf mes-sauvegardes.tar.gz ~/.local/share/wsquashfs/saves/
-
-# Restaurer
-tar -xzf mes-sauvegardes.tar.gz -C ~/
+wsquashfs-launcher --backup                # archives dans ~/.local/share/wsquashfs/backups
+wsquashfs-launcher --backup "MonJeu"       # un seul jeu
 ```
 
-## ⚙️ Personnalisation
+Autre emplacement : `export WSQUASHFS_SAVES_DIR=/mnt/nas/saves`.
 
-### Changer l'emplacement des sauvegardes
+## ⚙️ Réglages par jeu
 
-```bash
-export WSQUASHFS_SAVES_DIR="/mnt/nas/saves"
-wsquashfs-run game.wsquashfs
+Dans l'`autorun.cmd` du jeu (format Batocera), ou sans reconstruire l'image
+dans un fichier `MonJeu.wsquashfs.autorun` à côté :
+
 ```
-
-### Changer l'emplacement des préfixes Wine
-
-```bash
-export WSQUASHFS_WINEPREFIX="/mnt/ssd/wine-prefixes"
-wsquashfs-run game.wsquashfs
-```
-
-## 🔧 Optimisations
-
-Dans votre fichier `autorun.cmd` du jeu, ajoutez :
-
-```cmd
-# Pour de meilleures performances 3D
-DXVK=1
+DXVK=0             # rendu OpenGL de Wine au lieu de DXVK (activé par défaut)
 ESYNC=1
-
-# Pour DirectX 12
-VKD3D=1
+VIRTUAL_DESKTOP=1920x1080
+HIDRAW=1           # DualSense gérée par le jeu lui-même
 ```
+
+Toutes les clés : [README.md](README.md) et [autorun.cmd.example](autorun.cmd.example).
+
+## 🐳 Docker
+
+```bash
+make build-docker                          # ou : docker compose build
+./run-docker.sh /chemin/vers/MonJeu.wsquashfs
+./run-docker.sh --doctor
+```
+
+L'image contient wine-tkg, le Wine de Debian, DXVK, VKD3D-Proton et d7vk ; pas
+de Proton. Sauvegardes et cache sont dans des volumes Docker.
 
 ## 🐛 Problèmes courants
 
-### Le jeu ne se lance pas
+- **Le jeu ne se lance pas** : relancer depuis un terminal pour lire le
+  récapitulatif et les erreurs Wine ; vérifier la commande avec `--info`.
+- **Erreur de montage** : `wsquashfs-launcher --doctor` vérifie `/dev/fuse`,
+  squashfuse et fuse-overlayfs. Sans FUSE (certains conteneurs), le lanceur
+  passe en mode copy (unsquashfs).
+- **Un jeu reste monté** : `wsquashfs-launcher --umount` (tous les jeux).
+- **Repartir de zéro pour un jeu** : `wsquashfs-launcher --clear "MonJeu"` ne
+  garde que `drive_c/users`, après une archive automatique.
 
-1. Testez manuellement :
-```bash
-wsquashfs-run /path/to/game.wsquashfs
-```
+## 📚 Documentation
 
-2. Vérifiez le fichier autorun.cmd :
-```bash
-squashfuse game.wsquashfs /tmp/test
-cat /tmp/test/autorun.cmd
-umount /tmp/test
-```
-
-### Erreur de montage
-
-Vérifiez que FUSE fonctionne :
-```bash
-ls -l /dev/fuse
-groups | grep fuse
-```
-
-Si nécessaire :
-```bash
-sudo usermod -aG fuse $USER
-# Puis déconnectez-vous et reconnectez-vous
-```
-
-### Wine ne fonctionne pas
-
-```bash
-# Vérifier Wine
-wine --version
-
-# Réinitialiser Wine (ATTENTION : supprime tous les préfixes)
-rm -rf ~/.local/share/wsquashfs/prefix/
-```
-
-## 📚 Documentation complète
-
-- [README.md](README.md) - Documentation complète
-- [autorun.cmd.example](autorun.cmd.example) - Exemples de configuration
-- [CONTRIBUTING.md](CONTRIBUTING.md) - Guide de contribution
-
-## 💡 Astuce Pro
-
-Créez un alias dans votre `.bashrc` :
-
-```bash
-alias wsq='wsquashfs-run'
-```
-
-Puis lancez simplement :
-
-```bash
-wsq game.wsquashfs
-```
-
-## 🎉 C'est tout !
-
-Vous êtes prêt à jouer à vos jeux WSquashFS de Batocera sur n'importe quel Linux !
+- [README.md](README.md) — documentation complète
+- [autorun.cmd.example](autorun.cmd.example) — exemples de configuration
+- [CONTRIBUTING.md](CONTRIBUTING.md) — contribution et tests

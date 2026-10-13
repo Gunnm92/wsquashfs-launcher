@@ -7,6 +7,9 @@
 *.md
 !README.md
 
+# Tests (inutiles dans l'image)
+tests/
+
 # Fichiers de jeux (ne pas les inclure dans l'image)
 *.wsquashfs
 games/

@@ -52,15 +52,33 @@ curl -fsSL https://raw.githubusercontent.com/Gunnm92/wsquashfs-launcher/main/wsq
 curl -fsSL https://raw.githubusercontent.com/Gunnm92/wsquashfs-launcher/main/install.sh | bash
 ```
 
-`install.sh` (Debian/Ubuntu) installe `wine32:i386`, `libxkbcommon0:i386`,
-`squashfuse`, `squashfs-tools`, `xz-utils`, `fuse-overlayfs` et, si disponibles,
-`mangohud` / `mangohud:i386` (facultatifs), puis propose :
+`install.sh` détecte la distribution et installe les paquets système :
+
+- **Debian/Ubuntu** (apt) : `wine32:i386`, `libxkbcommon0:i386`, `squashfuse`,
+  `squashfs-tools`, `xz-utils`, `fuse-overlayfs`, `attr`, `zstd`, `unzip` et,
+  si disponibles, `mangohud` / `mangohud:i386` (facultatifs) ;
+- **Arch, CachyOS, Manjaro, EndeavourOS** (pacman) : les mêmes outils, les
+  bibliothèques 32 bits de wine-tkg (dépôt `[multilib]`, à activer s'il ne
+  l'est pas) avec la version 32 bits des pilotes Vulkan installés (NVIDIA,
+  AMD, Intel), et `mangohud` / `lib32-mangohud`. Seuls les paquets manquants
+  sont installés ; un paquet absent des dépôts est signalé et ignoré.
+
+Puis il propose, quelle que soit la distribution :
 
 - **wine-tkg / wine-ge** (jeux arcade Batocera) dans `~/.local/share/wsquashfs/wine`
-- **umu-run** (zipapp umu-launcher, lien dans le dossier d'installation) et
-  **UMU-Proton** (Proton de Valve, empreinte SHA-512 vérifiée) dans
-  `~/.local/share/Steam/compatibilitytools.d` — nécessaires aux jeux PC récents
-  (images sans prefix, prefixes créés par Proton), inutiles pour l'arcade seule.
+- **umu-run** (paquet `umu-launcher` sous Arch/CachyOS, sinon zipapp avec un
+  lien dans le dossier d'installation) et un **Proton** : `proton-cachyos-slr`
+  ou `proton-cachyos` sous CachyOS, sinon **UMU-Proton** (Proton de Valve,
+  empreinte SHA-512 vérifiée) dans `~/.local/share/Steam/compatibilitytools.d`
+  — nécessaires aux jeux PC récents (images sans prefix, prefixes créés par
+  Proton), inutiles pour l'arcade seule ;
+- **DXVK, VKD3D-Proton et d7vk** (dernières versions GitHub) dans
+  `~/.local/share/wsquashfs/{dxvk,vkd3d-proton,d7vk}` : rendu Vulkan des jeux
+  lancés par Wine.
+
+Il termine par `wsquashfs-launcher --doctor`. Options : `--dry-run` (montre ce
+qui serait fait sans rien modifier), `--yes` (sans questions), `--uninstall`.
+Les questions sont posées au terminal, y compris avec `curl … | bash`.
 
 ### Prérequis
 
@@ -171,7 +189,23 @@ wsquashfs-launcher --clean
 # Radical : ne garder que drive_c/users (sauvegardes des jeux PC récents) de
 # tous les jeux, ou d'un seul. Prefix recréé au lancement suivant ; scores et
 # réglages écrits ailleurs (jeux arcade, dossier du jeu, registre) perdus.
+# Chaque jeu est archivé (--backup) avant ; sans archive, il n'est pas touché.
 wsquashfs-launcher --clear ["Nom du jeu"]
+
+# Archiver les sauvegardes (tous les jeux, ou un seul) dans
+# ~/.local/share/wsquashfs/backups/<jeu>-AAAAMMJJ-HHMMSS.tar.zst ; jeux en
+# cours exceptés. Restauration, jeu arrêté :
+#   tar -C ~/.local/share/wsquashfs/saves --xattrs --xattrs-include='user.*' -xpf <archive>
+wsquashfs-launcher --backup ["Nom du jeu"]
+
+# Jeux connus : état (en cours, verrouillé, monté), version, taille des
+# sauvegardes et image d'origine
+wsquashfs-launcher --list
+
+# Vérifier l'installation : FUSE, Wine/Proton et runners, umu, DXVK, VKD3D,
+# d7vk, manettes (hidraw, dualsense-usb-bridge), dossiers. Code 1 si aucun
+# jeu ne peut être lancé.
+wsquashfs-launcher --doctor
 
 # Afficher l'aide
 wsquashfs-launcher --help
@@ -182,6 +216,7 @@ wsquashfs-launcher --help
 ```bash
 export WSQUASHFS_SAVES_DIR="$HOME/mes-sauvegardes"   # sauvegardes overlay
 export WSQUASHFS_CACHE="$HOME/.cache/mes-jeux"        # cache de travail
+export WSQUASHFS_BACKUP_DIR="$HOME/archives-jeux"     # archives --backup / --clear
 export WSQUASHFS_DXVK=0        # désactive DXVK (activé par défaut)
 export WSQUASHFS_HIDRAW=1      # manettes Sony par hidraw ("DisableHidraw"=0)
                                # si lisibles ; défaut XInput (Xbox), comme
@@ -374,7 +409,9 @@ $HOME/
 2. `fuse-overlayfs` crée une vue lecture/écriture (`wine/`) combinant :
    - lowerdir : le squashfs monté (RO)
    - upperdir : `saves/<jeu>/` (RW — seules les modifications)
-   - workdir : métadonnées overlay
+   - workdir : métadonnées overlay, dans `saves/.work/<jeu>/` — toujours sur
+     le même système de fichiers que les sauvegardes (NAS, autre disque,
+     volume Docker), sans quoi Wine ne peut rien y écrire
 3. Wine exécute le jeu depuis `wine/`
 4. À la sortie : démontage automatique, sauvegardes conservées dans `saves/`
 
@@ -392,10 +429,13 @@ $HOME/
 wsquashfs-launcher/
 ├── wsquashfs-launcher          # Script principal
 ├── autorun.cmd.example         # Exemple de configuration
-├── Dockerfile                  # Image Docker
-├── docker-compose.yml
-├── run-docker.sh
-├── test-setup.sh               # Vérification de l'installation
+├── install.sh                  # Installation (Debian/Ubuntu, Arch/CachyOS)
+├── Dockerfile                  # Image Docker (wine-tkg, DXVK, VKD3D, d7vk)
+├── docker-compose.yml          # FUSE, GPU, X11, son, volumes de sauvegardes
+├── run-docker.sh               # Lance un jeu dans le conteneur
+├── test-setup.sh               # Vérification (--doctor + Docker)
+├── tests/                      # Tests de non-régression (make test)
+├── tools/                      # dualsense-usb-bridge, fakeping-dinput8
 ├── Makefile
 ├── CONTRIBUTING.md
 └── LICENSE
@@ -415,11 +455,9 @@ Le script bascule automatiquement sur `unsquashfs`. Si celui-ci est absent :
 apt-get install squashfs-tools
 ```
 
-Pour activer FUSE dans le conteneur (optionnel) :
-
-```bash
-docker run --device /dev/fuse ...
-```
+Pour activer FUSE dans le conteneur (mode overlay, recommandé) :
+`docker-compose.yml` passe déjà `/dev/fuse` et `privileged: true` ; en
+`docker run` : `--device /dev/fuse --cap-add SYS_ADMIN`.
 
 ### Wine ne trouve pas l'affichage
 
@@ -428,8 +466,8 @@ Make sure that your X server is running and that $DISPLAY is set correctly.
 ```
 
 ```bash
-# Autoriser les connexions X11 locales
-xhost +local:docker
+# Autoriser l'utilisateur courant (run-docker.sh le fait le temps du jeu)
+xhost +SI:localuser:$(id -un)
 
 # Vérifier DISPLAY
 echo $DISPLAY

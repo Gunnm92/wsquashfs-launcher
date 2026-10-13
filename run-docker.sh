@@ -1,151 +1,94 @@
-#!/bin/bash
+#!/usr/bin/env bash
+#
+# run-docker.sh — lance un jeu dans le conteneur wsquashfs-launcher (service
+# de docker-compose.yml : FUSE, GPU, X11, son, volumes de sauvegardes).
+#
+# Usage : run-docker.sh [--build] [options du lanceur] <jeu.wsquashfs | dossier du jeu> [arguments]
+#
+#   run-docker.sh ~/roms/windows/MonJeu.wsquashfs
+#   run-docker.sh --build ~/roms/windows/MonJeu.wsquashfs
+#   run-docker.sh --exec ~/roms/windows/MonJeu.wsquashfs winecfg
+#   run-docker.sh --doctor
+#
+# Le dossier du jeu est monté sur /games : en lecture seule pour une image
+# .wsquashfs (le lanceur n'y écrit jamais), en écriture pour un jeu installé
+# (--install), qui écrit dans son propre dossier.
 
-# Script helper pour lancer facilement un fichier wsquashfs avec Docker
-
-set -e
-
-# Couleurs pour l'affichage
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
-# Fonction d'aide
-show_help() {
-    cat << EOF
-Usage: $0 <fichier.wsquashfs>
+COMPOSE_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+SERVICE=wsquashfs-launcher
 
-Script helper pour lancer des fichiers WSquashFS avec Docker.
-
-Options:
-    -h, --help          Afficher cette aide
-    -b, --build         Reconstruire l'image Docker avant de lancer
-    -v, --verbose       Mode verbose (afficher les logs Docker)
-
-Exemples:
-    $0 /path/to/game.wsquashfs
-    $0 --build /path/to/game.wsquashfs
-    $0 -v /games/mon-jeu.wsquashfs
-
-Configuration:
-    - Assurez-vous que X11 est accessible depuis Docker
-    - Le fichier wsquashfs doit être lisible
-    - Docker doit avoir les privilèges nécessaires pour FUSE
-
-EOF
+usage() {
+    sed -n '3,15p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
 }
 
-# Variables
-BUILD=false
-VERBOSE=false
-WSQUASHFS_FILE=""
+# docker compose (v2), sinon docker-compose (v1).
+compose() {
+    if docker compose version &>/dev/null; then
+        docker compose "$@"
+    elif command -v docker-compose &>/dev/null; then
+        docker-compose "$@"
+    else
+        echo -e "${RED}Erreur : docker compose ou docker-compose requis${NC}" >&2
+        return 1
+    fi
+}
 
-# Parsing des arguments
-while [[ $# -gt 0 ]]; do
-    case $1 in
-        -h|--help)
-            show_help
-            exit 0
-            ;;
-        -b|--build)
-            BUILD=true
-            shift
-            ;;
-        -v|--verbose)
-            VERBOSE=true
-            shift
-            ;;
-        *)
-            WSQUASHFS_FILE="$1"
-            shift
-            ;;
-    esac
-done
+main() {
+    local build=false args=() game="" rc=0
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -h|--help)  usage; return 0 ;;
+            -b|--build) build=true ;;
+            *)
+                # Premier argument qui désigne un jeu existant : monté sur
+                # /games, remplacé par son chemin dans le conteneur.
+                if [[ -z "$game" && ( -f "$1" || -d "$1" ) && "$1" != -* ]]; then
+                    game=$(realpath "$1")
+                    # Montage /games de docker-compose.yml
+                    export WSQUASHFS_GAMES WSQUASHFS_GAMES_MODE=ro
+                    WSQUASHFS_GAMES=$(dirname "$game")
+                    [[ -d "$game" ]] && WSQUASHFS_GAMES_MODE=rw
+                    args+=("/games/$(basename "$game")")
+                else
+                    args+=("$1")
+                fi
+                ;;
+        esac
+        shift
+    done
+    ((${#args[@]})) || { usage; return 1; }
 
-# Vérification de l'argument
-if [[ -z "$WSQUASHFS_FILE" ]]; then
-    echo -e "${RED}Erreur : Vous devez spécifier un fichier .wsquashfs${NC}"
-    echo ""
-    show_help
-    exit 1
-fi
+    cd "$COMPOSE_DIR" || return 1
+    # UID/GID de l'hôte pour la construction de l'image et les chemins du son
+    export GID
+    GID=$(id -g)
+    export UID
 
-# Vérification de l'existence du fichier
-if [[ ! -f "$WSQUASHFS_FILE" ]]; then
-    echo -e "${RED}Erreur : Le fichier '$WSQUASHFS_FILE' n'existe pas${NC}"
-    exit 1
-fi
+    if [[ "$build" == true ]] || ! docker image inspect "${SERVICE}:latest" &>/dev/null; then
+        echo -e "${YELLOW}Construction de l'image...${NC}"
+        compose build || return 1
+    fi
 
-# Vérification de l'extension
-if [[ "${WSQUASHFS_FILE##*.}" != "wsquashfs" ]]; then
-    echo -e "${YELLOW}Attention : Le fichier ne semble pas avoir l'extension .wsquashfs${NC}"
-fi
+    # Affichage X11 ouvert à l'utilisateur courant seulement, le temps du jeu
+    xhost "+SI:localuser:$(id -un)" &>/dev/null \
+        || echo -e "${YELLOW}Attention : xhost indisponible, l'affichage X11 peut être refusé${NC}"
 
-# Chemin absolu du fichier
-WSQUASHFS_FILE=$(realpath "$WSQUASHFS_FILE")
-WSQUASHFS_DIR=$(dirname "$WSQUASHFS_FILE")
-WSQUASHFS_BASENAME=$(basename "$WSQUASHFS_FILE")
+    [[ -n "$game" ]] && echo -e "${GREEN}Jeu :${NC} ${game}"
+    compose run --rm "$SERVICE" "${args[@]}" || rc=$?
 
-echo -e "${GREEN}WSquashFS Launcher - Docker${NC}"
-echo "=================================="
-echo "Fichier : $WSQUASHFS_BASENAME"
-echo "Chemin  : $WSQUASHFS_DIR"
-echo "=================================="
-echo ""
+    xhost "-SI:localuser:$(id -un)" &>/dev/null
+    if ((rc == 0)); then
+        echo -e "${GREEN}Terminé${NC}"
+    else
+        echo -e "${RED}Terminé avec des erreurs (code ${rc})${NC}" >&2
+    fi
+    return "$rc"
+}
 
-# Construction de l'image si demandé
-if [[ "$BUILD" == true ]]; then
-    echo -e "${YELLOW}Construction de l'image Docker...${NC}"
-    docker-compose build
-    echo ""
-fi
-
-# Vérification que l'image existe
-if ! docker images | grep -q wsquashfs-launcher; then
-    echo -e "${YELLOW}L'image Docker n'existe pas. Construction...${NC}"
-    docker-compose build
-    echo ""
-fi
-
-# Autoriser les connexions X11 locales
-echo -e "${GREEN}Configuration de X11...${NC}"
-xhost +local:docker > /dev/null 2>&1 || echo -e "${YELLOW}Attention : Impossible de configurer xhost${NC}"
-
-# Options Docker
-DOCKER_OPTS=""
-if [[ "$VERBOSE" == true ]]; then
-    DOCKER_OPTS="--verbose"
-fi
-
-# Lancement du conteneur
-echo -e "${GREEN}Lancement du jeu...${NC}"
-echo ""
-
-docker run --rm \
-    --privileged \
-    --cap-add=SYS_ADMIN \
-    --device /dev/fuse:/dev/fuse \
-    -v "$WSQUASHFS_DIR:/games:ro" \
-    -v /tmp/.X11-unix:/tmp/.X11-unix:rw \
-    -e DISPLAY=$DISPLAY \
-    -e WINEDEBUG=-all \
-    --network host \
-    --ipc host \
-    wsquashfs-launcher:latest \
-    "/games/$WSQUASHFS_BASENAME"
-
-EXIT_CODE=$?
-
-echo ""
-echo "=================================="
-if [[ $EXIT_CODE -eq 0 ]]; then
-    echo -e "${GREEN}Terminé avec succès${NC}"
-else
-    echo -e "${RED}Terminé avec des erreurs (code: $EXIT_CODE)${NC}"
-fi
-echo "=================================="
-
-# Nettoyage X11
-xhost -local:docker > /dev/null 2>&1 || true
-
-exit $EXIT_CODE
+main "$@"
+exit
