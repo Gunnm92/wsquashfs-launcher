@@ -87,6 +87,9 @@ mkdir -p "$HOME" "$FAKEBIN"
 # machine de test changeait la trace (17/10). Les scénarios hidraw
 # désignent le leur (HIDRAW_SYSFS="$ROOT/sysfs").
 export HIDRAW_SYSFS="${ROOT}/no-sysfs"
+# fuse-overlayfs imposé : la trace ne dépend pas de la machine (namespaces
+# permis ou non). L'overlay noyau a ses scénarios, en fin de fichier.
+export WSQUASHFS_OVERLAY=fuse
 
 # mkwine <racine> : faux runner Wine (classique, avec i386-unix) dont bin/wine
 # journalise ses appels ; wineboot crée un prefix minimal.
@@ -107,6 +110,15 @@ case "$1" in
   wineboot)  mkdir -p "$WINEPREFIX/drive_c/windows/system32" "$WINEPREFIX/drive_c/users/$USER"
              echo "WINE REGISTRY Version 2" > "$WINEPREFIX/system.reg"
              touch "$WINEPREFIX/drive_c/windows/system32/explorer.exe" ;;
+  reg|regedit) ;;
+  *)
+    # Le jeu : FAKE_LS liste des dossiers du prefix tels que Wine les voit
+    # (overlay noyau : depuis le namespace) ; FAKE_SLEEP simule une partie
+    # en cours, arrêtée par le faux wineserver -k.
+    for d in ${FAKE_LS:-}; do
+        echo "  LS $d :$(ls -A "$WINEPREFIX/${d//+/ }" 2>&1 | tr '\n' ' ')" >> "$FAKELOG"
+    done
+    [[ -n "${FAKE_SLEEP:-}" ]] && exec -a wsq-fake-game sleep "$FAKE_SLEEP" ;;
 esac
 exit 0
 EOF
@@ -128,6 +140,7 @@ echo "1700000000 GE-Proton9-1" > "${PROTON}/version"
 cat > "${FAKEBIN}/wineserver" <<'EOF'
 #!/bin/bash
 echo "WINESERVER $*" >> "$FAKELOG"
+[[ "$1" == "-k" ]] && pkill -f '^wsq-fake-game' 2>/dev/null
 exit 0
 EOF
 cat > "${FAKEBIN}/umu-run" <<'EOF'
@@ -474,20 +487,118 @@ snapshot after-clean-dup
 step umount-final  "$L" --umount
 note "montages restants : $(mount | grep -cF "$ROOT")"
 
+# ── Overlay noyau (namespace utilisateur) ──────────────────────────────
+#
+# Trace à part (expected-kernel.out), produite seulement là où le lanceur
+# peut monter un overlay noyau : la trace principale ne dépend pas de la
+# machine.
+
+EXPECTED_KERNEL="${TESTS_DIR}/expected-kernel.out"
+OUT_MAIN="$OUT"
+# shellcheck disable=SC2016  # code exécuté par le bash enfant
+KERNEL_SKIP=$(WSQUASHFS_OVERLAY=auto bash -c \
+    'source "$1"; init_config; kernel_overlay_unavailable && exit 0; kernel_overlay_probe && exit 1; exit 0' \
+    _ "$L")
+if [[ -z "$KERNEL_SKIP" ]]; then
+    OUT="${ROOT}/actual-kernel.out"
+    : > "$OUT"
+    A="$ROOT/saves/Arcade Game"
+    LS_ARCADE="drive_c/Game+Dir/Bin regs"
+
+    # Conversion des marqueurs de fuse-overlayfs : dossiers opaques (fichier
+    # .wh..wh..opq, attribut user.fuseoverlayfs.opaque, noms échappés par
+    # getfattr) et fichiers supprimés (.wh.<nom>).
+    # shellcheck disable=SC2016
+    unit saves_to_kernel_format 'u="$HOME/unit-upper"; mkdir -p "$u/opq" "$u/Développé\\x" "$u/wh"; : > "$u/opq/.wh..wh..opq"; setfattr -n user.fuseoverlayfs.opaque -v y "$u/Développé\\x"; : > "$u/wh/.wh.gone"; : > "$u/wh/.wh.kept"; echo k > "$u/wh/kept"; saves_to_kernel_format "$u" && echo "conversion : ok"; (cd "$u" && find . -mindepth 1 -printf "%y %p\n" | sort); for d in opq "Développé\\x" wh; do echo "$d opaque=$(getfattr --only-values -n user.overlay.opaque "$u/$d" 2>/dev/null)"; done; rm -rf "$u"'
+
+    # Sauvegardes au format fuse-overlayfs, vues par le jeu : Bin opaque
+    # (fichier .wh..wh..opq : Config.exe de l'image masqué), regs opaque
+    # (attribut : a.reg masqué).
+    mkdir -p "$A/drive_c/Game Dir/Bin" "$A/regs"
+    : > "$A/drive_c/Game Dir/Bin/.wh..wh..opq"
+    setfattr -n user.fuseoverlayfs.opaque -v y "$A/regs"
+    printf 'REGEDIT4\n' > "$A/regs/b.reg"
+    step kernel-arcade env WSQUASHFS_OVERLAY=kernel WSQUASHFS_UMU=0 FAKE_LS="$LS_ARCADE" \
+        "$L" "$ROMS/Arcade Game.wsquashfs"
+    snapshot after-kernel
+    note "opaques : Bin=$(getfattr --only-values -n user.overlay.opaque "$A/drive_c/Game Dir/Bin" 2>/dev/null) regs=$(getfattr --only-values -n user.overlay.opaque "$A/regs" 2>/dev/null)"
+    note "squashfuse restants : $(pgrep -cf "squashfuse.*${ROOT}")"
+    note "verrou Arcade Game après la partie : $(lock_state "Arcade Game")"
+    # Repli : fuse-overlayfs relit les sauvegardes écrites par le noyau.
+    step fuse-after-kernel env WSQUASHFS_UMU=0 FAKE_LS="$LS_ARCADE" \
+        "$L" "$ROMS/Arcade Game.wsquashfs"
+
+    # Namespace refusé (conteneur sans seccomp ouvert...) : repli, ou erreur
+    # si l'overlay noyau est imposé.
+    mkdir -p "$ROOT/nons"
+    printf '#!/bin/bash\n[[ "$1" == --help ]] && exec %s --help\necho "unshare: unshare failed: Operation not permitted" >&2\nexit 1\n' \
+        "$(command -v unshare)" > "$ROOT/nons/unshare"
+    chmod +x "$ROOT/nons/unshare"
+    step kernel-refused env WSQUASHFS_OVERLAY=auto WSQUASHFS_UMU=0 PATH="$ROOT/nons:$PATH" \
+        "$L" "$ROMS/Solo Game.wsquashfs"
+    step kernel-forced env WSQUASHFS_OVERLAY=kernel WSQUASHFS_UMU=0 PATH="$ROOT/nons:$PATH" \
+        "$L" "$ROMS/Solo Game.wsquashfs"
+
+    # Partie en cours dans le namespace : vue en cours, pas relancée,
+    # arrêtée par --umount.
+    WSQUASHFS_OVERLAY=kernel WSQUASHFS_UMU=0 FAKE_SLEEP=60 \
+        "$L" "$ROMS/Solo Game.wsquashfs" < /dev/null > /dev/null 2>&1 &
+    BG_PIDS+=($!)
+    for _ in {1..100}; do pgrep -f '^wsq-fake-game' >/dev/null && break; sleep 0.1; done
+    step kernel-list   "$L" --list
+    note "Solo Game vu de l'hôte : $(mounted "${ROOT}/cache/wine/Solo Game")"
+    step kernel-again  env WSQUASHFS_OVERLAY=kernel WSQUASHFS_UMU=0 "$L" "$ROMS/Solo Game.wsquashfs"
+    step kernel-umount "$L" --umount "$ROMS/Solo Game.wsquashfs"
+    wait "${BG_PIDS[@]}" 2>/dev/null
+    BG_PIDS=()
+    note "partie après --umount : $(pgrep -f '^wsq-fake-game' >/dev/null && echo en cours || echo arrêtée)"
+    note "verrou Solo Game : $(lock_state "Solo Game")"
+
+    # Lanceur arrêté (SIGTERM d'un frontend) : la partie du namespace aussi.
+    WSQUASHFS_OVERLAY=kernel WSQUASHFS_UMU=0 FAKE_SLEEP=60 \
+        "$L" "$ROMS/Solo Game.wsquashfs" < /dev/null > /dev/null 2>&1 &
+    pid=$!
+    for _ in {1..100}; do pgrep -f '^wsq-fake-game' >/dev/null && break; sleep 0.1; done
+    kill -TERM "$pid"
+    wait "$pid" 2>/dev/null
+    note "partie après SIGTERM au lanceur : $(pgrep -f '^wsq-fake-game' >/dev/null && echo en cours || echo arrêtée)"
+    note "verrou Solo Game : $(lock_state "Solo Game")"
+    note "dossiers d'échange restants : $(find "${ROOT}/cache/ns" -mindepth 1 -maxdepth 1 2>/dev/null | wc -l)"
+    OUT="$OUT_MAIN"
+fi
+
 # ── Résultat ───────────────────────────────────────────────────────────
+
+# compare <attendu> <obtenu> : vrai si identiques (sinon diff affiché).
+compare() {
+    if [[ ! -f "$1" ]]; then
+        echo "Erreur : $1 absent (tests/run-tests.sh --update pour le créer)" >&2
+        return 1
+    fi
+    if diff -u --label attendu --label obtenu "$1" "$2"; then
+        echo "✓ $(grep -c '^################ ' "$2") scénarios conformes ($(basename "$1"))"
+        return 0
+    fi
+    echo "✗ La trace diffère de tests/$(basename "$1") (voir ci-dessus)" >&2
+    return 1
+}
 
 if [[ "$UPDATE" == true ]]; then
     cp "$OUT" "$EXPECTED"
     echo "✓ ${EXPECTED} mis à jour ($(grep -c '^################ ' "$EXPECTED") scénarios)"
+    if [[ -z "$KERNEL_SKIP" ]]; then
+        cp "${ROOT}/actual-kernel.out" "$EXPECTED_KERNEL"
+        echo "✓ ${EXPECTED_KERNEL} mis à jour ($(grep -c '^################ ' "$EXPECTED_KERNEL") scénarios)"
+    else
+        echo "Overlay noyau indisponible (${KERNEL_SKIP}) : ${EXPECTED_KERNEL} inchangé" >&2
+    fi
     exit 0
 fi
-if [[ ! -f "$EXPECTED" ]]; then
-    echo "Erreur : ${EXPECTED} absent (tests/run-tests.sh --update pour le créer)" >&2
-    exit 1
+rc=0
+compare "$EXPECTED" "$OUT" || rc=1
+if [[ -z "$KERNEL_SKIP" ]]; then
+    compare "$EXPECTED_KERNEL" "${ROOT}/actual-kernel.out" || rc=1
+else
+    echo "Overlay noyau indisponible (${KERNEL_SKIP}) : scénarios noyau ignorés" >&2
 fi
-if diff -u --label attendu --label obtenu "$EXPECTED" "$OUT"; then
-    echo "✓ $(grep -c '^################ ' "$OUT") scénarios conformes"
-    exit 0
-fi
-echo "✗ La trace diffère de tests/expected.out (voir ci-dessus)" >&2
-exit 1
+exit "$rc"

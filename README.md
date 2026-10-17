@@ -12,7 +12,7 @@ Le script détecte automatiquement les capacités de l'environnement et choisit 
 
 | Mode | Conditions | Sauvegardes |
 |---|---|---|
-| **overlay** | squashfuse + fuse-overlayfs disponibles | Isolées dans `SAVES_DIR` (upperdir) |
+| **overlay** | overlay du noyau dans un namespace utilisateur si l'environnement le permet, sinon squashfuse + fuse-overlayfs | Isolées dans `SAVES_DIR` (upperdir) |
 | **copy** | squashfuse ou unsquashfs | Intégrées dans le cache de travail |
 
 En mode **copy**, le résultat de l'extraction est mis en cache — les relances suivantes sont instantanées tant que le fichier `.wsquashfs` n'a pas changé.
@@ -125,8 +125,9 @@ wsquashfs-launcher --help
 
 ## Utilisation
 
-Aucun privilège requis : l'image est montée en utilisateur par FUSE
-(squashfuse + fuse-overlayfs, comme une AppImage), y compris les paquets
+Aucun privilège requis : l'image est montée en utilisateur (overlay du
+noyau dans un namespace utilisateur, ou squashfuse + fuse-overlayfs comme une
+AppImage), y compris les paquets
 Batocera dont les fichiers appartiennent à root. Les sauvegardes et le
 prefix appartiennent à l'utilisateur qui lance le jeu. `sudo` reste pris en
 charge (ancien usage de certains frontends), mais n'apporte rien.
@@ -391,19 +392,53 @@ Voir [autorun.cmd.example](autorun.cmd.example) pour plus d'exemples.
 $HOME/
 ├── .local/share/wsquashfs/
 │   └── saves/
-│       ├── game1/          # Mode overlay : upperdir fuse-overlayfs (diff uniquement)
-│       └── game2/
+│       ├── game1/          # Mode overlay : upperdir (diff uniquement)
+│       ├── game2/
+│       └── .work/          # Workdir overlay, même disque que les sauvegardes
 └── .cache/wsquashfs/
     ├── mnt/                # Montage squashfuse temporaire (mode overlay)
     ├── wine/               # Overlay ou copie de travail persistante (mode copy)
     │   └── game1/
     │       └── .wsquashfs_cache   # Empreinte source pour détection de changement
-    └── work/               # Workdir overlay (mode overlay)
+    └── ns/                 # Échange avec le lanceur en namespace, le temps d'une partie
 ```
 
 ## Fonctionnement
 
-### Mode overlay (machine physique avec FUSE)
+### Mode overlay noyau (par défaut quand l'environnement le permet)
+
+Depuis Linux 5.11, un utilisateur peut monter l'overlay du noyau dans son
+propre namespace utilisateur, sans privilège. Le lanceur se relance dans un
+tel namespace (`unshare --map-current-user --mount --keep-caps`), y monte
+l'image avec `squashfuse_ll -o uid=,gid=` (tous les fichiers de l'image
+appartiennent à l'utilisateur, qu'ils soient à root comme dans les paquets
+Batocera ou à un autre UID), puis l'overlay du noyau par-dessus. Wine est
+lancé sans les capacités du namespace.
+
+- Une seule couche FUSE au lieu de deux. Lectures aléatoires en parallèle
+  (chargement d'un niveau) environ 5 fois plus rapides, mesuré sur Tempest
+  Rising. En revanche, la lecture séquentielle pure est plus lente
+  (1,5 Go/s contre 3,7 Go/s).
+- Les sauvegardes s'écrivent à la vitesse du disque.
+- Les montages sont invisibles hors du namespace et disparaissent avec lui :
+  rien d'orphelin après un plantage.
+- `--umount` arrête la partie (SIGTERM au lanceur du jeu), `--list` la voit
+  « en cours ».
+
+Ce mode est essayé à chaque lancement. Tout échec retombe sur fuse-overlayfs :
+namespaces refusés, squashfuse antérieur à 0.5 (Debian 12), sauvegardes sur
+un système de fichiers sans attributs `user.*` ou sur un overlay, etc.
+`--doctor` indique s'il est disponible et pourquoi. `WSQUASHFS_OVERLAY=fuse`
+impose fuse-overlayfs, `WSQUASHFS_OVERLAY=kernel` interdit le repli.
+`--mount` utilise toujours fuse-overlayfs, parce que le montage doit survivre
+au lanceur.
+
+Les deux overlays partagent les mêmes sauvegardes. fuse-overlayfs lit le
+format du noyau, et les marqueurs propres à fuse-overlayfs (dossiers
+opaques `.wh..wh..opq`, fichiers supprimés `.wh.<nom>`) sont convertis avant
+chaque montage noyau.
+
+### Mode overlay FUSE (repli)
 
 1. `squashfuse` monte le `.wsquashfs` en lecture seule (`mnt/`)
 2. `fuse-overlayfs` crée une vue lecture/écriture (`wine/`) combinant :
@@ -458,6 +493,24 @@ apt-get install squashfs-tools
 Pour activer FUSE dans le conteneur (mode overlay, recommandé) :
 `docker-compose.yml` passe déjà `/dev/fuse` et `privileged: true` ; en
 `docker run` : `--device /dev/fuse --cap-add SYS_ADMIN`.
+
+### Overlay noyau indisponible
+
+`wsquashfs-launcher --doctor` donne la cause, et chaque lancement l'affiche
+(`Overlay noyau : indisponible, …`) avant de passer à fuse-overlayfs. Le jeu
+fonctionne dans les deux cas. Causes fréquentes :
+
+- **squashfuse trop ancien** : l'option `uid=` de `squashfuse_ll` date de
+  squashfuse 0.5 (Debian 13, Arch). C'est le cas de l'image Docker, basée sur
+  Debian 12.
+- **namespaces refusés** : profil seccomp par défaut de Docker (`privileged:
+  true` ou `--security-opt seccomp=unconfined` les autorise), AppArmor
+  (Ubuntu 24.04 : `kernel.apparmor_restrict_unprivileged_userns`), ou sysctl
+  `user.max_user_namespaces=0`.
+- **sauvegardes sur un système de fichiers inadapté** : l'upperdir doit gérer
+  les attributs `user.*`, et ne peut pas se trouver sur un overlay. En
+  conteneur, les sauvegardes doivent donc être sur un volume, et non dans le
+  système de fichiers du conteneur.
 
 ### Wine ne trouve pas l'affichage
 

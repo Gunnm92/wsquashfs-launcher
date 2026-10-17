@@ -75,6 +75,12 @@ Prérequis : squashfuse, fuse-overlayfs, squashfs-tools, attr (getfattr),
 util-linux (flock) et l'accès à `/dev/fuse`. Un nouveau comportement
 s'accompagne d'un scénario dans `tests/run-tests.sh`.
 
+Les scénarios de l'overlay noyau ont leur propre trace,
+`tests/expected-kernel.out`. Elle n'est produite et comparée que si la
+machine permet l'overlay noyau, ce que `--doctor` indique ; sinon ces
+scénarios sont ignorés, avec un message. `make test-update` sur une machine
+sans overlay noyau laisse cette trace inchangée.
+
 Avant de soumettre une PR :
 
 1. Testez votre code sur votre système

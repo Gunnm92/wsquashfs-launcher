@@ -6,8 +6,10 @@
 # Usage : wsquashfs-launcher --help
 #
 # Modes de montage (choisis automatiquement) :
-#   overlay  squashfuse + fuse-overlayfs : l'image reste intacte, ce que le
-#            jeu écrit va dans SAVES_DIR/<jeu> (couche de sauvegardes)
+#   overlay  l'image reste intacte, ce que le jeu écrit va dans
+#            SAVES_DIR/<jeu> (couche de sauvegardes). Overlay du noyau dans
+#            un namespace utilisateur quand l'environnement le permet (testé
+#            à chaque lancement), sinon squashfuse + fuse-overlayfs
 #   copy     squashfuse ou unsquashfs : copie de travail persistante (cache)
 #   dir      jeu installé (--install) : dossier lancé sur place, sans FUSE
 #
@@ -52,6 +54,8 @@ TARGET_USER=""          # utilisateur qui lance Wine quand on est root (SUDO_USE
 ALLOW_OTHER_OPT=""      # option FUSE allow_other, en root seulement
 WINE_UID="" WINE_GID="" # propriétaire de tout ce que Wine doit pouvoir écrire
 OVERLAY_SQUASH_OPT=""   # options fuse-overlayfs squash_to_uid/gid
+OVERLAY_PREF=""         # auto | kernel | fuse (WSQUASHFS_OVERLAY)
+SELF=""                 # chemin de ce script, relancé dans le namespace
 
 # ── Ligne de commande (parse_args) ─────────────────────────────────────
 ACTION="run"            # run | mount | exec | help, ou une commande de maintenance
@@ -60,6 +64,7 @@ GAME_ARG=""             # jeu demandé (.wsquashfs ou dossier installé)
 WINE_OVERRIDE=""        # --wine <version|chemin>
 EXEC_CMD=()             # --exec : programme et ses arguments
 CMD_ARGS=()             # arguments d'une commande de maintenance
+ORIG_ARGS=()            # ligne de commande d'origine (relance dans le namespace)
 
 # ── Jeu et montage ─────────────────────────────────────────────────────
 WSQUASHFS_FILE=""       # chemin absolu du .wsquashfs (ou du dossier installé)
@@ -67,11 +72,15 @@ DIR_MODE=0              # 1 : jeu installé, lancé sur place
 GAME_NAME=""
 AUTORUN_OVERRIDE=""     # <jeu>.wsquashfs.autorun s'il existe
 MOUNT_MODE=""           # overlay | copy | dir
+OVERLAY_KIND=""         # mode overlay : kernel (namespace) | fuse (fuse-overlayfs)
 MOUNTED=false           # true : cleanup() doit arrêter Wine et démonter
 SQUASHFSPOINT=""        # image montée (lowerdir)
 WINEPOINT=""            # prefix vu par Wine (overlay, copie ou dossier)
 SAVEPOINT=""            # couche de sauvegardes du jeu (upperdir)
-WORKPOINT=""            # workdir de fuse-overlayfs, à côté de SAVEPOINT
+WORKPOINT=""            # workdir de l'overlay, à côté de SAVEPOINT
+NS_STAGE=""             # 1 : relancé dans le namespace de l'overlay noyau
+NS_DIR=""               # dossier d'échange hôte/namespace (statut, liens)
+NS_PID=""               # lanceur en namespace démarré par ce processus (hôte)
 PACKAGED_PREFIX=0       # 1 : l'image contient un prefix (system.reg)
 PROTON_PREFIX=0         # 1 : prefix créé par Proton (config_info)
 LOCK_FD=""              # descripteur du verrou du jeu (acquire_game_lock)
@@ -178,8 +187,15 @@ init_config() {
     fi
     OVERLAY_SQUASH_OPT="squash_to_uid=${WINE_UID},squash_to_gid=${WINE_GID}"
 
+    OVERLAY_PREF="${WSQUASHFS_OVERLAY:-auto}"
+    case "$OVERLAY_PREF" in
+        auto|kernel|fuse) ;;
+        *) die "WSQUASHFS_OVERLAY=${OVERLAY_PREF} : valeurs possibles auto, kernel, fuse" ;;
+    esac
+    SELF=$(readlink -f "${BASH_SOURCE[0]}")
+
     readonly SAVES_DIR CACHE_DIR RUN_AS_ROOT TARGET_USER ALLOW_OTHER_OPT \
-             WINE_UID WINE_GID OVERLAY_SQUASH_OPT
+             WINE_UID WINE_GID OVERLAY_SQUASH_OPT OVERLAY_PREF SELF
 }
 
 # Vrai si l'on tourne en root pour le compte d'un utilisateur (sudo) : Wine
@@ -189,9 +205,14 @@ drops_to_target_user() {
 }
 
 # Exécute une commande en tant que l'utilisateur qui lance Wine.
+# Overlay noyau : sans les capacités du namespace, gardées par le lanceur
+# pour monter — le bwrap de Proton (pressure-vessel) refuse de démarrer avec
+# des capacités sans être setuid.
 as_wine_user() {
     if drops_to_target_user; then
         sudo -u "$TARGET_USER" "$@"
+    elif [[ -n "$NS_STAGE" ]]; then
+        setpriv --inh-caps=-all --ambient-caps=-all "$@"
     else
         "$@"
     fi
@@ -525,13 +546,262 @@ mount_overlay() {
         "$WINEPOINT" 2>/dev/null
 }
 
-# Remonte l'overlay : fuse-overlayfs garde sa vue des dossiers en mémoire
-# et ne voit pas ce qui est modifié directement dans l'upperdir (SAVEPOINT).
+# Vide le workdir. L'overlay du noyau y laisse work/ en mode 000 (17/10) :
+# rm -rf seul échouait dessus, et fuse-overlayfs refusait ensuite le
+# workdir non vide.
+reset_workdir() {
+    chmod -R u+rwx "$1" 2>/dev/null
+    rm -rf "$1" && mkdir -p "$1"
+}
+
+# Remonte l'overlay : il garde sa vue des dossiers en mémoire et ne voit
+# pas ce qui est modifié directement dans l'upperdir (SAVEPOINT).
 reload_overlay() {
+    if [[ "$OVERLAY_KIND" == "kernel" ]]; then
+        umount "$WINEPOINT" 2>/dev/null || umount -l "$WINEPOINT" 2>/dev/null
+        mount_kernel_overlay_layer || die "échec du rechargement de l'overlay ${1}"
+        return 0
+    fi
     do_umount "$WINEPOINT"
-    rm -rf "$WORKPOINT" && mkdir -p "$WORKPOINT"
+    reset_workdir "$WORKPOINT"
     chown_to_target "$WORKPOINT"
     mount_overlay || die "échec du rechargement de l'overlay ${1}"
+}
+
+# ── Overlay noyau dans un namespace utilisateur (17/10) ────────────────
+#
+# Depuis Linux 5.11, un utilisateur peut monter l'overlay du noyau dans son
+# propre namespace utilisateur. Une seule couche FUSE (squashfuse) au lieu
+# de deux : chaque lecture du jeu traversait squashfuse PUIS fuse-overlayfs,
+# et les sauvegardes s'écrivent à la vitesse du disque.
+# Le lanceur prépare les dossiers sur l'hôte, puis se relance dans un
+# namespace (unshare --map-current-user --mount --keep-caps) : même UID,
+# avec les capacités du namespace pour monter. Il y monte l'image
+# (squashfuse_ll -o uid=,gid= : tous les fichiers à l'utilisateur, rôle de
+# squash_to_uid, qu'ils soient à root comme dans les paquets Batocera ou à
+# un autre UID comme dans les images faites par --pack — sans cela, un UID
+# de l'image absent du namespace bloquait toute écriture dans ses
+# fichiers : EOVERFLOW), puis l'overlay, et lance le jeu. Wine tourne sans
+# ces capacités (as_wine_user).
+# Les montages sont invisibles hors du namespace et disparaissent avec lui :
+# rien d'orphelin après un plantage (squashfuse meurt avec le lanceur).
+# Mesuré (17/10, Tempest Rising, image en cache, 8 lectures aléatoires de
+# 64K en parallèle) : 0,55 s contre 2,8 s avec squashfuse + fuse-overlayfs.
+# En lecture séquentielle, squashfuse_ll multithread plafonne à 1,5 Go/s
+# (3,7 Go/s avant) ; -s (un seul thread) donne 4,4 Go/s mais perd tout le
+# gain en parallèle, le cas des chargements des jeux récents.
+# Essayé à chaque lancement, sans mémoire : tout échec (namespaces refusés,
+# conteneur sans seccomp ouvert, squashfuse trop ancien, sauvegardes sur un
+# système de fichiers sans xattr user ou sur un overlay, /dev/fuse absent)
+# retombe sur fuse-overlayfs. WSQUASHFS_OVERLAY=fuse l'impose, =kernel
+# interdit le repli.
+
+# Raison pour laquelle l'overlay noyau ne peut pas être essayé (vrai), ou
+# rien (faux) : prérequis vérifiables sans rien monter.
+kernel_overlay_unavailable() {
+    local tool major minor
+    if [[ "$OVERLAY_PREF" == "fuse" ]]; then
+        echo "WSQUASHFS_OVERLAY=fuse"
+        return 0
+    fi
+    # Lancé en root (sudo), Wine est relancé en TARGET_USER ; et l'option
+    # uid=0 de squashfuse_ll est ignorée.
+    if [[ "$RUN_AS_ROOT" == true ]]; then
+        echo "lancé en root"
+        return 0
+    fi
+    for tool in unshare setpriv squashfuse_ll mount umount mountpoint getfattr setfattr; do
+        if ! command -v "$tool" &>/dev/null; then
+            echo "${tool} absent"
+            return 0
+        fi
+    done
+    # Options uid/gid : squashfuse 0.5 (Debian 13, Arch), absentes de 0.1
+    # (Debian 12).
+    if ! squashfuse_ll -h 2>&1 | grep -q 'uid=N'; then
+        echo "squashfuse_ll sans option uid= (squashfuse 0.5 requis)"
+        return 0
+    fi
+    if ! unshare --help 2>/dev/null | grep -q -- '--map-current-user'; then
+        echo "unshare trop ancien (util-linux 2.38 requis)"
+        return 0
+    fi
+    IFS=. read -r major minor _ <<< "$(uname -r)"
+    minor="${minor%%[!0-9]*}"
+    if ((major < 5 || (major == 5 && ${minor:-0} < 11))); then
+        echo "noyau $(uname -r) (5.11 requis)"
+        return 0
+    fi
+    if [[ "$(cat /proc/sys/kernel/unprivileged_userns_clone 2>/dev/null)" == "0" \
+          || "$(cat /proc/sys/user/max_user_namespaces 2>/dev/null)" == "0" ]]; then
+        echo "namespaces utilisateur désactivés (sysctl)"
+        return 0
+    fi
+    if [[ ! -r /dev/fuse || ! -w /dev/fuse ]]; then
+        echo "/dev/fuse inaccessible"
+        return 0
+    fi
+    return 1
+}
+
+# unshare du lancement en namespace.
+ns_unshare() {
+    unshare --user --map-current-user --mount --keep-caps -- "$@"
+}
+
+# --doctor : monte un overlay noyau de test à côté des sauvegardes (le
+# système de fichiers de l'upperdir compte). Cause de l'échec sur la
+# sortie standard.
+kernel_overlay_probe() {
+    local dir="$SAVES_DIR" tmp err rc
+    while [[ ! -d "$dir" ]]; do dir=$(dirname "$dir"); done
+    tmp=$(mktemp -d "${dir}/.wsquashfs-probe.XXXXXX" 2>/dev/null) || { echo "${dir} : écriture impossible"; return 1; }
+    # shellcheck disable=SC2016  # développé par le shell du namespace
+    err=$(ns_unshare sh -c \
+        'cd "$1" && mkdir l u w m && mount -t overlay overlay -o lowerdir=l,upperdir=u,workdir=w,userxattr m' \
+        _ "$tmp" 2>&1)
+    rc=$?
+    reset_workdir "$tmp"
+    rmdir "$tmp"
+    ((rc == 0)) && return 0
+    echo "${err##*: }" | head -1
+    return 1
+}
+
+# Sauvegardes écrites par fuse-overlayfs → format de l'overlay noyau, avant
+# chaque montage noyau (17/10). fuse-overlayfs lit les deux formats, le
+# noyau seulement le sien : sans conversion, un dossier supprimé par le jeu
+# réapparaissait avec le contenu de l'image, et .wh..wh..opq devenait un
+# fichier visible.
+#   - dossier opaque : fichier .wh..wh..opq ou user.fuseoverlayfs.opaque
+#     → user.overlay.opaque=y ;
+#   - fichier supprimé : .wh.<nom> (fuse-overlayfs sans mknod) → <nom>,
+#     périphérique caractère 0/0 (créable sans privilège depuis Linux 5.8).
+# Faux si une conversion échoue : l'overlay noyau n'est pas essayé.
+saves_to_kernel_format() {
+    local upper="$1" f d name
+    while IFS= read -r -d '' f; do
+        setfattr -n user.overlay.opaque -v y "${f%/*}" || return 1
+        rm -f -- "$f"
+    done < <(find "$upper" -xdev -type f -name .wh..wh..opq -print0 2>/dev/null)
+    while IFS= read -r d; do
+        printf -v d '%b' "$d"    # getfattr échappe les noms (\134, \303\251...)
+        setfattr -n user.overlay.opaque -v y "$d" || return 1
+    done < <(getfattr -R -h --absolute-names -n user.fuseoverlayfs.opaque -- "$upper" 2>/dev/null \
+                 | sed -n 's/^# file: //p')
+    while IFS= read -r -d '' f; do
+        d="${f%/*}" name="${f##*/.wh.}"
+        if [[ ! -e "${d}/${name}" && ! -L "${d}/${name}" ]]; then
+            mknod "${d}/${name}" c 0 0 || return 1
+        fi
+        rm -f -- "$f"
+    done < <(find "$upper" -xdev -type f -name '.wh.*' ! -name '.wh..wh..*' -print0 2>/dev/null)
+}
+
+# Hôte : relance le lanceur dans un namespace (overlay noyau). Ne revient
+# pas si le jeu y a été lancé ; revient pour le repli sur fuse-overlayfs.
+run_in_kernel_overlay() {
+    local reason status rc
+    # --mount : le montage doit survivre au lanceur.
+    [[ "$ACTION" == "mount" ]] && return 0
+    if reason=$(kernel_overlay_unavailable); then
+        [[ "$OVERLAY_PREF" == "kernel" ]] && die "overlay noyau impossible : ${reason}"
+        [[ "$OVERLAY_PREF" == "fuse" ]] || echo "Overlay noyau : indisponible, ${reason}"
+        return 0
+    fi
+    # Essai à vide (quelques ms) : un refus (conteneur sans seccomp ouvert,
+    # AppArmor) donne sa cause sans message d'unshare à chaque lancement.
+    if ! reason=$(ns_unshare true 2>&1); then
+        reason="namespace utilisateur refusé (${reason##*: })"
+    elif ! saves_to_kernel_format "$SAVEPOINT"; then
+        reason="conversion des sauvegardes impossible"
+    else
+        # Dossier d'échange nommé par le PID : statut du montage, et liens
+        # sans virgule ni deux-points (noms de jeux) pour les options de
+        # l'overlay.
+        NS_DIR="${CACHE_DIR}/ns/$$"
+        reset_workdir "$NS_DIR"
+        printf '%s\n' "$GAME_NAME" > "${NS_DIR}/game"
+        ln -s "$SQUASHFSPOINT" "${NS_DIR}/lower"
+        ln -s "$SAVEPOINT" "${NS_DIR}/upper"
+        ln -s "$WORKPOINT" "${NS_DIR}/work"
+        # En tâche de fond : un SIGTERM au lanceur (frontend qui arrête le
+        # jeu) est traité tout de suite et transmis (cleanup). <&0 : sans
+        # lui, une tâche de fond lit /dev/null. unshare appelé directement,
+        # pas par ns_unshare : NS_PID serait le sous-shell de la fonction, et
+        # le SIGTERM n'atteindrait pas le lanceur du namespace.
+        WSQUASHFS_NS_STAGE=1 WSQUASHFS_NS_DIR="$NS_DIR" \
+            unshare --user --map-current-user --mount --keep-caps -- "$BASH" "$SELF" "${ORIG_ARGS[@]}" <&0 &
+        NS_PID=$!
+        wait "$NS_PID"
+        rc=$?
+        NS_PID=""
+        status=$(cat "${NS_DIR}/status" 2>/dev/null)
+        rm -rf "$NS_DIR"
+        NS_DIR=""
+        [[ "$status" == "ready" ]] && exit "$rc"
+        reason="${status:-namespace utilisateur refusé}"
+    fi
+    [[ "$OVERLAY_PREF" == "kernel" ]] && die "overlay noyau impossible : ${reason}"
+    echo "Overlay noyau : échec, ${reason}"
+}
+
+# Monte l'overlay noyau, chemins relatifs au dossier d'échange.
+mount_kernel_overlay_layer() {
+    (
+        cd "$NS_DIR" || exit 1
+        mount -t overlay overlay -o lowerdir=lower,upperdir=upper,workdir=work,userxattr,redirect_dir=off \
+            "$WINEPOINT"
+    )
+}
+
+# Dans le namespace : monte l'image puis l'overlay. Statut pour le lanceur
+# de l'hôte (run_in_kernel_overlay) dans NS_DIR/status : « ready », ou la
+# cause de l'échec, après quoi il se replie sur fuse-overlayfs.
+use_kernel_overlay() {
+    local i err
+    # --pdeathsig : squashfuse meurt avec le lanceur, même tué par SIGKILL ;
+    # il libère alors le verrou hérité (sans without_lock, dont le
+    # sous-shell deviendrait son parent).
+    setpriv --pdeathsig KILL \
+        squashfuse_ll -f -o "uid=${WINE_UID},gid=${WINE_GID}" "$WSQUASHFS_FILE" "$SQUASHFSPOINT" 2>/dev/null &
+    for ((i = 0; i < 100; i++)); do
+        mountpoint -q "$SQUASHFSPOINT" && break
+        kill -0 "$!" 2>/dev/null || break
+        sleep 0.1
+    done
+    # Vérifié avant l'overlay : sans /dev/fuse, l'overlay se montait sur le
+    # dossier vide et le jeu restait introuvable.
+    if ! mountpoint -q "$SQUASHFSPOINT"; then
+        echo "squashfuse_ll impossible dans le namespace" > "${NS_DIR}/status"
+        exit 1
+    fi
+    if ! err=$(mount_kernel_overlay_layer 2>&1); then
+        echo "overlay refusé (${err##*: })" > "${NS_DIR}/status"
+        exit 1
+    fi
+    echo ready > "${NS_DIR}/status"
+    MOUNT_MODE="overlay"
+    OVERLAY_KIND="kernel"
+    MOUNTED=true
+    detect_image_prefix
+    echo "Mode          : overlay noyau (squashfuse + overlayfs, namespace utilisateur)"
+}
+
+# Lanceur en namespace d'un jeu (PID), pour --umount : ses montages sont
+# invisibles d'ici, et son wineserver injoignable (socket lié au prefix vu
+# dans le namespace).
+ns_launcher_pid() {
+    local f pid
+    for f in "${CACHE_DIR}/ns"/*/game; do
+        [[ -f "$f" && "$(< "$f")" == "$1" ]] || continue
+        for pid in $(pgrep -f -- "$SELF" 2>/dev/null); do
+            grep -qszxF "WSQUASHFS_NS_DIR=${f%/game}" "/proc/${pid}/environ" \
+                && grep -qszxF 'WSQUASHFS_NS_STAGE=1' "/proc/${pid}/environ" \
+                && { echo "$pid"; return 0; }
+        done
+    done
+    return 1
 }
 
 # Vrai si un processus tourne dans le prefix dont le chemin correspond au
@@ -644,7 +914,18 @@ unmount_all_stale() {
 # --umount [jeu] : arrête le wineserver du jeu puis démonte son overlay et
 # son squashfs.
 umount_game() {
-    local name="$1"
+    local name="$1" pid i
+    # Overlay noyau : le lanceur du jeu, dans son namespace, arrête Wine et
+    # démonte (SIGTERM, voir cleanup).
+    if pid=$(ns_launcher_pid "$name"); then
+        kill -TERM "$pid" 2>/dev/null
+        for ((i = 0; i < 30; i++)); do
+            kill -0 "$pid" 2>/dev/null || break
+            sleep 0.5
+        done
+        echo "✓ Arrêté et démonté : ${name}"
+        return 0
+    fi
     [[ -d "${CACHE_DIR}/wine/${name}" ]] || return 0
     run_wineserver "${CACHE_DIR}/wine/${name}" -k || true
     umount_retry "${CACHE_DIR}/wine/${name}"
@@ -1328,11 +1609,15 @@ Options :
                     sur un jeu à prefix Proton ou sans prefix.
 
 Modes de montage (automatique) :
-  overlay   squashfuse + fuse-overlayfs (sauvegardes isolées, idéal)
+  overlay   sauvegardes isolées, idéal : overlay du noyau dans un namespace
+            utilisateur si l'environnement le permet, sinon squashfuse +
+            fuse-overlayfs
   copy      squashfuse ou unsquashfs + cache persistant
   dossier   jeu installé (--install) lancé sur place, sans FUSE
 
 Variables d'environnement :
+  WSQUASHFS_OVERLAY          auto (défaut) : overlay noyau, repli sur fuse-overlayfs ;
+                             fuse : toujours fuse-overlayfs ; kernel : sans repli
   WSQUASHFS_SAVES_DIR        Sauvegardes overlay (défaut: ~/.local/share/wsquashfs/saves)
   WSQUASHFS_CACHE            Cache de travail   (défaut: ~/.cache/wsquashfs)
   WSQUASHFS_BACKUP_DIR       Archives --backup  (défaut: ~/.local/share/wsquashfs/backups)
@@ -1353,7 +1638,8 @@ HELP
 # Vrai si rel (chemin relatif dans l'upperdir) est sous un dossier opaque :
 # le dossier de l'image y est masqué, le fichier de l'upperdir est alors le
 # seul visible, même identique. fuse-overlayfs marque les dossiers opaques
-# par l'attribut user.fuseoverlayfs.opaque ou un fichier .wh..wh..opq.
+# par l'attribut user.fuseoverlayfs.opaque ou un fichier .wh..wh..opq,
+# l'overlay noyau par user.overlay.opaque.
 under_opaque() {
     local upper="$1" d="$2"
     while [[ "$d" == */* ]]; do
@@ -1361,7 +1647,7 @@ under_opaque() {
         if [[ -z "${OPAQUE_CACHE[$d]:-}" ]]; then
             OPAQUE_CACHE[$d]=n
             if [[ -e "${upper}/${d}/.wh..wh..opq" ]] \
-               || getfattr --only-values -n user.fuseoverlayfs.opaque "${upper}/${d}" 2>/dev/null | grep -q y; then
+               || getfattr -d -m '^user\.(fuseoverlayfs|overlay)\.opaque$' "${upper}/${d}" 2>/dev/null | grep -q '="y"'; then
                 OPAQUE_CACHE[$d]=y
             fi
         fi
@@ -1692,7 +1978,7 @@ doctor_tool() {
 # --doctor (13/10) : ce qui est installé, ce qui manque et ce que cela
 # change. Code 1 si aucun jeu ne peut être lancé.
 cmd_doctor() {
-    local fatal=0 bin alt runners dir umu
+    local fatal=0 bin alt runners dir umu reason
     echo "Montage des images"
     if [[ -c /dev/fuse && -r /dev/fuse && -w /dev/fuse ]]; then
         doctor_ok "/dev/fuse accessible"
@@ -1700,6 +1986,13 @@ cmd_doctor() {
         doctor_fail "/dev/fuse inaccessible : mode copy seulement (conteneur : --device /dev/fuse)"
     fi
     doctor_tool squashfuse "montage de l'image" fail
+    if reason=$(kernel_overlay_unavailable); then
+        doctor_note "overlay noyau indisponible : ${reason} (fuse-overlayfs à la place)"
+    elif reason=$(kernel_overlay_probe); then
+        doctor_ok "overlay noyau (namespace utilisateur) : une couche FUSE au lieu de deux"
+    else
+        doctor_note "overlay noyau indisponible : ${reason} (fuse-overlayfs à la place)"
+    fi
     doctor_tool fuse-overlayfs "mode overlay, sauvegardes séparées (sinon mode copy)" fail
     doctor_tool unsquashfs "mode copy, --info, --install" fail
     doctor_tool mksquashfs "--pack" note
@@ -2018,7 +2311,7 @@ prepare_mount_dirs() {
     printf '%s\n' "$WSQUASHFS_FILE" > "${SAVES_DIR}/.images/${GAME_NAME}" 2>/dev/null || true
     chown_to_target "${SAVES_DIR}/.images"
     # WORKPOINT doit être vide avant chaque montage overlay (état obsolète).
-    rm -rf "$WORKPOINT" && mkdir -p "$WORKPOINT"
+    reset_workdir "$WORKPOINT"
     chown_to_target "$SQUASHFSPOINT"
     chown_to_target "$SAVEPOINT"
     chown_to_target "$WINEPOINT"
@@ -2064,6 +2357,7 @@ try_overlay_mount() {
     mount_squashfs "$WSQUASHFS_FILE" "$SQUASHFSPOINT" || return 1
     if command -v fuse-overlayfs &>/dev/null && mount_overlay; then
         MOUNT_MODE="overlay"
+        OVERLAY_KIND="fuse"
         MOUNTED=true
         echo "Mode          : overlay (squashfuse + fuse-overlayfs)"
         return 0
@@ -2093,6 +2387,7 @@ mount_image() {
     prepare_mount_dirs
     detect_image_prefix
     clear_generated_system_dlls
+    run_in_kernel_overlay
     try_overlay_mount || use_copy_mode
 }
 
@@ -2513,7 +2808,10 @@ init_prefix_if_needed() {
 # 10+). Sous umu, Proton s'en charge.
 install_prefix_dlls() {
     [[ -z "$UMU_RUN" ]] || return 0
-    if [[ "$MOUNT_MODE" == "overlay" ]]; then
+    # Overlay noyau : le copy-up de system32/syswow64 fonctionne (le jeu
+    # appartient à l'utilisateur dans le namespace), écriture directe dans
+    # le prefix, sans rechargement.
+    if [[ "$MOUNT_MODE" == "overlay" && "$OVERLAY_KIND" == "fuse" ]]; then
         # Écriture dans l'upperdir (voir sync_wine_stubs), rendue au
         # propriétaire de Wine, puis overlay rechargé : fuse-overlayfs ne
         # voit pas les fichiers ajoutés dans l'upperdir après le montage.
@@ -2704,6 +3002,19 @@ run_as_target_user() {
         "$@"
 }
 
+# Lanceur en namespace : commande en tâche de fond suivie de wait. Au
+# premier plan, bash ne traite le SIGTERM (--umount, lanceur de l'hôte
+# arrêté) qu'à la fin de la commande, c'est-à-dire du jeu : l'arrêt était
+# sans effet.
+run_interruptible() {
+    if [[ -n "$NS_STAGE" ]]; then
+        "$@" <&0 &
+        wait "$!"
+    else
+        "$@"
+    fi
+}
+
 run_game() {
     local exit_code
     cd "${WINEPOINT}${DIR:+/$DIR}" || exit 1
@@ -2712,7 +3023,7 @@ run_game() {
     if drops_to_target_user; then
         run_as_target_user "${RUN_CMD[@]}"
     else
-        "${RUN_CMD[@]}"
+        run_interruptible as_wine_user "${RUN_CMD[@]}"
     fi
     exit_code=$?
 
@@ -2721,7 +3032,7 @@ run_game() {
     # OpenParrot) : sans cette attente, cleanup() tuait le jeu à peine lancé
     # (Dead or Alive 5 Ultimate). Comme Batocera : on attend que tous les
     # processus du prefix aient terminé.
-    run_wineserver "$WINEPOINT" -w || true
+    run_interruptible run_wineserver "$WINEPOINT" -w || true
 
     echo ""
     echo "========================================="
@@ -2734,12 +3045,19 @@ launch_game() {
     resolve_game_path
     check_dependencies
     init_game_paths
-    print_header
-    acquire_game_lock || die "${GAME_NAME} est déjà lancé"
-    if [[ "$DIR_MODE" == "1" ]]; then
-        use_installed_dir
+    if [[ -n "$NS_STAGE" ]]; then
+        # Relancé dans le namespace : en-tête affiché, verrou pris (hérité)
+        # et dossiers préparés par le lanceur de l'hôte (mount_image).
+        LOCKED_GAME="$GAME_NAME"
+        use_kernel_overlay
     else
-        mount_image
+        print_header
+        acquire_game_lock || die "${GAME_NAME} est déjà lancé"
+        if [[ "$DIR_MODE" == "1" ]]; then
+            use_installed_dir
+        else
+            mount_image
+        fi
     fi
     [[ "$ACTION" == "mount" ]] && report_mount_and_exit
     read_autorun
@@ -2767,13 +3085,20 @@ cleanup() {
     # sortir, son propre CWD rend l'overlay "busy" et le démontage échouait
     # à chaque fois — d'où les montages orphelins (confirmé en direct).
     cd / || true
+    # Jeu lancé dans un namespace (overlay noyau) : arrêt transmis au
+    # lanceur du namespace, qui arrête Wine et démonte.
+    if [[ -n "$NS_PID" ]]; then
+        kill -TERM "$NS_PID" 2>/dev/null
+        wait "$NS_PID" 2>/dev/null
+        rm -rf "$NS_DIR"
+    fi
     stop_dualsense_bridge
     if [[ "$MOUNTED" == true ]]; then
         stop_wineserver
         if [[ "$MOUNT_MODE" == "overlay" ]]; then
             umount_retry "$WINEPOINT"
             umount_retry "$SQUASHFSPOINT"
-            [[ -d "$WORKPOINT" ]] && rm -rf "$WORKPOINT"
+            [[ -d "$WORKPOINT" ]] && reset_workdir "$WORKPOINT" && rmdir "$WORKPOINT"
         fi
     fi
     exit "$exit_code"
@@ -2823,9 +3148,17 @@ parse_args() {
 }
 
 main() {
+    ORIG_ARGS=("$@")
     restore_sudo_user_session
     limit_stack_size
     init_config
+    # Relancé dans le namespace de l'overlay noyau (run_in_kernel_overlay) :
+    # variables d'échange retirées de l'environnement du jeu.
+    if [[ -n "${WSQUASHFS_NS_STAGE:-}" ]]; then
+        NS_STAGE="$WSQUASHFS_NS_STAGE"
+        NS_DIR="$WSQUASHFS_NS_DIR"
+        unset WSQUASHFS_NS_STAGE WSQUASHFS_NS_DIR
+    fi
     trap cleanup EXIT INT TERM
 
     fix_ownership "$CACHE_DIR"

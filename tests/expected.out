@@ -68,11 +68,15 @@ Options :
                     sur un jeu à prefix Proton ou sans prefix.
 
 Modes de montage (automatique) :
-  overlay   squashfuse + fuse-overlayfs (sauvegardes isolées, idéal)
+  overlay   sauvegardes isolées, idéal : overlay du noyau dans un namespace
+            utilisateur si l'environnement le permet, sinon squashfuse +
+            fuse-overlayfs
   copy      squashfuse ou unsquashfs + cache persistant
   dossier   jeu installé (--install) lancé sur place, sans FUSE
 
 Variables d'environnement :
+  WSQUASHFS_OVERLAY          auto (défaut) : overlay noyau, repli sur fuse-overlayfs ;
+                             fuse : toujours fuse-overlayfs ; kernel : sans repli
   WSQUASHFS_SAVES_DIR        Sauvegardes overlay (défaut: ~/.local/share/wsquashfs/saves)
   WSQUASHFS_CACHE            Cache de travail   (défaut: ~/.cache/wsquashfs)
   WSQUASHFS_BACKUP_DIR       Archives --backup  (défaut: ~/.local/share/wsquashfs/backups)
@@ -90,6 +94,7 @@ Variables d'environnement :
 Montage des images
   ✓ /dev/fuse accessible
   ✓ squashfuse (PATH) : montage de l'image
+  – overlay noyau indisponible : WSQUASHFS_OVERLAY=fuse (fuse-overlayfs à la place)
   ✓ fuse-overlayfs (ROOT/bin/fuse-overlayfs) : mode overlay, sauvegardes séparées (sinon mode copy)
   ✓ unsquashfs (PATH) : mode copy, --info, --install
   ✓ mksquashfs (PATH) : --pack

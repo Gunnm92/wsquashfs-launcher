@@ -22,6 +22,9 @@ services:
     # FUSE (squashfuse, fuse-overlayfs) : /dev/fuse et le droit de monter.
     # privileged suffit partout ; sur un hôte qui le refuse, essayer à la
     # place cap_add SYS_ADMIN et security_opt apparmor:unconfined.
+    # Overlay noyau (namespace utilisateur) : demande aussi seccomp ouvert
+    # (privileged, ou security_opt seccomp:unconfined) et squashfuse 0.5 ;
+    # l'image (Debian 12, squashfuse 0.1) utilise donc fuse-overlayfs.
     privileged: true
     devices:
       - /dev/fuse:/dev/fuse
