@@ -83,6 +83,10 @@ unset LC_ALL WINEDEBUG WINEDLLOVERRIDES WINEPREFIX WINEARCH WINEUSERNAME DISPLAY
       WSQUASHFS_VIRTUAL_DESKTOP WSQUASHFS_BATOCERA_SAVES SUDO_USER
 FAKEBIN="${ROOT}/bin"
 mkdir -p "$HOME" "$FAKEBIN"
+# Faux sysfs hidraw vide par défaut : une manette Sony branchée sur la
+# machine de test changeait la trace (17/10). Les scénarios hidraw
+# désignent le leur (HIDRAW_SYSFS="$ROOT/sysfs").
+export HIDRAW_SYSFS="${ROOT}/no-sysfs"
 
 # mkwine <racine> : faux runner Wine (classique, avec i386-unix) dont bin/wine
 # journalise ses appels ; wineboot crée un prefix minimal.
