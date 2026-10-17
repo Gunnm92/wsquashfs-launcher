@@ -854,10 +854,17 @@ proton_dir_of() {
 # run_wineserver <prefix> <options> : wineserver de ce prefix, lancé en
 # utilisateur Wine — chaque UID a son propre socket (/tmp/.wine-<uid>), root
 # ne joindrait pas celui de TARGET_USER.
+# wineserver du runner (17/10) : celui du PATH (Wine système) ne joint pas
+# le serveur d'une autre version, et manque quand seuls des runners sont
+# installés — -w n'attendait rien, -k n'arrêtait rien, et le prefix restait
+# occupé au démontage. Runner pas encore choisi (--umount) : celui du PATH.
 run_wineserver() {
-    local prefix="$1"
+    local prefix="$1" server=wineserver
     shift
-    as_wine_user env WINEPREFIX="$prefix" wineserver "$@" 2>/dev/null
+    if [[ -n "$WINE_BINARY" && -x "$(dirname "$WINE_BINARY")/wineserver" ]]; then
+        server="$(dirname "$WINE_BINARY")/wineserver"
+    fi
+    as_wine_user env WINEPREFIX="$prefix" "$server" "$@" 2>/dev/null
 }
 
 # run_wineboot_update <WINEDEBUG> : crée ou met à jour le prefix.
