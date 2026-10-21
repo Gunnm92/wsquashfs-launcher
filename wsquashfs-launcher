@@ -90,7 +90,7 @@ LOCKED_GAME=""          # jeu dont ce lancement tient le verrou
 DIR="" CMD="" WINE_VERSION="" PROTON_VERSION="" RUNNER="" WINE_ARCH=""
 DXVK="" DXVK_WANTED="" VKD3D="" D7VK="" SAVEDIR="" SAVEFILES=""
 ESYNC="" FSYNC="" WINE_LANG="" WINE_ENV="" VIRTUAL_DESKTOP=""
-PRE_CMD="" ATTACH_CMD="" ATTACH_PID=""
+PRE_CMD="" ATTACH_CMD="" ATTACH_PROCESS="" ATTACH_PID=""
 
 # ── Exécutable (resolve_executable) ────────────────────────────────────
 EXEC_PATH=""            # chemin Unix de l'exécutable, ou outil Wine (--exec)
@@ -2454,9 +2454,11 @@ read_autorun() {
     FSYNC=$(autorun_var FSYNC "0")
     WINE_LANG=$(autorun_var LANG "")
     WINE_ENV=$(autorun_var ENV "")
-    # Commandes autour du jeu (run_game) : PRE avant, ATTACH pendant.
-    PRE_CMD=$(unquote "$(autorun_var PRE "")")
-    ATTACH_CMD=$(unquote "$(autorun_var ATTACH "")")
+    # Commandes autour du jeu (run_game) : PRE avant, ATTACH pendant. Des
+    # lignes de commande, comme CMD : guillemets laissés à bash.
+    PRE_CMD=$(autorun_var PRE "")
+    ATTACH_CMD=$(autorun_var ATTACH "")
+    ATTACH_PROCESS=$(unquote "$(autorun_var ATTACH_PROCESS "")")
     # Bureau virtuel Wine — évite les crashs KDE/WM quand le jeu change la
     # résolution. autorun.cmd (VIRTUAL_DESKTOP=1920x1080) prioritaire sur
     # WSQUASHFS_VIRTUAL_DESKTOP.
@@ -3028,67 +3030,98 @@ play_game() {
     fi
 }
 
+# Commande avec l'utilisateur et l'environnement du jeu : sudo efface
+# l'environnement, WINEPREFIX & co sont repassés par run_as_target_user.
+as_game_user() {
+    if drops_to_target_user; then
+        run_as_target_user "$@"
+    else
+        as_wine_user "$@"
+    fi
+}
+
 # PRE= (autorun.cmd) : commande lancée une fois avant le jeu, dans son
 # dossier. Un échec arrête le lancement : le jeu ne démarre pas sans elle.
 # Sert à préparer des fichiers (correctif, identifiant…) que l'image ne
 # peut pas contenir tels quels.
 run_pre_command() {
     [[ -n "$PRE_CMD" ]] || return 0
-    as_wine_user bash -c "$PRE_CMD" || die "PRE a échoué : ${PRE_CMD}"
+    run_interruptible as_game_user bash -c "$PRE_CMD" || die "PRE a échoué : ${PRE_CMD}"
 }
 
-# ATTACH= (autorun.cmd) : commande lancée pendant le jeu, une fois son
-# processus trouvé. GAME_PID contient son PID. Le nom cherché est celui de
-# l'exécutable, tronqué à 15 caractères comme le nom de processus du noyau.
-# $1 : PID du lanceur du jeu, pour arrêter l'attente si le jeu meurt avant.
-start_attach_command() {
-    local exe pid="" _
-    exe=$(basename "$EXEC_PATH")
-    exe=${exe:0:15}
-    for _ in $(seq 1 600); do
-        pid=$(pgrep -x "$exe" | head -n 1)
-        [[ -n "$pid" ]] && break
-        kill -0 "$1" 2>/dev/null || break
-        sleep 0.1
+# PID du processus du jeu nommé $1 : nom du noyau (15 caractères au plus),
+# et WINEPREFIX de ce jeu — un autre jeu ouvert peut avoir un exécutable du
+# même nom (Game.exe, Launcher.exe).
+game_process_pid() {
+    local pid re
+    re="^WINEPREFIX=$(regex_escape "$WINEPOINT")(/.*)?$"
+    for pid in $(pgrep -x -- "$(regex_escape "${1:0:15}")"); do
+        grep -qszE "$re" "/proc/${pid}/environ" 2>/dev/null && { echo "$pid"; return 0; }
     done
-    if [[ -z "$pid" ]]; then
-        warn "ATTACH : processus ${exe} introuvable, commande non lancée"
-        return 0
-    fi
-    as_wine_user env GAME_PID="$pid" bash -c "$ATTACH_CMD" <&0 &
+    return 1
+}
+
+# ATTACH= (autorun.cmd), en tâche de fond pendant toute la partie : attend
+# le processus du jeu (ATTACH_PROCESS=, défaut : l'exécutable de CMD), puis
+# lance la commande avec GAME_PID. Sans délai maximal : un premier
+# lancement Proton (runtime umu, création du prefix) dépasse la minute.
+# SIGUSR1 (fin de la partie) arrête une recherche encore en cours.
+# WSQUASHFS_ATTACH marque la commande et tout ce qu'elle lance, même
+# détaché d'elle (stop_attach_command).
+watch_attach() {
+    local pid
+    trap 'warn "ATTACH : processus ${ATTACH_PROCESS} introuvable, commande non lancée"; exit 0' USR1
+    until pid=$(game_process_pid "$ATTACH_PROCESS"); do
+        sleep 0.2
+    done
+    trap : USR1
+    as_game_user env WSQUASHFS_ATTACH="$$" GAME_PID="$pid" bash -c "$ATTACH_CMD"
+}
+
+start_attach_command() {
+    [[ -n "$ATTACH_CMD" ]] || return 0
+    ATTACH_PROCESS=${ATTACH_PROCESS:-$(basename "$EXEC_PATH")}
+    watch_attach <&0 &
     ATTACH_PID=$!
 }
 
-# Arrête ATTACH à la fin du jeu : elle a 5 s pour finir seule.
+# Arrête ATTACH et tout ce qu'elle a lancé : un outil resté derrière elle
+# garderait le dossier du jeu (overlay) comme dossier courant, et le
+# démontage échouerait.
+kill_attach_command() {
+    local pids
+    mapfile -t pids < <(grep -lszxF "WSQUASHFS_ATTACH=$$" /proc/[0-9]*/environ 2>/dev/null | cut -d/ -f3)
+    kill "$ATTACH_PID" "${pids[@]}" 2>/dev/null
+}
+
+# Fin de la partie : une recherche en cours est abandonnée, une commande
+# lancée a 5 s pour finir seule.
 stop_attach_command() {
     local _
     [[ -n "$ATTACH_PID" ]] || return 0
+    kill -USR1 "$ATTACH_PID" 2>/dev/null
     for _ in {1..50}; do
         kill -0 "$ATTACH_PID" 2>/dev/null || break
         sleep 0.1
     done
-    kill "$ATTACH_PID" 2>/dev/null
+    kill_attach_command
     wait "$ATTACH_PID" 2>/dev/null
     ATTACH_PID=""
 }
 
+# --exec (winecfg, JConfig.exe…) : ni PRE ni ATTACH, qui préparent et
+# accompagnent le jeu lui-même.
 run_game() {
-    local exit_code play_pid
+    local exit_code
     cd "${WINEPOINT}${DIR:+/$DIR}" || exit 1
     build_run_command
-    run_pre_command
-
-    if [[ -n "$ATTACH_CMD" ]]; then
-        play_game <&0 &
-        play_pid=$!
-        start_attach_command "$play_pid"
-        wait "$play_pid"
-        exit_code=$?
-        stop_attach_command
-    else
-        play_game
-        exit_code=$?
+    if [[ "$ACTION" != "exec" ]]; then
+        run_pre_command
+        start_attach_command
     fi
+
+    play_game
+    exit_code=$?
 
     # Beaucoup de jeux passent par un lanceur qui démarre le vrai exécutable
     # puis quitte aussitôt (ring_loader.exe → DOA5A.exe, TeknoParrotUi →
@@ -3096,6 +3129,9 @@ run_game() {
     # (Dead or Alive 5 Ultimate). Comme Batocera : on attend que tous les
     # processus du prefix aient terminé.
     run_interruptible run_wineserver "$WINEPOINT" -w || true
+    # Après l'attente : avec un lanceur qui quitte aussitôt, ATTACH
+    # accompagne le vrai jeu jusqu'au bout.
+    stop_attach_command
 
     echo ""
     echo "========================================="
@@ -3148,7 +3184,7 @@ cleanup() {
     # sortir, son propre CWD rend l'overlay "busy" et le démontage échouait
     # à chaque fois — d'où les montages orphelins (confirmé en direct).
     cd / || true
-    [[ -n "$ATTACH_PID" ]] && kill "$ATTACH_PID" 2>/dev/null
+    [[ -n "$ATTACH_PID" ]] && kill_attach_command
     # Jeu lancé dans un namespace (overlay noyau) : arrêt transmis au
     # lanceur du namespace, qui arrête Wine et démonte.
     if [[ -n "$NS_PID" ]]; then

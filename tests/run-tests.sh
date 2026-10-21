@@ -119,9 +119,14 @@ case "$1" in
         echo "  LS $d :$(ls -A "$WINEPREFIX/${d//+/ }" 2>&1 | tr '\n' ' ')" >> "$FAKELOG"
     done
     # Le nom du processus (comm) vient du fichier exécuté, pas de argv[0] :
-    # FAKE_COMM passe par un lien portant ce nom.
+    # FAKE_COMM passe par un lien portant ce nom. FAKE_DETACH : lanceur qui
+    # démarre le jeu puis quitte aussitôt (le faux wineserver -w l'attend).
     if [[ -n "${FAKE_COMM:-}" && -n "${FAKE_SLEEP:-}" ]]; then
         ln -sf "$(command -v sleep)" "$(dirname "$0")/$FAKE_COMM"
+        if [[ -n "${FAKE_DETACH:-}" ]]; then
+            (exec -a wsq-fake-detached "$(dirname "$0")/$FAKE_COMM" "$FAKE_SLEEP") &
+            exit 0
+        fi
         exec "$(dirname "$0")/$FAKE_COMM" "$FAKE_SLEEP"
     fi
     [[ -n "${FAKE_SLEEP:-}" ]] && exec -a wsq-fake-game sleep "$FAKE_SLEEP" ;;
@@ -146,7 +151,10 @@ echo "1700000000 GE-Proton9-1" > "${PROTON}/version"
 cat > "${FAKEBIN}/wineserver" <<'EOF'
 #!/bin/bash
 echo "WINESERVER $*" >> "$FAKELOG"
-[[ "$1" == "-k" ]] && pkill -f '^wsq-fake-game' 2>/dev/null
+[[ "$1" == "-k" ]] && pkill -f '^wsq-fake-' 2>/dev/null
+if [[ "$1" == "-w" ]]; then
+    while pgrep -f '^wsq-fake-detached' > /dev/null; do sleep 0.1; done
+fi
 exit 0
 EOF
 cat > "${FAKEBIN}/umu-run" <<'EOF'
@@ -235,6 +243,19 @@ F="${ROOT}/src/Pre Fail Game"
 mkdir -p "$F/game"
 printf 'MZ' > "$F/game/hook.exe"
 printf 'DIR=game\nCMD=hook.exe\nPRE=false\nATTACH=sh attach.sh\n' > "$F/autorun.cmd"
+# Jeu à lanceur (FAKE_DETACH) : ATTACH suit le vrai jeu jusqu'au bout et
+# laisse un processus derrière elle, arrêté avec elle. ATTACH_PROCESS
+# entre guillemets ; ATTACH garde les siens (ligne de commande).
+LG="${ROOT}/src/Loader Game"
+mkdir -p "$LG/game"
+printf 'MZ' > "$LG/game/loader.exe"
+cat > "$LG/game/attach me.sh" <<'EOF'
+echo "ATTACH GAME_PID=${GAME_PID:+ok}"
+(exec -a wsq-attach-child sleep 300) &
+while kill -0 "$GAME_PID" 2>/dev/null; do sleep 0.1; done
+echo "ATTACH : fin du jeu vue"
+EOF
+printf 'DIR=game\nCMD=loader.exe\nATTACH="bash" "attach me.sh"\nATTACH_PROCESS="hook.exe"\n' > "$LG/autorun.cmd"
 
 # Faux sysfs hidraw : une DualSense Bluetooth dont le nœud est illisible
 mkdir -p "${ROOT}/sysfs/hidraw99/device"
@@ -399,7 +420,18 @@ step pack-prefail  "$L" --pack "$F" "$ROMS/Pre Fail Game.wsquashfs"
 step hook-run      env WSQUASHFS_UMU=0 FAKE_SLEEP=1 FAKE_COMM=hook.exe "$L" "$ROMS/Hook Game.wsquashfs"
 snapshot after-hook
 step hook-prefail  env WSQUASHFS_UMU=0 FAKE_SLEEP=1 FAKE_COMM=hook.exe "$L" "$ROMS/Pre Fail Game.wsquashfs"
+# Un hook.exe hors du prefix du jeu (autre jeu ouvert) n'est pas retenu
+mkdir -p "${ROOT}/decoy"
+ln -sf "$(command -v sleep)" "${ROOT}/decoy/hook.exe"
+"${ROOT}/decoy/hook.exe" 60 &
+BG_PIDS+=($!)
 step hook-noproc   env WSQUASHFS_UMU=0 "$L" "$ROMS/Hook Game.wsquashfs"
+kill "${BG_PIDS[-1]}" 2>/dev/null
+# --exec : ni PRE ni ATTACH
+step hook-exec     env WSQUASHFS_UMU=0 "$L" --exec "$ROMS/Hook Game.wsquashfs" hook.exe
+step pack-loader   "$L" --pack "$LG" "$ROMS/Loader Game.wsquashfs"
+step hook-loader   env WSQUASHFS_UMU=0 FAKE_SLEEP=1 FAKE_COMM=hook.exe FAKE_DETACH=1 "$L" "$ROMS/Loader Game.wsquashfs"
+note "processus laissés par ATTACH : $(pgrep -fc '^wsq-attach-child')"
 
 # --mount / --umount : les démons FUSE ne doivent pas garder le verrou
 step mount         "$L" --mount "$ROMS/Solo Game.wsquashfs"

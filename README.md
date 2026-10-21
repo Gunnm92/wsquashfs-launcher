@@ -270,8 +270,14 @@ Le fichier `autorun.cmd` à la racine du `.wsquashfs` configure l'exécution. Ut
 | `CMD` | ✅ | Exécutable et arguments (`game.exe -fullscreen` ou `"My Game.exe" -fullscreen`) |
 | `DIR` | — | Chemin vers le dossier de l'exécutable (relatif à la racine du wsquashfs) |
 | `GAME_VERSION` | — | Version du jeu packagé (`1.04`, `v2.1.0 GOG`…), affichée au lancement, par `--info`, `--pack` et `--install`. Ignorée par Batocera, qui ne lit que les clés qu'il connaît : l'image reste compatible |
-| `PRE` | — | Commande lancée une fois **avant** le jeu, dans son dossier (DIR), avec l'utilisateur du jeu. Un échec arrête le lancement. Sert à préparer des fichiers que l'image ne peut pas contenir tels quels | `sh pre.sh` |
-| `ATTACH` | — | Commande lancée **pendant** le jeu, une fois son processus trouvé ; `GAME_PID` contient son PID. Le processus est cherché par le nom de l'exécutable (15 caractères au plus). Arrêtée 5 s après la fin du jeu | `sh attach.sh` |
+| `PRE` | — | Commande lancée une fois **avant** le jeu, dans son dossier (DIR), avec l'utilisateur et l'environnement du jeu (`WINEPREFIX`…). Un échec arrête le lancement. Sert à préparer des fichiers que l'image ne peut pas contenir tels quels. Ligne de commande comme `CMD` : ses guillemets sont gardés | `sh pre.sh` |
+| `ATTACH` | — | Commande lancée **pendant** le jeu, une fois son processus trouvé dans le prefix du jeu (sans délai maximal) ; `GAME_PID` contient son PID. Elle accompagne le jeu jusqu'à la fin de tous ses processus Wine (lanceur intermédiaire compris), a ensuite 5 s pour finir seule, puis est arrêtée avec tout ce qu'elle a lancé | `sh attach.sh` |
+| `ATTACH_PROCESS` | — | Nom du processus attendu par `ATTACH` (15 caractères au plus, comme le noyau). Défaut : l'exécutable de `CMD` ; à renseigner quand `CMD` est un lanceur qui démarre le vrai jeu | `DOA5A.exe` |
+
+`PRE` et `ATTACH` exécutent des commandes Linux sur la machine, hors de Wine :
+n'utiliser que des images de confiance. Ni l'une ni l'autre n'est lancée par
+`--exec`. Batocera les ignore, comme `GAME_VERSION` : un jeu qui en dépend n'y
+fonctionnera pas tel quel.
 
 ### Variables Wine
 
