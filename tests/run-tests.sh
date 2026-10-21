@@ -118,6 +118,12 @@ case "$1" in
     for d in ${FAKE_LS:-}; do
         echo "  LS $d :$(ls -A "$WINEPREFIX/${d//+/ }" 2>&1 | tr '\n' ' ')" >> "$FAKELOG"
     done
+    # Le nom du processus (comm) vient du fichier exécuté, pas de argv[0] :
+    # FAKE_COMM passe par un lien portant ce nom.
+    if [[ -n "${FAKE_COMM:-}" && -n "${FAKE_SLEEP:-}" ]]; then
+        ln -sf "$(command -v sleep)" "$(dirname "$0")/$FAKE_COMM"
+        exec "$(dirname "$0")/$FAKE_COMM" "$FAKE_SLEEP"
+    fi
     [[ -n "${FAKE_SLEEP:-}" ]] && exec -a wsq-fake-game sleep "$FAKE_SLEEP" ;;
 esac
 exit 0
@@ -211,6 +217,24 @@ printf 'GE-Proton9-1\n/x/share/fonts/\n/x/lib/\n' > "$X/config_info"
 printf '#arch=win64\n' > "$X/system.reg"
 printf 'MZ' > "$X/drive_c/pg/pg.exe"
 printf 'DIR=drive_c/pg\nCMD=pg.exe\nDXVK=0\n' > "$X/autorun.cmd"
+
+# Jeu avec PRE= et ATTACH= : le processus s'appelle hook.exe (FAKE_COMM),
+# Pre Fail Game a un PRE qui échoue
+H="${ROOT}/src/Hook Game"
+mkdir -p "$H/game"
+printf 'MZ' > "$H/game/hook.exe"
+cat > "$H/game/pre.sh" <<'EOF'
+echo "PRE dans $(basename "$PWD")"
+touch pre-done
+EOF
+cat > "$H/game/attach.sh" <<'EOF'
+echo "ATTACH GAME_PID=${GAME_PID:+ok}"
+EOF
+printf 'DIR=game\r\nCMD=hook.exe\r\nPRE=sh pre.sh\r\nATTACH=sh attach.sh\r\n' > "$H/autorun.cmd"
+F="${ROOT}/src/Pre Fail Game"
+mkdir -p "$F/game"
+printf 'MZ' > "$F/game/hook.exe"
+printf 'DIR=game\nCMD=hook.exe\nPRE=false\nATTACH=sh attach.sh\n' > "$F/autorun.cmd"
 
 # Faux sysfs hidraw : une DualSense Bluetooth dont le nœud est illisible
 mkdir -p "${ROOT}/sysfs/hidraw99/device"
@@ -368,6 +392,14 @@ step solo-again    env WSQUASHFS_UMU=0 "$L" "$ROMS/Solo Game.wsquashfs"
 step proton-umu    "$L" "$ROMS/Proton Game.wsquashfs"
 step proton-nodxvk env WSQUASHFS_DXVK_DIR=/nope "$L" "$ROMS/Proton Game.wsquashfs"
 step win32-hidraw  env WSQUASHFS_UMU=0 HIDRAW_SYSFS="$ROOT/sysfs" "$L" "$ROMS/Old32.wsquashfs"
+
+# PRE= (avant le jeu) et ATTACH= (pendant le jeu, GAME_PID = PID de hook.exe)
+step pack-hook     "$L" --pack "$H" "$ROMS/Hook Game.wsquashfs"
+step pack-prefail  "$L" --pack "$F" "$ROMS/Pre Fail Game.wsquashfs"
+step hook-run      env WSQUASHFS_UMU=0 FAKE_SLEEP=1 FAKE_COMM=hook.exe "$L" "$ROMS/Hook Game.wsquashfs"
+snapshot after-hook
+step hook-prefail  env WSQUASHFS_UMU=0 FAKE_SLEEP=1 FAKE_COMM=hook.exe "$L" "$ROMS/Pre Fail Game.wsquashfs"
+step hook-noproc   env WSQUASHFS_UMU=0 "$L" "$ROMS/Hook Game.wsquashfs"
 
 # --mount / --umount : les démons FUSE ne doivent pas garder le verrou
 step mount         "$L" --mount "$ROMS/Solo Game.wsquashfs"

@@ -132,12 +132,20 @@ d saves/Arcade Game/drive_c/windows ->
 d saves/Arcade Game/drive_c/windows/system32 -> 
 d saves/Arcade Game/drive_c/windows/syswow64 -> 
 d saves/Arcade Game/regs -> 
+d saves/Hook Game -> 
+d saves/Hook Game/drive_c -> 
+d saves/Hook Game/drive_c/users -> 
+d saves/Hook Game/drive_c/users/wsqtest -> 
 d saves/Old32 -> 
 d saves/Old32/drive_c -> 
 d saves/Old32/drive_c/users -> 
 d saves/Old32/drive_c/users/wsqtest -> 
 d saves/Old32/drive_c/windows -> 
 d saves/Old32/drive_c/windows/system32 -> 
+d saves/Pre Fail Game -> 
+d saves/Pre Fail Game/drive_c -> 
+d saves/Pre Fail Game/drive_c/users -> 
+d saves/Pre Fail Game/drive_c/users/wsqtest -> 
 d saves/Solo Game -> 
 d saves/Solo Game/drive_c -> 
 d saves/Solo Game/drive_c/users -> 
@@ -158,11 +166,15 @@ d src/Arcade Game.wine/drive_c/windows ->
 d src/Arcade Game.wine/drive_c/windows/system32 -> 
 d src/Arcade Game.wine/drive_c/windows/syswow64 -> 
 d src/Arcade Game.wine/regs -> 
+d src/Hook Game -> 
+d src/Hook Game/game -> 
 d src/Old32.wine -> 
 d src/Old32.wine/drive_c -> 
 d src/Old32.wine/drive_c/game -> 
 d src/Old32.wine/drive_c/windows -> 
 d src/Old32.wine/drive_c/windows/system32 -> 
+d src/Pre Fail Game -> 
+d src/Pre Fail Game/game -> 
 d src/Proton Game.wine -> 
 d src/Proton Game.wine/drive_c -> 
 d src/Proton Game.wine/drive_c/pg -> 
@@ -180,19 +192,27 @@ d userdata/saves/windows/Old32 ->
 d userdata/saves/windows/Old32/drive_c -> 
 d userdata/saves/windows/Old32/drive_c/game -> 
 f cache/locks/Arcade Game.lock -> 
+f cache/locks/Hook Game.lock -> 
 f cache/locks/Old32.lock -> 
+f cache/locks/Pre Fail Game.lock -> 
 f cache/locks/Proton Game.lock -> 
 f cache/locks/Solo Game.lock -> 
 f saves/.images/Arcade Game -> 
+f saves/.images/Hook Game -> 
 f saves/.images/Old32 -> 
+f saves/.images/Pre Fail Game -> 
 f saves/.images/Proton Game -> 
 f saves/.images/Solo Game -> 
 f saves/Arcade Game/drive_c/Game Dir/Bin/Game.EXE -> 
 f saves/Arcade Game/regs/b.reg -> 
 f saves/Arcade Game/system.reg -> 
+f saves/Hook Game/drive_c/users/.wh..wh..opq -> 
+f saves/Hook Game/drive_c/users/wsqtest/.wh..wh..opq -> 
 f saves/Old32/drive_c/users/.wh..wh..opq -> 
 f saves/Old32/drive_c/users/wsqtest/.wh..wh..opq -> 
 f saves/Old32/system.reg -> 
+f saves/Pre Fail Game/drive_c/users/.wh..wh..opq -> 
+f saves/Pre Fail Game/drive_c/users/wsqtest/.wh..wh..opq -> 
 f saves/Solo Game/drive_c/users/.wh..wh..opq -> 
 f saves/Solo Game/drive_c/users/wsqtest/.wh..wh..opq -> 
 f saves/Solo Game/drive_c/windows/.wh..wh..opq -> 
@@ -208,10 +228,16 @@ f src/Arcade Game.wine/drive_c/windows/system32/explorer.exe ->
 f src/Arcade Game.wine/drive_c/windows/system32/kernel32.dll -> 
 f src/Arcade Game.wine/regs/a.reg -> 
 f src/Arcade Game.wine/system.reg -> 
+f src/Hook Game/autorun.cmd -> 
+f src/Hook Game/game/attach.sh -> 
+f src/Hook Game/game/hook.exe -> 
+f src/Hook Game/game/pre.sh -> 
 f src/Old32.wine/autorun.cmd -> 
 f src/Old32.wine/drive_c/game/start.bat -> 
 f src/Old32.wine/drive_c/windows/system32/explorer.exe -> 
 f src/Old32.wine/system.reg -> 
+f src/Pre Fail Game/autorun.cmd -> 
+f src/Pre Fail Game/game/hook.exe -> 
 f src/Proton Game.wine/autorun.cmd -> 
 f src/Proton Game.wine/config_info -> 
 f src/Proton Game.wine/drive_c/pg/pg.exe -> 
@@ -219,7 +245,9 @@ f src/Proton Game.wine/system.reg ->
 f src/Solo Game/autorun.cmd -> 
 f src/Solo Game/game/run me.exe -> 
 f userdata/roms/windows/Arcade Game.wsquashfs -> 
+f userdata/roms/windows/Hook Game.wsquashfs -> 
 f userdata/roms/windows/Old32.wsquashfs -> 
+f userdata/roms/windows/Pre Fail Game.wsquashfs -> 
 f userdata/roms/windows/Proton Game.wsquashfs -> 
 f userdata/roms/windows/Solo Game.wsquashfs -> 
 f userdata/saves/windows/Arcade Game/slot1 -> 
@@ -434,13 +462,15 @@ Fichier       : ROOT/userdata/roms/windows/Solo Game.wsquashfs
 Erreur : overlay noyau impossible : namespace utilisateur refusé (Operation not permitted)
 == rc=1
 ################ kernel-list
-Jeu          État        Version     Sauvegardes  Image
-Arcade Game  -           1.2.3       12K          ROOT/userdata/roms/windows/Arcade Game.wsquashfs
-Old32        -           -           4.0K         ROOT/userdata/roms/windows/Old32.wsquashfs
-Proton Game  -           -           aucune       ROOT/userdata/roms/windows/Proton Game.wsquashfs
-Solo Game    en cours    -           4.0K         ROOT/userdata/roms/windows/Solo Game.wsquashfs
+Jeu            État        Version     Sauvegardes  Image
+Arcade Game    -           1.2.3       12K          ROOT/userdata/roms/windows/Arcade Game.wsquashfs
+Hook Game      -           -           0            ROOT/userdata/roms/windows/Hook Game.wsquashfs
+Old32          -           -           4.0K         ROOT/userdata/roms/windows/Old32.wsquashfs
+Pre Fail Game  -           -           0            ROOT/userdata/roms/windows/Pre Fail Game.wsquashfs
+Proton Game    -           -           aucune       ROOT/userdata/roms/windows/Proton Game.wsquashfs
+Solo Game      en cours    -           4.0K         ROOT/userdata/roms/windows/Solo Game.wsquashfs
 
-Sauvegardes : ROOT/saves (36K au total)
+Sauvegardes : ROOT/saves (44K au total)
 == rc=0
 ## Solo Game vu de l'hôte : non monté
 ################ kernel-again

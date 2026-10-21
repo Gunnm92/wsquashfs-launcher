@@ -343,11 +343,15 @@ d src/Arcade Game.wine/drive_c/windows ->
 d src/Arcade Game.wine/drive_c/windows/system32 -> 
 d src/Arcade Game.wine/drive_c/windows/syswow64 -> 
 d src/Arcade Game.wine/regs -> 
+d src/Hook Game -> 
+d src/Hook Game/game -> 
 d src/Old32.wine -> 
 d src/Old32.wine/drive_c -> 
 d src/Old32.wine/drive_c/game -> 
 d src/Old32.wine/drive_c/windows -> 
 d src/Old32.wine/drive_c/windows/system32 -> 
+d src/Pre Fail Game -> 
+d src/Pre Fail Game/game -> 
 d src/Proton Game.wine -> 
 d src/Proton Game.wine/drive_c -> 
 d src/Proton Game.wine/drive_c/pg -> 
@@ -375,10 +379,16 @@ f src/Arcade Game.wine/drive_c/windows/system32/explorer.exe ->
 f src/Arcade Game.wine/drive_c/windows/system32/kernel32.dll -> 
 f src/Arcade Game.wine/regs/a.reg -> 
 f src/Arcade Game.wine/system.reg -> 
+f src/Hook Game/autorun.cmd -> 
+f src/Hook Game/game/attach.sh -> 
+f src/Hook Game/game/hook.exe -> 
+f src/Hook Game/game/pre.sh -> 
 f src/Old32.wine/autorun.cmd -> 
 f src/Old32.wine/drive_c/game/start.bat -> 
 f src/Old32.wine/drive_c/windows/system32/explorer.exe -> 
 f src/Old32.wine/system.reg -> 
+f src/Pre Fail Game/autorun.cmd -> 
+f src/Pre Fail Game/game/hook.exe -> 
 f src/Proton Game.wine/autorun.cmd -> 
 f src/Proton Game.wine/config_info -> 
 f src/Proton Game.wine/drive_c/pg/pg.exe -> 
@@ -1033,11 +1043,15 @@ d src/Arcade Game.wine/drive_c/windows ->
 d src/Arcade Game.wine/drive_c/windows/system32 -> 
 d src/Arcade Game.wine/drive_c/windows/syswow64 -> 
 d src/Arcade Game.wine/regs -> 
+d src/Hook Game -> 
+d src/Hook Game/game -> 
 d src/Old32.wine -> 
 d src/Old32.wine/drive_c -> 
 d src/Old32.wine/drive_c/game -> 
 d src/Old32.wine/drive_c/windows -> 
 d src/Old32.wine/drive_c/windows/system32 -> 
+d src/Pre Fail Game -> 
+d src/Pre Fail Game/game -> 
 d src/Proton Game.wine -> 
 d src/Proton Game.wine/drive_c -> 
 d src/Proton Game.wine/drive_c/pg -> 
@@ -1074,10 +1088,16 @@ f src/Arcade Game.wine/drive_c/windows/system32/explorer.exe ->
 f src/Arcade Game.wine/drive_c/windows/system32/kernel32.dll -> 
 f src/Arcade Game.wine/regs/a.reg -> 
 f src/Arcade Game.wine/system.reg -> 
+f src/Hook Game/autorun.cmd -> 
+f src/Hook Game/game/attach.sh -> 
+f src/Hook Game/game/hook.exe -> 
+f src/Hook Game/game/pre.sh -> 
 f src/Old32.wine/autorun.cmd -> 
 f src/Old32.wine/drive_c/game/start.bat -> 
 f src/Old32.wine/drive_c/windows/system32/explorer.exe -> 
 f src/Old32.wine/system.reg -> 
+f src/Pre Fail Game/autorun.cmd -> 
+f src/Pre Fail Game/game/hook.exe -> 
 f src/Proton Game.wine/autorun.cmd -> 
 f src/Proton Game.wine/config_info -> 
 f src/Proton Game.wine/drive_c/pg/pg.exe -> 
@@ -1304,6 +1324,405 @@ WINE wine-tkg-fake cwd=ROOT/cache/wine/Old32/drive_c/game args: [cmd] [/c] [ROOT
 WINESERVER -w
 WINESERVER -k
 WINESERVER -w
+################ pack-hook
+Création de ROOT/userdata/roms/windows/Hook Game.wsquashfs depuis ROOT/src/Hook Game...
+[===================================================================|] 4/4 100%
+✓ ROOT/userdata/roms/windows/Hook Game.wsquashfs (SIZE)
+  Version non renseignée (GAME_VERSION=... dans l'autorun.cmd, voir --info)
+== rc=0
+################ pack-prefail
+Création de ROOT/userdata/roms/windows/Pre Fail Game.wsquashfs depuis ROOT/src/Pre Fail Game...
+[===================================================================|] 2/2 100%
+✓ ROOT/userdata/roms/windows/Pre Fail Game.wsquashfs (SIZE)
+  Version non renseignée (GAME_VERSION=... dans l'autorun.cmd, voir --info)
+== rc=0
+################ hook-run
+=========================================
+WSquashFS Launcher
+=========================================
+Environnement : ENV
+Jeu           : Hook Game
+Fichier       : ROOT/userdata/roms/windows/Hook Game.wsquashfs
+Mode          : overlay (squashfuse + fuse-overlayfs)
+Initialisation du préfixe Wine (win64)...
+Préfixe       : mise à jour pour wine-9.0 (fake)
+-----------------------------------------
+Exécutable    : ROOT/cache/wine/Hook Game/game/hook.exe
+Arguments     : <aucun>
+Wine          : ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/bin/wine (win64)
+Version Wine  : wine-9.0 (fake)
+Préfixe       : ROOT/cache/wine/Hook Game
+Sauvegardes   : ROOT/saves/Hook Game
+Manettes      : XInput, manette Xbox
+DXVK          : activé
+VKD3D         : activé
+D7VK          : activé (DirectDraw → Vulkan)
+=========================================
+
+PRE dans game
+ATTACH GAME_PID=ok
+
+=========================================
+Jeu terminé (code : 0)
+=========================================
+-- stderr
+Attention : umu-run absent, prefix créé par wine-tkg-fake au lieu de Proton
+== rc=0
+WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
+  WINEPREFIX=ROOT/cache/wine/Hook Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
+  WINEDEBUG=fixme-all
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Hook Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
+  WINEPREFIX=ROOT/cache/wine/Hook Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
+  WINEDEBUG=-all
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Services\winebus] [/v] [DisableHidraw] [/t] [REG_DWORD] [/d] [1] [/f]
+  WINEPREFIX=ROOT/cache/wine/Hook Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  GAMEID=
+  PROTONPATH=
+WINESERVER -k
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Hook Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+WINE wine-tkg-fake cwd=ROOT/cache/wine/Hook Game/game args: [ROOT/cache/wine/Hook Game/game/hook.exe]
+  WINEPREFIX=ROOT/cache/wine/Hook Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+WINESERVER -w
+WINESERVER -k
+WINESERVER -w
+################ TREE after-hook
+d cache -> 
+d cache/locks -> 
+d cache/mnt -> 
+d cache/mnt/Arcade Game -> 
+d cache/mnt/Hook Game -> 
+d cache/mnt/Old32 -> 
+d cache/mnt/Proton Game -> 
+d cache/mnt/Solo Game -> 
+d cache/wine -> 
+d cache/wine/Arcade Game -> 
+d cache/wine/Hook Game -> 
+d cache/wine/Old32 -> 
+d cache/wine/Proton Game -> 
+d cache/wine/Solo Game -> 
+d saves -> 
+d saves/.images -> 
+d saves/.work -> 
+d saves/Arcade Game -> 
+d saves/Arcade Game/drive_c -> 
+d saves/Arcade Game/drive_c/Game Dir -> 
+d saves/Arcade Game/drive_c/users -> 
+d saves/Arcade Game/drive_c/users/steamuser -> 
+d saves/Arcade Game/drive_c/users/steamuser/Music -> 
+d saves/Arcade Game/drive_c/users/wsqtest -> 
+d saves/Arcade Game/drive_c/windows -> 
+d saves/Arcade Game/drive_c/windows/system32 -> 
+d saves/Arcade Game/drive_c/windows/syswow64 -> 
+d saves/Hook Game -> 
+d saves/Hook Game/drive_c -> 
+d saves/Hook Game/drive_c/users -> 
+d saves/Hook Game/drive_c/users/wsqtest -> 
+d saves/Hook Game/drive_c/windows -> 
+d saves/Hook Game/drive_c/windows/system32 -> 
+d saves/Hook Game/drive_c/windows/syswow64 -> 
+d saves/Hook Game/game -> 
+d saves/Old32 -> 
+d saves/Old32/drive_c -> 
+d saves/Old32/drive_c/users -> 
+d saves/Old32/drive_c/users/wsqtest -> 
+d saves/Old32/drive_c/windows -> 
+d saves/Old32/drive_c/windows/system32 -> 
+d saves/Proton Game -> 
+d saves/Solo Game -> 
+d saves/Solo Game/drive_c -> 
+d saves/Solo Game/drive_c/users -> 
+d saves/Solo Game/drive_c/users/wsqtest -> 
+d saves/Solo Game/drive_c/windows -> 
+d saves/Solo Game/drive_c/windows/system32 -> 
+d saves/Solo Game/drive_c/windows/syswow64 -> 
+d src -> 
+d src/Arcade Game.wine -> 
+d src/Arcade Game.wine/drive_c -> 
+d src/Arcade Game.wine/drive_c/Game Dir -> 
+d src/Arcade Game.wine/drive_c/Game Dir/Bin -> 
+d src/Arcade Game.wine/drive_c/Game Dir/Saves -> 
+d src/Arcade Game.wine/drive_c/users -> 
+d src/Arcade Game.wine/drive_c/users/steamuser -> 
+d src/Arcade Game.wine/drive_c/users/steamuser/Documents -> 
+d src/Arcade Game.wine/drive_c/windows -> 
+d src/Arcade Game.wine/drive_c/windows/system32 -> 
+d src/Arcade Game.wine/drive_c/windows/syswow64 -> 
+d src/Arcade Game.wine/regs -> 
+d src/Hook Game -> 
+d src/Hook Game/game -> 
+d src/Old32.wine -> 
+d src/Old32.wine/drive_c -> 
+d src/Old32.wine/drive_c/game -> 
+d src/Old32.wine/drive_c/windows -> 
+d src/Old32.wine/drive_c/windows/system32 -> 
+d src/Pre Fail Game -> 
+d src/Pre Fail Game/game -> 
+d src/Proton Game.wine -> 
+d src/Proton Game.wine/drive_c -> 
+d src/Proton Game.wine/drive_c/pg -> 
+d src/Proton Game.wine/drive_c/windows -> 
+d src/Proton Game.wine/drive_c/windows/system32 -> 
+d src/Solo Game -> 
+d src/Solo Game/game -> 
+d userdata -> 
+d userdata/roms -> 
+d userdata/roms/windows -> 
+d userdata/saves -> 
+d userdata/saves/windows -> 
+d userdata/saves/windows/Arcade Game -> 
+f cache/locks/Arcade Game.lock -> 
+f cache/locks/Hook Game.lock -> 
+f cache/locks/Old32.lock -> 
+f cache/locks/Proton Game.lock -> 
+f cache/locks/Solo Game.lock -> 
+f saves/.images/Arcade Game -> 
+f saves/.images/Hook Game -> 
+f saves/.images/Old32 -> 
+f saves/.images/Proton Game -> 
+f saves/.images/Solo Game -> 
+f saves/Arcade Game/drive_c/users/steamuser/Music/.wh..wh..opq -> 
+f saves/Arcade Game/drive_c/users/wsqtest/.wh..wh..opq -> 
+f saves/Arcade Game/system.reg -> 
+f saves/Hook Game/drive_c/.wh..wh..opq -> 
+f saves/Hook Game/drive_c/users/.wh..wh..opq -> 
+f saves/Hook Game/drive_c/users/wsqtest/.wh..wh..opq -> 
+f saves/Hook Game/drive_c/windows/.wh..wh..opq -> 
+f saves/Hook Game/drive_c/windows/system32/.wh..wh..opq -> 
+f saves/Hook Game/drive_c/windows/system32/explorer.exe -> 
+f saves/Hook Game/game/pre-done -> 
+f saves/Hook Game/system.reg -> 
+f saves/Old32/drive_c/users/.wh..wh..opq -> 
+f saves/Old32/drive_c/users/wsqtest/.wh..wh..opq -> 
+f saves/Old32/system.reg -> 
+f saves/Solo Game/drive_c/.wh..wh..opq -> 
+f saves/Solo Game/drive_c/users/.wh..wh..opq -> 
+f saves/Solo Game/drive_c/users/wsqtest/.wh..wh..opq -> 
+f saves/Solo Game/drive_c/windows/.wh..wh..opq -> 
+f saves/Solo Game/drive_c/windows/system32/.wh..wh..opq -> 
+f saves/Solo Game/drive_c/windows/system32/explorer.exe -> 
+f saves/Solo Game/system.reg -> 
+f src/Arcade Game.wine/autorun.cmd -> 
+f src/Arcade Game.wine/drive_c/Game Dir/Bin/Config.exe -> 
+f src/Arcade Game.wine/drive_c/Game Dir/Bin/Game.EXE -> 
+f src/Arcade Game.wine/drive_c/Game Dir/Saves/slot1 -> 
+f src/Arcade Game.wine/drive_c/windows/system32/d3dx9_42.dll -> 
+f src/Arcade Game.wine/drive_c/windows/system32/explorer.exe -> 
+f src/Arcade Game.wine/drive_c/windows/system32/kernel32.dll -> 
+f src/Arcade Game.wine/regs/a.reg -> 
+f src/Arcade Game.wine/system.reg -> 
+f src/Hook Game/autorun.cmd -> 
+f src/Hook Game/game/attach.sh -> 
+f src/Hook Game/game/hook.exe -> 
+f src/Hook Game/game/pre.sh -> 
+f src/Old32.wine/autorun.cmd -> 
+f src/Old32.wine/drive_c/game/start.bat -> 
+f src/Old32.wine/drive_c/windows/system32/explorer.exe -> 
+f src/Old32.wine/system.reg -> 
+f src/Pre Fail Game/autorun.cmd -> 
+f src/Pre Fail Game/game/hook.exe -> 
+f src/Proton Game.wine/autorun.cmd -> 
+f src/Proton Game.wine/config_info -> 
+f src/Proton Game.wine/drive_c/pg/pg.exe -> 
+f src/Proton Game.wine/system.reg -> 
+f src/Solo Game/autorun.cmd -> 
+f src/Solo Game/game/run me.exe -> 
+f userdata/roms/windows/Arcade Game.wsquashfs -> 
+f userdata/roms/windows/Hook Game.wsquashfs -> 
+f userdata/roms/windows/Old32.wsquashfs -> 
+f userdata/roms/windows/Pre Fail Game.wsquashfs -> 
+f userdata/roms/windows/Proton Game.wsquashfs -> 
+f userdata/roms/windows/Solo Game.wsquashfs -> 
+f userdata/saves/windows/Arcade Game/slot1 -> 
+l saves/Arcade Game/drive_c/Game Dir/Saves -> ROOT/userdata/saves/windows/Arcade Game
+l saves/Arcade Game/drive_c/windows/system32/d3d11.dll -> ROOT/dxvk/x64/d3d11.dll
+l saves/Arcade Game/drive_c/windows/system32/d3d12.dll -> ROOT/vkd3d/x64/d3d12.dll
+l saves/Arcade Game/drive_c/windows/system32/d3d9.dll -> ROOT/dxvk/x64/d3d9.dll
+l saves/Arcade Game/drive_c/windows/system32/dxgi.dll -> ROOT/dxvk/x64/dxgi.dll
+l saves/Arcade Game/drive_c/windows/system32/kernel32.dll -> ROOT/home/.local/share/Steam/compatibilitytools.d/GE-Proton9-1/files/lib/wine/x86_64-windows/kernel32.dll
+l saves/Arcade Game/drive_c/windows/syswow64/d3d11.dll -> ROOT/dxvk/x32/d3d11.dll
+l saves/Arcade Game/drive_c/windows/syswow64/d3d12.dll -> ROOT/vkd3d/x86/d3d12.dll
+l saves/Arcade Game/drive_c/windows/syswow64/d3d9.dll -> ROOT/dxvk/x32/d3d9.dll
+l saves/Arcade Game/drive_c/windows/syswow64/ddraw.dll -> ROOT/d7vk/x32/ddraw.dll
+l saves/Arcade Game/drive_c/windows/syswow64/ddraw_.dll -> ROOT/home/.local/share/Steam/compatibilitytools.d/GE-Proton9-1/files/lib/wine/i386-windows/ddraw.dll
+l saves/Arcade Game/drive_c/windows/syswow64/dxgi.dll -> ROOT/dxvk/x32/dxgi.dll
+l saves/Arcade Game/drive_c/windows/syswow64/kernel32.dll -> ROOT/home/.local/share/Steam/compatibilitytools.d/GE-Proton9-1/files/lib/wine/i386-windows/kernel32.dll
+l saves/Hook Game/drive_c/windows/system32/d3d11.dll -> ROOT/dxvk/x64/d3d11.dll
+l saves/Hook Game/drive_c/windows/system32/d3d12.dll -> ROOT/vkd3d/x64/d3d12.dll
+l saves/Hook Game/drive_c/windows/system32/d3d9.dll -> ROOT/dxvk/x64/d3d9.dll
+l saves/Hook Game/drive_c/windows/system32/dxgi.dll -> ROOT/dxvk/x64/dxgi.dll
+l saves/Hook Game/drive_c/windows/system32/kernel32.dll -> ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/lib/wine/x86_64-windows/kernel32.dll
+l saves/Hook Game/drive_c/windows/syswow64/d3d11.dll -> ROOT/dxvk/x32/d3d11.dll
+l saves/Hook Game/drive_c/windows/syswow64/d3d12.dll -> ROOT/vkd3d/x86/d3d12.dll
+l saves/Hook Game/drive_c/windows/syswow64/d3d9.dll -> ROOT/dxvk/x32/d3d9.dll
+l saves/Hook Game/drive_c/windows/syswow64/ddraw.dll -> ROOT/d7vk/x32/ddraw.dll
+l saves/Hook Game/drive_c/windows/syswow64/ddraw_.dll -> ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/lib/wine/i386-windows/ddraw.dll
+l saves/Hook Game/drive_c/windows/syswow64/dxgi.dll -> ROOT/dxvk/x32/dxgi.dll
+l saves/Hook Game/drive_c/windows/syswow64/kernel32.dll -> ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/lib/wine/i386-windows/kernel32.dll
+l saves/Old32/drive_c/windows/system32/d3d12.dll -> ROOT/vkd3d/x86/d3d12.dll
+l saves/Old32/drive_c/windows/system32/ddraw.dll -> ROOT/d7vk/x32/ddraw.dll
+l saves/Old32/drive_c/windows/system32/ddraw_.dll -> ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/lib/wine/i386-windows/ddraw.dll
+l saves/Old32/drive_c/windows/system32/kernel32.dll -> ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/lib/wine/i386-windows/kernel32.dll
+l saves/Solo Game/drive_c/windows/system32/d3d11.dll -> ROOT/dxvk/x64/d3d11.dll
+l saves/Solo Game/drive_c/windows/system32/d3d12.dll -> ROOT/vkd3d/x64/d3d12.dll
+l saves/Solo Game/drive_c/windows/system32/d3d9.dll -> ROOT/dxvk/x64/d3d9.dll
+l saves/Solo Game/drive_c/windows/system32/dxgi.dll -> ROOT/dxvk/x64/dxgi.dll
+l saves/Solo Game/drive_c/windows/system32/kernel32.dll -> ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/lib/wine/x86_64-windows/kernel32.dll
+l saves/Solo Game/drive_c/windows/syswow64/d3d11.dll -> ROOT/dxvk/x32/d3d11.dll
+l saves/Solo Game/drive_c/windows/syswow64/d3d12.dll -> ROOT/vkd3d/x86/d3d12.dll
+l saves/Solo Game/drive_c/windows/syswow64/d3d9.dll -> ROOT/dxvk/x32/d3d9.dll
+l saves/Solo Game/drive_c/windows/syswow64/ddraw.dll -> ROOT/d7vk/x32/ddraw.dll
+l saves/Solo Game/drive_c/windows/syswow64/ddraw_.dll -> ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/lib/wine/i386-windows/ddraw.dll
+l saves/Solo Game/drive_c/windows/syswow64/dxgi.dll -> ROOT/dxvk/x32/dxgi.dll
+l saves/Solo Game/drive_c/windows/syswow64/kernel32.dll -> ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/lib/wine/i386-windows/kernel32.dll
+l src/Arcade Game.wine/drive_c/users/steamuser/Music -> /userdata/system/Music
+l src/Arcade Game.wine/drive_c/windows/system32/dxgi.dll -> /userdata/system/wine/dxvk/x64/dxgi.dll
+################ hook-prefail
+=========================================
+WSquashFS Launcher
+=========================================
+Environnement : ENV
+Jeu           : Pre Fail Game
+Fichier       : ROOT/userdata/roms/windows/Pre Fail Game.wsquashfs
+Mode          : overlay (squashfuse + fuse-overlayfs)
+Initialisation du préfixe Wine (win64)...
+Préfixe       : mise à jour pour wine-9.0 (fake)
+-----------------------------------------
+Exécutable    : ROOT/cache/wine/Pre Fail Game/game/hook.exe
+Arguments     : <aucun>
+Wine          : ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/bin/wine (win64)
+Version Wine  : wine-9.0 (fake)
+Préfixe       : ROOT/cache/wine/Pre Fail Game
+Sauvegardes   : ROOT/saves/Pre Fail Game
+Manettes      : XInput, manette Xbox
+DXVK          : activé
+VKD3D         : activé
+D7VK          : activé (DirectDraw → Vulkan)
+=========================================
+
+-- stderr
+Attention : umu-run absent, prefix créé par wine-tkg-fake au lieu de Proton
+Erreur : PRE a échoué : false
+== rc=1
+WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
+  WINEPREFIX=ROOT/cache/wine/Pre Fail Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
+  WINEDEBUG=fixme-all
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Pre Fail Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
+  WINEPREFIX=ROOT/cache/wine/Pre Fail Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
+  WINEDEBUG=-all
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Services\winebus] [/v] [DisableHidraw] [/t] [REG_DWORD] [/d] [1] [/f]
+  WINEPREFIX=ROOT/cache/wine/Pre Fail Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  GAMEID=
+  PROTONPATH=
+WINESERVER -k
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Pre Fail Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+WINESERVER -k
+WINESERVER -w
+################ hook-noproc
+=========================================
+WSquashFS Launcher
+=========================================
+Environnement : ENV
+Jeu           : Hook Game
+Fichier       : ROOT/userdata/roms/windows/Hook Game.wsquashfs
+Mode          : overlay (squashfuse + fuse-overlayfs)
+✓ Préfixe Wine détecté (structure Batocera)
+Préfixe       : mise à jour pour wine-9.0 (fake)
+-----------------------------------------
+Exécutable    : ROOT/cache/wine/Hook Game/game/hook.exe
+Arguments     : <aucun>
+Wine          : ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/bin/wine (win64)
+Version Wine  : wine-9.0 (fake)
+Préfixe       : ROOT/cache/wine/Hook Game
+Sauvegardes   : ROOT/saves/Hook Game
+Manettes      : XInput, manette Xbox
+DXVK          : activé
+VKD3D         : activé
+D7VK          : activé (DirectDraw → Vulkan)
+=========================================
+
+PRE dans game
+
+=========================================
+Jeu terminé (code : 0)
+=========================================
+-- stderr
+Attention : prefix Wine déjà créé dans les sauvegardes, gardé sous wine-tkg-fake — supprimer ROOT/saves/Hook Game (sauvegardes du jeu comprises) pour passer sous Proton
+Attention : ATTACH : processus hook.exe introuvable, commande non lancée
+== rc=0
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Hook Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
+  WINEPREFIX=ROOT/cache/wine/Hook Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
+  WINEDEBUG=-all
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Services\winebus] [/v] [DisableHidraw] [/t] [REG_DWORD] [/d] [1] [/f]
+  WINEPREFIX=ROOT/cache/wine/Hook Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  GAMEID=
+  PROTONPATH=
+WINESERVER -k
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Hook Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+WINE wine-tkg-fake cwd=ROOT/cache/wine/Hook Game/game args: [ROOT/cache/wine/Hook Game/game/hook.exe]
+  WINEPREFIX=ROOT/cache/wine/Hook Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+WINESERVER -w
+WINESERVER -k
+WINESERVER -w
 ################ mount
 =========================================
 WSquashFS Launcher
@@ -1321,13 +1740,15 @@ Démontage     : LAUNCHER --umount "ROOT/userdata/roms/windows/Solo Game.wsquash
 == rc=0
 ## verrou Solo Game pendant --mount : libre
 ################ list-mounted
-Jeu          État        Version     Sauvegardes  Image
-Arcade Game  -           1.2.3       8.0K         ROOT/userdata/roms/windows/Arcade Game.wsquashfs
-Old32        -           -           4.0K         ROOT/userdata/roms/windows/Old32.wsquashfs
-Proton Game  -           -           0            ROOT/userdata/roms/windows/Proton Game.wsquashfs
-Solo Game    monté       -           4.0K         ROOT/userdata/roms/windows/Solo Game.wsquashfs
+Jeu            État        Version     Sauvegardes  Image
+Arcade Game    -           1.2.3       8.0K         ROOT/userdata/roms/windows/Arcade Game.wsquashfs
+Hook Game      -           -           4.0K         ROOT/userdata/roms/windows/Hook Game.wsquashfs
+Old32          -           -           4.0K         ROOT/userdata/roms/windows/Old32.wsquashfs
+Pre Fail Game  -           -           4.0K         ROOT/userdata/roms/windows/Pre Fail Game.wsquashfs
+Proton Game    -           -           0            ROOT/userdata/roms/windows/Proton Game.wsquashfs
+Solo Game      monté       -           4.0K         ROOT/userdata/roms/windows/Solo Game.wsquashfs
 
-Sauvegardes : ROOT/saves (32K au total)
+Sauvegardes : ROOT/saves (48K au total)
 == rc=0
 ################ backup-busy
 Archivage des sauvegardes dans ROOT/home/.local/share/wsquashfs/backups...
@@ -1570,12 +1991,16 @@ d cache ->
 d cache/locks -> 
 d cache/mnt -> 
 d cache/mnt/Arcade Game -> 
+d cache/mnt/Hook Game -> 
 d cache/mnt/Old32 -> 
+d cache/mnt/Pre Fail Game -> 
 d cache/mnt/Proton Game -> 
 d cache/mnt/Solo Game -> 
 d cache/wine -> 
 d cache/wine/Arcade Game -> 
+d cache/wine/Hook Game -> 
 d cache/wine/Old32 -> 
+d cache/wine/Pre Fail Game -> 
 d cache/wine/Proton Game -> 
 d cache/wine/Solo Game -> 
 d saves -> 
@@ -1591,12 +2016,27 @@ d saves/Arcade Game/drive_c/users/wsqtest ->
 d saves/Arcade Game/drive_c/windows -> 
 d saves/Arcade Game/drive_c/windows/system32 -> 
 d saves/Arcade Game/drive_c/windows/syswow64 -> 
+d saves/Hook Game -> 
+d saves/Hook Game/drive_c -> 
+d saves/Hook Game/drive_c/users -> 
+d saves/Hook Game/drive_c/users/wsqtest -> 
+d saves/Hook Game/drive_c/windows -> 
+d saves/Hook Game/drive_c/windows/system32 -> 
+d saves/Hook Game/drive_c/windows/syswow64 -> 
+d saves/Hook Game/game -> 
 d saves/Old32 -> 
 d saves/Old32/drive_c -> 
 d saves/Old32/drive_c/users -> 
 d saves/Old32/drive_c/users/wsqtest -> 
 d saves/Old32/drive_c/windows -> 
 d saves/Old32/drive_c/windows/system32 -> 
+d saves/Pre Fail Game -> 
+d saves/Pre Fail Game/drive_c -> 
+d saves/Pre Fail Game/drive_c/users -> 
+d saves/Pre Fail Game/drive_c/users/wsqtest -> 
+d saves/Pre Fail Game/drive_c/windows -> 
+d saves/Pre Fail Game/drive_c/windows/system32 -> 
+d saves/Pre Fail Game/drive_c/windows/syswow64 -> 
 d saves/Proton Game -> 
 d saves/Solo Game -> 
 d saves/Solo Game/drive_c -> 
@@ -1618,11 +2058,15 @@ d src/Arcade Game.wine/drive_c/windows ->
 d src/Arcade Game.wine/drive_c/windows/system32 -> 
 d src/Arcade Game.wine/drive_c/windows/syswow64 -> 
 d src/Arcade Game.wine/regs -> 
+d src/Hook Game -> 
+d src/Hook Game/game -> 
 d src/Old32.wine -> 
 d src/Old32.wine/drive_c -> 
 d src/Old32.wine/drive_c/game -> 
 d src/Old32.wine/drive_c/windows -> 
 d src/Old32.wine/drive_c/windows/system32 -> 
+d src/Pre Fail Game -> 
+d src/Pre Fail Game/game -> 
 d src/Proton Game.wine -> 
 d src/Proton Game.wine/drive_c -> 
 d src/Proton Game.wine/drive_c/pg -> 
@@ -1637,19 +2081,38 @@ d userdata/saves ->
 d userdata/saves/windows -> 
 d userdata/saves/windows/Arcade Game -> 
 f cache/locks/Arcade Game.lock -> 
+f cache/locks/Hook Game.lock -> 
 f cache/locks/Old32.lock -> 
+f cache/locks/Pre Fail Game.lock -> 
 f cache/locks/Proton Game.lock -> 
 f cache/locks/Solo Game.lock -> 
 f saves/.images/Arcade Game -> 
+f saves/.images/Hook Game -> 
 f saves/.images/Old32 -> 
+f saves/.images/Pre Fail Game -> 
 f saves/.images/Proton Game -> 
 f saves/.images/Solo Game -> 
 f saves/Arcade Game/drive_c/users/steamuser/Music/.wh..wh..opq -> 
 f saves/Arcade Game/drive_c/users/wsqtest/.wh..wh..opq -> 
 f saves/Arcade Game/system.reg -> 
+f saves/Hook Game/drive_c/.wh..wh..opq -> 
+f saves/Hook Game/drive_c/users/.wh..wh..opq -> 
+f saves/Hook Game/drive_c/users/wsqtest/.wh..wh..opq -> 
+f saves/Hook Game/drive_c/windows/.wh..wh..opq -> 
+f saves/Hook Game/drive_c/windows/system32/.wh..wh..opq -> 
+f saves/Hook Game/drive_c/windows/system32/explorer.exe -> 
+f saves/Hook Game/game/pre-done -> 
+f saves/Hook Game/system.reg -> 
 f saves/Old32/drive_c/users/.wh..wh..opq -> 
 f saves/Old32/drive_c/users/wsqtest/.wh..wh..opq -> 
 f saves/Old32/system.reg -> 
+f saves/Pre Fail Game/drive_c/.wh..wh..opq -> 
+f saves/Pre Fail Game/drive_c/users/.wh..wh..opq -> 
+f saves/Pre Fail Game/drive_c/users/wsqtest/.wh..wh..opq -> 
+f saves/Pre Fail Game/drive_c/windows/.wh..wh..opq -> 
+f saves/Pre Fail Game/drive_c/windows/system32/.wh..wh..opq -> 
+f saves/Pre Fail Game/drive_c/windows/system32/explorer.exe -> 
+f saves/Pre Fail Game/system.reg -> 
 f saves/Solo Game/drive_c/.wh..wh..opq -> 
 f saves/Solo Game/drive_c/users/.wh..wh..opq -> 
 f saves/Solo Game/drive_c/users/wsqtest/.wh..wh..opq -> 
@@ -1666,10 +2129,16 @@ f src/Arcade Game.wine/drive_c/windows/system32/explorer.exe ->
 f src/Arcade Game.wine/drive_c/windows/system32/kernel32.dll -> 
 f src/Arcade Game.wine/regs/a.reg -> 
 f src/Arcade Game.wine/system.reg -> 
+f src/Hook Game/autorun.cmd -> 
+f src/Hook Game/game/attach.sh -> 
+f src/Hook Game/game/hook.exe -> 
+f src/Hook Game/game/pre.sh -> 
 f src/Old32.wine/autorun.cmd -> 
 f src/Old32.wine/drive_c/game/start.bat -> 
 f src/Old32.wine/drive_c/windows/system32/explorer.exe -> 
 f src/Old32.wine/system.reg -> 
+f src/Pre Fail Game/autorun.cmd -> 
+f src/Pre Fail Game/game/hook.exe -> 
 f src/Proton Game.wine/autorun.cmd -> 
 f src/Proton Game.wine/config_info -> 
 f src/Proton Game.wine/drive_c/pg/pg.exe -> 
@@ -1677,7 +2146,9 @@ f src/Proton Game.wine/system.reg ->
 f src/Solo Game/autorun.cmd -> 
 f src/Solo Game/game/run me.exe -> 
 f userdata/roms/windows/Arcade Game.wsquashfs -> 
+f userdata/roms/windows/Hook Game.wsquashfs -> 
 f userdata/roms/windows/Old32.wsquashfs -> 
+f userdata/roms/windows/Pre Fail Game.wsquashfs -> 
 f userdata/roms/windows/Proton Game.wsquashfs -> 
 f userdata/roms/windows/Solo Game.wsquashfs -> 
 f userdata/saves/windows/Arcade Game/slot1 -> 
@@ -1694,10 +2165,34 @@ l saves/Arcade Game/drive_c/windows/syswow64/ddraw.dll -> ROOT/d7vk/x32/ddraw.dl
 l saves/Arcade Game/drive_c/windows/syswow64/ddraw_.dll -> ROOT/home/.local/share/Steam/compatibilitytools.d/GE-Proton9-1/files/lib/wine/i386-windows/ddraw.dll
 l saves/Arcade Game/drive_c/windows/syswow64/dxgi.dll -> ROOT/dxvk/x32/dxgi.dll
 l saves/Arcade Game/drive_c/windows/syswow64/kernel32.dll -> ROOT/home/.local/share/Steam/compatibilitytools.d/GE-Proton9-1/files/lib/wine/i386-windows/kernel32.dll
+l saves/Hook Game/drive_c/windows/system32/d3d11.dll -> ROOT/dxvk/x64/d3d11.dll
+l saves/Hook Game/drive_c/windows/system32/d3d12.dll -> ROOT/vkd3d/x64/d3d12.dll
+l saves/Hook Game/drive_c/windows/system32/d3d9.dll -> ROOT/dxvk/x64/d3d9.dll
+l saves/Hook Game/drive_c/windows/system32/dxgi.dll -> ROOT/dxvk/x64/dxgi.dll
+l saves/Hook Game/drive_c/windows/system32/kernel32.dll -> ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/lib/wine/x86_64-windows/kernel32.dll
+l saves/Hook Game/drive_c/windows/syswow64/d3d11.dll -> ROOT/dxvk/x32/d3d11.dll
+l saves/Hook Game/drive_c/windows/syswow64/d3d12.dll -> ROOT/vkd3d/x86/d3d12.dll
+l saves/Hook Game/drive_c/windows/syswow64/d3d9.dll -> ROOT/dxvk/x32/d3d9.dll
+l saves/Hook Game/drive_c/windows/syswow64/ddraw.dll -> ROOT/d7vk/x32/ddraw.dll
+l saves/Hook Game/drive_c/windows/syswow64/ddraw_.dll -> ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/lib/wine/i386-windows/ddraw.dll
+l saves/Hook Game/drive_c/windows/syswow64/dxgi.dll -> ROOT/dxvk/x32/dxgi.dll
+l saves/Hook Game/drive_c/windows/syswow64/kernel32.dll -> ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/lib/wine/i386-windows/kernel32.dll
 l saves/Old32/drive_c/windows/system32/d3d12.dll -> ROOT/vkd3d/x86/d3d12.dll
 l saves/Old32/drive_c/windows/system32/ddraw.dll -> ROOT/d7vk/x32/ddraw.dll
 l saves/Old32/drive_c/windows/system32/ddraw_.dll -> ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/lib/wine/i386-windows/ddraw.dll
 l saves/Old32/drive_c/windows/system32/kernel32.dll -> ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/lib/wine/i386-windows/kernel32.dll
+l saves/Pre Fail Game/drive_c/windows/system32/d3d11.dll -> ROOT/dxvk/x64/d3d11.dll
+l saves/Pre Fail Game/drive_c/windows/system32/d3d12.dll -> ROOT/vkd3d/x64/d3d12.dll
+l saves/Pre Fail Game/drive_c/windows/system32/d3d9.dll -> ROOT/dxvk/x64/d3d9.dll
+l saves/Pre Fail Game/drive_c/windows/system32/dxgi.dll -> ROOT/dxvk/x64/dxgi.dll
+l saves/Pre Fail Game/drive_c/windows/system32/kernel32.dll -> ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/lib/wine/x86_64-windows/kernel32.dll
+l saves/Pre Fail Game/drive_c/windows/syswow64/d3d11.dll -> ROOT/dxvk/x32/d3d11.dll
+l saves/Pre Fail Game/drive_c/windows/syswow64/d3d12.dll -> ROOT/vkd3d/x86/d3d12.dll
+l saves/Pre Fail Game/drive_c/windows/syswow64/d3d9.dll -> ROOT/dxvk/x32/d3d9.dll
+l saves/Pre Fail Game/drive_c/windows/syswow64/ddraw.dll -> ROOT/d7vk/x32/ddraw.dll
+l saves/Pre Fail Game/drive_c/windows/syswow64/ddraw_.dll -> ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/lib/wine/i386-windows/ddraw.dll
+l saves/Pre Fail Game/drive_c/windows/syswow64/dxgi.dll -> ROOT/dxvk/x32/dxgi.dll
+l saves/Pre Fail Game/drive_c/windows/syswow64/kernel32.dll -> ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/lib/wine/i386-windows/kernel32.dll
 l saves/Solo Game/drive_c/windows/system32/d3d11.dll -> ROOT/dxvk/x64/d3d11.dll
 l saves/Solo Game/drive_c/windows/system32/d3d12.dll -> ROOT/vkd3d/x64/d3d12.dll
 l saves/Solo Game/drive_c/windows/system32/d3d9.dll -> ROOT/dxvk/x64/d3d9.dll
@@ -1735,12 +2230,27 @@ d saves/Arcade Game/drive_c/users/wsqtest ->
 d saves/Arcade Game/drive_c/windows -> 
 d saves/Arcade Game/drive_c/windows/system32 -> 
 d saves/Arcade Game/drive_c/windows/syswow64 -> 
+d saves/Hook Game -> 
+d saves/Hook Game/drive_c -> 
+d saves/Hook Game/drive_c/users -> 
+d saves/Hook Game/drive_c/users/wsqtest -> 
+d saves/Hook Game/drive_c/windows -> 
+d saves/Hook Game/drive_c/windows/system32 -> 
+d saves/Hook Game/drive_c/windows/syswow64 -> 
+d saves/Hook Game/game -> 
 d saves/Old32 -> 
 d saves/Old32/drive_c -> 
 d saves/Old32/drive_c/users -> 
 d saves/Old32/drive_c/users/wsqtest -> 
 d saves/Old32/drive_c/windows -> 
 d saves/Old32/drive_c/windows/system32 -> 
+d saves/Pre Fail Game -> 
+d saves/Pre Fail Game/drive_c -> 
+d saves/Pre Fail Game/drive_c/users -> 
+d saves/Pre Fail Game/drive_c/users/wsqtest -> 
+d saves/Pre Fail Game/drive_c/windows -> 
+d saves/Pre Fail Game/drive_c/windows/system32 -> 
+d saves/Pre Fail Game/drive_c/windows/syswow64 -> 
 d saves/Proton Game -> 
 d saves/Solo Game -> 
 d saves/Solo Game/drive_c -> 
@@ -1762,11 +2272,15 @@ d src/Arcade Game.wine/drive_c/windows ->
 d src/Arcade Game.wine/drive_c/windows/system32 -> 
 d src/Arcade Game.wine/drive_c/windows/syswow64 -> 
 d src/Arcade Game.wine/regs -> 
+d src/Hook Game -> 
+d src/Hook Game/game -> 
 d src/Old32.wine -> 
 d src/Old32.wine/drive_c -> 
 d src/Old32.wine/drive_c/game -> 
 d src/Old32.wine/drive_c/windows -> 
 d src/Old32.wine/drive_c/windows/system32 -> 
+d src/Pre Fail Game -> 
+d src/Pre Fail Game/game -> 
 d src/Proton Game.wine -> 
 d src/Proton Game.wine/drive_c -> 
 d src/Proton Game.wine/drive_c/pg -> 
@@ -1781,19 +2295,38 @@ d userdata/saves ->
 d userdata/saves/windows -> 
 d userdata/saves/windows/Arcade Game -> 
 f cache/locks/Arcade Game.lock -> 
+f cache/locks/Hook Game.lock -> 
 f cache/locks/Old32.lock -> 
+f cache/locks/Pre Fail Game.lock -> 
 f cache/locks/Proton Game.lock -> 
 f cache/locks/Solo Game.lock -> 
 f saves/.images/Arcade Game -> 
+f saves/.images/Hook Game -> 
 f saves/.images/Old32 -> 
+f saves/.images/Pre Fail Game -> 
 f saves/.images/Proton Game -> 
 f saves/.images/Solo Game -> 
 f saves/Arcade Game/drive_c/users/steamuser/Music/.wh..wh..opq -> 
 f saves/Arcade Game/drive_c/users/wsqtest/.wh..wh..opq -> 
 f saves/Arcade Game/system.reg -> 
+f saves/Hook Game/drive_c/.wh..wh..opq -> 
+f saves/Hook Game/drive_c/users/.wh..wh..opq -> 
+f saves/Hook Game/drive_c/users/wsqtest/.wh..wh..opq -> 
+f saves/Hook Game/drive_c/windows/.wh..wh..opq -> 
+f saves/Hook Game/drive_c/windows/system32/.wh..wh..opq -> 
+f saves/Hook Game/drive_c/windows/system32/explorer.exe -> 
+f saves/Hook Game/game/pre-done -> 
+f saves/Hook Game/system.reg -> 
 f saves/Old32/drive_c/users/.wh..wh..opq -> 
 f saves/Old32/drive_c/users/wsqtest/.wh..wh..opq -> 
 f saves/Old32/system.reg -> 
+f saves/Pre Fail Game/drive_c/.wh..wh..opq -> 
+f saves/Pre Fail Game/drive_c/users/.wh..wh..opq -> 
+f saves/Pre Fail Game/drive_c/users/wsqtest/.wh..wh..opq -> 
+f saves/Pre Fail Game/drive_c/windows/.wh..wh..opq -> 
+f saves/Pre Fail Game/drive_c/windows/system32/.wh..wh..opq -> 
+f saves/Pre Fail Game/drive_c/windows/system32/explorer.exe -> 
+f saves/Pre Fail Game/system.reg -> 
 f saves/Solo Game/drive_c/.wh..wh..opq -> 
 f saves/Solo Game/drive_c/users/.wh..wh..opq -> 
 f saves/Solo Game/drive_c/users/wsqtest/.wh..wh..opq -> 
@@ -1810,10 +2343,16 @@ f src/Arcade Game.wine/drive_c/windows/system32/explorer.exe ->
 f src/Arcade Game.wine/drive_c/windows/system32/kernel32.dll -> 
 f src/Arcade Game.wine/regs/a.reg -> 
 f src/Arcade Game.wine/system.reg -> 
+f src/Hook Game/autorun.cmd -> 
+f src/Hook Game/game/attach.sh -> 
+f src/Hook Game/game/hook.exe -> 
+f src/Hook Game/game/pre.sh -> 
 f src/Old32.wine/autorun.cmd -> 
 f src/Old32.wine/drive_c/game/start.bat -> 
 f src/Old32.wine/drive_c/windows/system32/explorer.exe -> 
 f src/Old32.wine/system.reg -> 
+f src/Pre Fail Game/autorun.cmd -> 
+f src/Pre Fail Game/game/hook.exe -> 
 f src/Proton Game.wine/autorun.cmd -> 
 f src/Proton Game.wine/config_info -> 
 f src/Proton Game.wine/drive_c/pg/pg.exe -> 
@@ -1821,7 +2360,9 @@ f src/Proton Game.wine/system.reg ->
 f src/Solo Game/autorun.cmd -> 
 f src/Solo Game/game/run me.exe -> 
 f userdata/roms/windows/Arcade Game.wsquashfs -> 
+f userdata/roms/windows/Hook Game.wsquashfs -> 
 f userdata/roms/windows/Old32.wsquashfs -> 
+f userdata/roms/windows/Pre Fail Game.wsquashfs -> 
 f userdata/roms/windows/Proton Game.wsquashfs -> 
 f userdata/roms/windows/Solo Game.wsquashfs -> 
 f userdata/saves/windows/Arcade Game/slot1 -> 
@@ -1838,10 +2379,34 @@ l saves/Arcade Game/drive_c/windows/syswow64/ddraw.dll -> ROOT/d7vk/x32/ddraw.dl
 l saves/Arcade Game/drive_c/windows/syswow64/ddraw_.dll -> ROOT/home/.local/share/Steam/compatibilitytools.d/GE-Proton9-1/files/lib/wine/i386-windows/ddraw.dll
 l saves/Arcade Game/drive_c/windows/syswow64/dxgi.dll -> ROOT/dxvk/x32/dxgi.dll
 l saves/Arcade Game/drive_c/windows/syswow64/kernel32.dll -> ROOT/home/.local/share/Steam/compatibilitytools.d/GE-Proton9-1/files/lib/wine/i386-windows/kernel32.dll
+l saves/Hook Game/drive_c/windows/system32/d3d11.dll -> ROOT/dxvk/x64/d3d11.dll
+l saves/Hook Game/drive_c/windows/system32/d3d12.dll -> ROOT/vkd3d/x64/d3d12.dll
+l saves/Hook Game/drive_c/windows/system32/d3d9.dll -> ROOT/dxvk/x64/d3d9.dll
+l saves/Hook Game/drive_c/windows/system32/dxgi.dll -> ROOT/dxvk/x64/dxgi.dll
+l saves/Hook Game/drive_c/windows/system32/kernel32.dll -> ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/lib/wine/x86_64-windows/kernel32.dll
+l saves/Hook Game/drive_c/windows/syswow64/d3d11.dll -> ROOT/dxvk/x32/d3d11.dll
+l saves/Hook Game/drive_c/windows/syswow64/d3d12.dll -> ROOT/vkd3d/x86/d3d12.dll
+l saves/Hook Game/drive_c/windows/syswow64/d3d9.dll -> ROOT/dxvk/x32/d3d9.dll
+l saves/Hook Game/drive_c/windows/syswow64/ddraw.dll -> ROOT/d7vk/x32/ddraw.dll
+l saves/Hook Game/drive_c/windows/syswow64/ddraw_.dll -> ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/lib/wine/i386-windows/ddraw.dll
+l saves/Hook Game/drive_c/windows/syswow64/dxgi.dll -> ROOT/dxvk/x32/dxgi.dll
+l saves/Hook Game/drive_c/windows/syswow64/kernel32.dll -> ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/lib/wine/i386-windows/kernel32.dll
 l saves/Old32/drive_c/windows/system32/d3d12.dll -> ROOT/vkd3d/x86/d3d12.dll
 l saves/Old32/drive_c/windows/system32/ddraw.dll -> ROOT/d7vk/x32/ddraw.dll
 l saves/Old32/drive_c/windows/system32/ddraw_.dll -> ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/lib/wine/i386-windows/ddraw.dll
 l saves/Old32/drive_c/windows/system32/kernel32.dll -> ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/lib/wine/i386-windows/kernel32.dll
+l saves/Pre Fail Game/drive_c/windows/system32/d3d11.dll -> ROOT/dxvk/x64/d3d11.dll
+l saves/Pre Fail Game/drive_c/windows/system32/d3d12.dll -> ROOT/vkd3d/x64/d3d12.dll
+l saves/Pre Fail Game/drive_c/windows/system32/d3d9.dll -> ROOT/dxvk/x64/d3d9.dll
+l saves/Pre Fail Game/drive_c/windows/system32/dxgi.dll -> ROOT/dxvk/x64/dxgi.dll
+l saves/Pre Fail Game/drive_c/windows/system32/kernel32.dll -> ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/lib/wine/x86_64-windows/kernel32.dll
+l saves/Pre Fail Game/drive_c/windows/syswow64/d3d11.dll -> ROOT/dxvk/x32/d3d11.dll
+l saves/Pre Fail Game/drive_c/windows/syswow64/d3d12.dll -> ROOT/vkd3d/x86/d3d12.dll
+l saves/Pre Fail Game/drive_c/windows/syswow64/d3d9.dll -> ROOT/dxvk/x32/d3d9.dll
+l saves/Pre Fail Game/drive_c/windows/syswow64/ddraw.dll -> ROOT/d7vk/x32/ddraw.dll
+l saves/Pre Fail Game/drive_c/windows/syswow64/ddraw_.dll -> ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/lib/wine/i386-windows/ddraw.dll
+l saves/Pre Fail Game/drive_c/windows/syswow64/dxgi.dll -> ROOT/dxvk/x32/dxgi.dll
+l saves/Pre Fail Game/drive_c/windows/syswow64/kernel32.dll -> ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/lib/wine/i386-windows/kernel32.dll
 l saves/Solo Game/drive_c/windows/system32/d3d11.dll -> ROOT/dxvk/x64/d3d11.dll
 l saves/Solo Game/drive_c/windows/system32/d3d12.dll -> ROOT/vkd3d/x64/d3d12.dll
 l saves/Solo Game/drive_c/windows/system32/d3d9.dll -> ROOT/dxvk/x64/d3d9.dll
@@ -1868,14 +2433,18 @@ l src/Arcade Game.wine/drive_c/windows/system32/dxgi.dll -> /userdata/system/win
 Aucune sauvegarde pour Unknown
 == rc=0
 ################ clear-all
---clear ne garde que drive_c/users de 4 jeu(x) : scores et réglages
+--clear ne garde que drive_c/users de 6 jeu(x) : scores et réglages
   enregistrés ailleurs (jeux arcade, dossier du jeu, registre) seront perdus.
   Chaque jeu est d'abord archivé dans ROOT/home/.local/share/wsquashfs/backups (voir --backup).
 ✓ Copies de travail supprimées
   Arcade Game : archivé dans ROOT/home/.local/share/wsquashfs/backups/Arcade Game-DATE.tar.zst (SIZE)
   Arcade Game : gardé SIZE (drive_c/users)
+  Hook Game : archivé dans ROOT/home/.local/share/wsquashfs/backups/Hook Game-DATE.tar.zst (SIZE)
+  Hook Game : gardé SIZE (drive_c/users)
   Old32 : archivé dans ROOT/home/.local/share/wsquashfs/backups/Old32-DATE.tar.zst (SIZE)
   Old32 : gardé SIZE (drive_c/users)
+  Pre Fail Game : archivé dans ROOT/home/.local/share/wsquashfs/backups/Pre Fail Game-DATE.tar.zst (SIZE)
+  Pre Fail Game : gardé SIZE (drive_c/users)
   Proton Game : archivé dans ROOT/home/.local/share/wsquashfs/backups/Proton Game-DATE.tar.zst (SIZE)
   Proton Game : rien à garder, supprimé
   Solo Game : archivé dans ROOT/home/.local/share/wsquashfs/backups/Solo Game-DATE.tar.zst (SIZE)
@@ -1895,10 +2464,18 @@ d saves/Arcade Game/drive_c/users ->
 d saves/Arcade Game/drive_c/users/steamuser -> 
 d saves/Arcade Game/drive_c/users/steamuser/Music -> 
 d saves/Arcade Game/drive_c/users/wsqtest -> 
+d saves/Hook Game -> 
+d saves/Hook Game/drive_c -> 
+d saves/Hook Game/drive_c/users -> 
+d saves/Hook Game/drive_c/users/wsqtest -> 
 d saves/Old32 -> 
 d saves/Old32/drive_c -> 
 d saves/Old32/drive_c/users -> 
 d saves/Old32/drive_c/users/wsqtest -> 
+d saves/Pre Fail Game -> 
+d saves/Pre Fail Game/drive_c -> 
+d saves/Pre Fail Game/drive_c/users -> 
+d saves/Pre Fail Game/drive_c/users/wsqtest -> 
 d saves/Solo Game -> 
 d saves/Solo Game/drive_c -> 
 d saves/Solo Game/drive_c/users -> 
@@ -1916,11 +2493,15 @@ d src/Arcade Game.wine/drive_c/windows ->
 d src/Arcade Game.wine/drive_c/windows/system32 -> 
 d src/Arcade Game.wine/drive_c/windows/syswow64 -> 
 d src/Arcade Game.wine/regs -> 
+d src/Hook Game -> 
+d src/Hook Game/game -> 
 d src/Old32.wine -> 
 d src/Old32.wine/drive_c -> 
 d src/Old32.wine/drive_c/game -> 
 d src/Old32.wine/drive_c/windows -> 
 d src/Old32.wine/drive_c/windows/system32 -> 
+d src/Pre Fail Game -> 
+d src/Pre Fail Game/game -> 
 d src/Proton Game.wine -> 
 d src/Proton Game.wine/drive_c -> 
 d src/Proton Game.wine/drive_c/pg -> 
@@ -1935,17 +2516,25 @@ d userdata/saves ->
 d userdata/saves/windows -> 
 d userdata/saves/windows/Arcade Game -> 
 f cache/locks/Arcade Game.lock -> 
+f cache/locks/Hook Game.lock -> 
 f cache/locks/Old32.lock -> 
+f cache/locks/Pre Fail Game.lock -> 
 f cache/locks/Proton Game.lock -> 
 f cache/locks/Solo Game.lock -> 
 f saves/.images/Arcade Game -> 
+f saves/.images/Hook Game -> 
 f saves/.images/Old32 -> 
+f saves/.images/Pre Fail Game -> 
 f saves/.images/Proton Game -> 
 f saves/.images/Solo Game -> 
 f saves/Arcade Game/drive_c/users/steamuser/Music/.wh..wh..opq -> 
 f saves/Arcade Game/drive_c/users/wsqtest/.wh..wh..opq -> 
+f saves/Hook Game/drive_c/users/.wh..wh..opq -> 
+f saves/Hook Game/drive_c/users/wsqtest/.wh..wh..opq -> 
 f saves/Old32/drive_c/users/.wh..wh..opq -> 
 f saves/Old32/drive_c/users/wsqtest/.wh..wh..opq -> 
+f saves/Pre Fail Game/drive_c/users/.wh..wh..opq -> 
+f saves/Pre Fail Game/drive_c/users/wsqtest/.wh..wh..opq -> 
 f saves/Solo Game/drive_c/users/.wh..wh..opq -> 
 f saves/Solo Game/drive_c/users/wsqtest/.wh..wh..opq -> 
 f src/Arcade Game.wine/autorun.cmd -> 
@@ -1957,10 +2546,16 @@ f src/Arcade Game.wine/drive_c/windows/system32/explorer.exe ->
 f src/Arcade Game.wine/drive_c/windows/system32/kernel32.dll -> 
 f src/Arcade Game.wine/regs/a.reg -> 
 f src/Arcade Game.wine/system.reg -> 
+f src/Hook Game/autorun.cmd -> 
+f src/Hook Game/game/attach.sh -> 
+f src/Hook Game/game/hook.exe -> 
+f src/Hook Game/game/pre.sh -> 
 f src/Old32.wine/autorun.cmd -> 
 f src/Old32.wine/drive_c/game/start.bat -> 
 f src/Old32.wine/drive_c/windows/system32/explorer.exe -> 
 f src/Old32.wine/system.reg -> 
+f src/Pre Fail Game/autorun.cmd -> 
+f src/Pre Fail Game/game/hook.exe -> 
 f src/Proton Game.wine/autorun.cmd -> 
 f src/Proton Game.wine/config_info -> 
 f src/Proton Game.wine/drive_c/pg/pg.exe -> 
@@ -1968,7 +2563,9 @@ f src/Proton Game.wine/system.reg ->
 f src/Solo Game/autorun.cmd -> 
 f src/Solo Game/game/run me.exe -> 
 f userdata/roms/windows/Arcade Game.wsquashfs -> 
+f userdata/roms/windows/Hook Game.wsquashfs -> 
 f userdata/roms/windows/Old32.wsquashfs -> 
+f userdata/roms/windows/Pre Fail Game.wsquashfs -> 
 f userdata/roms/windows/Proton Game.wsquashfs -> 
 f userdata/roms/windows/Solo Game.wsquashfs -> 
 f userdata/saves/windows/Arcade Game/slot1 -> 
@@ -1982,13 +2579,15 @@ l src/Arcade Game.wine/drive_c/windows/system32/dxgi.dll -> /userdata/system/win
 ##   Solo Game/drive_c/users/wsqtest/
 ##   Solo Game/drive_c/users/wsqtest/.wh..wh..opq
 ################ list-after-clear
-Jeu          État        Version     Sauvegardes  Image
-Arcade Game  -           1.2.3       0            ROOT/userdata/roms/windows/Arcade Game.wsquashfs
-Old32        -           -           0            ROOT/userdata/roms/windows/Old32.wsquashfs
-Proton Game  -           -           aucune       ROOT/userdata/roms/windows/Proton Game.wsquashfs
-Solo Game    -           -           0            ROOT/userdata/roms/windows/Solo Game.wsquashfs
+Jeu            État        Version     Sauvegardes  Image
+Arcade Game    -           1.2.3       0            ROOT/userdata/roms/windows/Arcade Game.wsquashfs
+Hook Game      -           -           0            ROOT/userdata/roms/windows/Hook Game.wsquashfs
+Old32          -           -           0            ROOT/userdata/roms/windows/Old32.wsquashfs
+Pre Fail Game  -           -           0            ROOT/userdata/roms/windows/Pre Fail Game.wsquashfs
+Proton Game    -           -           aucune       ROOT/userdata/roms/windows/Proton Game.wsquashfs
+Solo Game      -           -           0            ROOT/userdata/roms/windows/Solo Game.wsquashfs
 
-Sauvegardes : ROOT/saves (16K au total)
+Sauvegardes : ROOT/saves (24K au total)
 == rc=0
 ################ umount-all
 == rc=0
@@ -2118,10 +2717,18 @@ d saves/Arcade Game/drive_c/users ->
 d saves/Arcade Game/drive_c/users/steamuser -> 
 d saves/Arcade Game/drive_c/users/steamuser/Music -> 
 d saves/Arcade Game/drive_c/users/wsqtest -> 
+d saves/Hook Game -> 
+d saves/Hook Game/drive_c -> 
+d saves/Hook Game/drive_c/users -> 
+d saves/Hook Game/drive_c/users/wsqtest -> 
 d saves/Old32 -> 
 d saves/Old32/drive_c -> 
 d saves/Old32/drive_c/users -> 
 d saves/Old32/drive_c/users/wsqtest -> 
+d saves/Pre Fail Game -> 
+d saves/Pre Fail Game/drive_c -> 
+d saves/Pre Fail Game/drive_c/users -> 
+d saves/Pre Fail Game/drive_c/users/wsqtest -> 
 d saves/Solo Game -> 
 d saves/Solo Game/drive_c -> 
 d saves/Solo Game/drive_c/users -> 
@@ -2139,11 +2746,15 @@ d src/Arcade Game.wine/drive_c/windows ->
 d src/Arcade Game.wine/drive_c/windows/system32 -> 
 d src/Arcade Game.wine/drive_c/windows/syswow64 -> 
 d src/Arcade Game.wine/regs -> 
+d src/Hook Game -> 
+d src/Hook Game/game -> 
 d src/Old32.wine -> 
 d src/Old32.wine/drive_c -> 
 d src/Old32.wine/drive_c/game -> 
 d src/Old32.wine/drive_c/windows -> 
 d src/Old32.wine/drive_c/windows/system32 -> 
+d src/Pre Fail Game -> 
+d src/Pre Fail Game/game -> 
 d src/Proton Game.wine -> 
 d src/Proton Game.wine/drive_c -> 
 d src/Proton Game.wine/drive_c/pg -> 
@@ -2158,7 +2769,9 @@ d userdata/saves ->
 d userdata/saves/windows -> 
 d userdata/saves/windows/Arcade Game -> 
 f cache/locks/Arcade Game.lock -> 
+f cache/locks/Hook Game.lock -> 
 f cache/locks/Old32.lock -> 
+f cache/locks/Pre Fail Game.lock -> 
 f cache/locks/Proton Game.lock -> 
 f cache/locks/Solo Game.lock -> 
 f cache/wine/Arcade Game/.wsquashfs_cache -> 
@@ -2170,13 +2783,19 @@ f cache/wine/Arcade Game/drive_c/windows/system32/explorer.exe ->
 f cache/wine/Arcade Game/regs/a.reg -> 
 f cache/wine/Arcade Game/system.reg -> 
 f saves/.images/Arcade Game -> 
+f saves/.images/Hook Game -> 
 f saves/.images/Old32 -> 
+f saves/.images/Pre Fail Game -> 
 f saves/.images/Proton Game -> 
 f saves/.images/Solo Game -> 
 f saves/Arcade Game/drive_c/users/steamuser/Music/.wh..wh..opq -> 
 f saves/Arcade Game/drive_c/users/wsqtest/.wh..wh..opq -> 
+f saves/Hook Game/drive_c/users/.wh..wh..opq -> 
+f saves/Hook Game/drive_c/users/wsqtest/.wh..wh..opq -> 
 f saves/Old32/drive_c/users/.wh..wh..opq -> 
 f saves/Old32/drive_c/users/wsqtest/.wh..wh..opq -> 
+f saves/Pre Fail Game/drive_c/users/.wh..wh..opq -> 
+f saves/Pre Fail Game/drive_c/users/wsqtest/.wh..wh..opq -> 
 f saves/Solo Game/drive_c/users/.wh..wh..opq -> 
 f saves/Solo Game/drive_c/users/wsqtest/.wh..wh..opq -> 
 f src/Arcade Game.wine/autorun.cmd -> 
@@ -2188,10 +2807,16 @@ f src/Arcade Game.wine/drive_c/windows/system32/explorer.exe ->
 f src/Arcade Game.wine/drive_c/windows/system32/kernel32.dll -> 
 f src/Arcade Game.wine/regs/a.reg -> 
 f src/Arcade Game.wine/system.reg -> 
+f src/Hook Game/autorun.cmd -> 
+f src/Hook Game/game/attach.sh -> 
+f src/Hook Game/game/hook.exe -> 
+f src/Hook Game/game/pre.sh -> 
 f src/Old32.wine/autorun.cmd -> 
 f src/Old32.wine/drive_c/game/start.bat -> 
 f src/Old32.wine/drive_c/windows/system32/explorer.exe -> 
 f src/Old32.wine/system.reg -> 
+f src/Pre Fail Game/autorun.cmd -> 
+f src/Pre Fail Game/game/hook.exe -> 
 f src/Proton Game.wine/autorun.cmd -> 
 f src/Proton Game.wine/config_info -> 
 f src/Proton Game.wine/drive_c/pg/pg.exe -> 
@@ -2199,7 +2824,9 @@ f src/Proton Game.wine/system.reg ->
 f src/Solo Game/autorun.cmd -> 
 f src/Solo Game/game/run me.exe -> 
 f userdata/roms/windows/Arcade Game.wsquashfs -> 
+f userdata/roms/windows/Hook Game.wsquashfs -> 
 f userdata/roms/windows/Old32.wsquashfs -> 
+f userdata/roms/windows/Pre Fail Game.wsquashfs -> 
 f userdata/roms/windows/Proton Game.wsquashfs -> 
 f userdata/roms/windows/Solo Game.wsquashfs -> 
 f userdata/saves/windows/Arcade Game/slot1 -> 
@@ -2352,13 +2979,15 @@ Fichier       : ROOT/userdata/roms/windows/Old32.wsquashfs
 Erreur : Old32 est déjà lancé
 == rc=1
 ################ list-running
-Jeu          État        Version     Sauvegardes  Image
-Arcade Game  -           1.2.3       0            ROOT/userdata/roms/windows/Arcade Game.wsquashfs
-Old32        en cours    -           0            ROOT/userdata/roms/windows/Old32.wsquashfs
-Proton Game  -           -           aucune       ROOT/userdata/roms/windows/Proton Game.wsquashfs
-Solo Game    -           -           0            ROOT/userdata/roms/windows/Solo Game.wsquashfs
+Jeu            État        Version     Sauvegardes  Image
+Arcade Game    -           1.2.3       0            ROOT/userdata/roms/windows/Arcade Game.wsquashfs
+Hook Game      -           -           0            ROOT/userdata/roms/windows/Hook Game.wsquashfs
+Old32          en cours    -           0            ROOT/userdata/roms/windows/Old32.wsquashfs
+Pre Fail Game  -           -           0            ROOT/userdata/roms/windows/Pre Fail Game.wsquashfs
+Proton Game    -           -           aucune       ROOT/userdata/roms/windows/Proton Game.wsquashfs
+Solo Game      -           -           0            ROOT/userdata/roms/windows/Solo Game.wsquashfs
 
-Sauvegardes : ROOT/saves (16K au total)
+Sauvegardes : ROOT/saves (24K au total)
 == rc=0
 ################ other-game
 =========================================
@@ -2450,13 +3079,15 @@ Fichier       : ROOT/userdata/roms/windows/Old32.wsquashfs
 Erreur : Old32 est déjà lancé
 == rc=1
 ################ list-locked
-Jeu          État        Version     Sauvegardes  Image
-Arcade Game  -           1.2.3       0            ROOT/userdata/roms/windows/Arcade Game.wsquashfs
-Old32        verrouillé  -           0            ROOT/userdata/roms/windows/Old32.wsquashfs
-Proton Game  -           -           aucune       ROOT/userdata/roms/windows/Proton Game.wsquashfs
-Solo Game    -           -           4.0K         ROOT/userdata/roms/windows/Solo Game.wsquashfs
+Jeu            État        Version     Sauvegardes  Image
+Arcade Game    -           1.2.3       0            ROOT/userdata/roms/windows/Arcade Game.wsquashfs
+Hook Game      -           -           0            ROOT/userdata/roms/windows/Hook Game.wsquashfs
+Old32          verrouillé  -           0            ROOT/userdata/roms/windows/Old32.wsquashfs
+Pre Fail Game  -           -           0            ROOT/userdata/roms/windows/Pre Fail Game.wsquashfs
+Proton Game    -           -           aucune       ROOT/userdata/roms/windows/Proton Game.wsquashfs
+Solo Game      -           -           4.0K         ROOT/userdata/roms/windows/Solo Game.wsquashfs
 
-Sauvegardes : ROOT/saves (20K au total)
+Sauvegardes : ROOT/saves (28K au total)
 == rc=0
 ################ locked-other
 =========================================
@@ -3144,6 +3775,10 @@ d saves/Arcade Game/drive_c/users ->
 d saves/Arcade Game/drive_c/users/steamuser -> 
 d saves/Arcade Game/drive_c/users/steamuser/Music -> 
 d saves/Arcade Game/drive_c/users/wsqtest -> 
+d saves/Hook Game -> 
+d saves/Hook Game/drive_c -> 
+d saves/Hook Game/drive_c/users -> 
+d saves/Hook Game/drive_c/users/wsqtest -> 
 d saves/Old32 -> 
 d saves/Old32/drive_c -> 
 d saves/Old32/drive_c/game -> 
@@ -3152,6 +3787,10 @@ d saves/Old32/drive_c/users/wsqtest ->
 d saves/Old32/drive_c/windows -> 
 d saves/Old32/drive_c/windows/system32 -> 
 d saves/Old32/drive_c/windows/syswow64 -> 
+d saves/Pre Fail Game -> 
+d saves/Pre Fail Game/drive_c -> 
+d saves/Pre Fail Game/drive_c/users -> 
+d saves/Pre Fail Game/drive_c/users/wsqtest -> 
 d saves/Solo Game -> 
 d saves/Solo Game/drive_c -> 
 d saves/Solo Game/drive_c/users -> 
@@ -3172,11 +3811,15 @@ d src/Arcade Game.wine/drive_c/windows ->
 d src/Arcade Game.wine/drive_c/windows/system32 -> 
 d src/Arcade Game.wine/drive_c/windows/syswow64 -> 
 d src/Arcade Game.wine/regs -> 
+d src/Hook Game -> 
+d src/Hook Game/game -> 
 d src/Old32.wine -> 
 d src/Old32.wine/drive_c -> 
 d src/Old32.wine/drive_c/game -> 
 d src/Old32.wine/drive_c/windows -> 
 d src/Old32.wine/drive_c/windows/system32 -> 
+d src/Pre Fail Game -> 
+d src/Pre Fail Game/game -> 
 d src/Proton Game.wine -> 
 d src/Proton Game.wine/drive_c -> 
 d src/Proton Game.wine/drive_c/pg -> 
@@ -3194,18 +3837,26 @@ d userdata/saves/windows/Old32 ->
 d userdata/saves/windows/Old32/drive_c -> 
 d userdata/saves/windows/Old32/drive_c/game -> 
 f cache/locks/Arcade Game.lock -> 
+f cache/locks/Hook Game.lock -> 
 f cache/locks/Old32.lock -> 
+f cache/locks/Pre Fail Game.lock -> 
 f cache/locks/Proton Game.lock -> 
 f cache/locks/Solo Game.lock -> 
 f saves/.images/Arcade Game -> 
+f saves/.images/Hook Game -> 
 f saves/.images/Old32 -> 
+f saves/.images/Pre Fail Game -> 
 f saves/.images/Proton Game -> 
 f saves/.images/Solo Game -> 
 f saves/Arcade Game/drive_c/users/steamuser/Music/.wh..wh..opq -> 
 f saves/Arcade Game/drive_c/users/wsqtest/.wh..wh..opq -> 
+f saves/Hook Game/drive_c/users/.wh..wh..opq -> 
+f saves/Hook Game/drive_c/users/wsqtest/.wh..wh..opq -> 
 f saves/Old32/drive_c/users/.wh..wh..opq -> 
 f saves/Old32/drive_c/users/wsqtest/.wh..wh..opq -> 
 f saves/Old32/system.reg -> 
+f saves/Pre Fail Game/drive_c/users/.wh..wh..opq -> 
+f saves/Pre Fail Game/drive_c/users/wsqtest/.wh..wh..opq -> 
 f saves/Solo Game/drive_c/users/.wh..wh..opq -> 
 f saves/Solo Game/drive_c/users/wsqtest/.wh..wh..opq -> 
 f saves/Solo Game/drive_c/windows/.wh..wh..opq -> 
@@ -3221,10 +3872,16 @@ f src/Arcade Game.wine/drive_c/windows/system32/explorer.exe ->
 f src/Arcade Game.wine/drive_c/windows/system32/kernel32.dll -> 
 f src/Arcade Game.wine/regs/a.reg -> 
 f src/Arcade Game.wine/system.reg -> 
+f src/Hook Game/autorun.cmd -> 
+f src/Hook Game/game/attach.sh -> 
+f src/Hook Game/game/hook.exe -> 
+f src/Hook Game/game/pre.sh -> 
 f src/Old32.wine/autorun.cmd -> 
 f src/Old32.wine/drive_c/game/start.bat -> 
 f src/Old32.wine/drive_c/windows/system32/explorer.exe -> 
 f src/Old32.wine/system.reg -> 
+f src/Pre Fail Game/autorun.cmd -> 
+f src/Pre Fail Game/game/hook.exe -> 
 f src/Proton Game.wine/autorun.cmd -> 
 f src/Proton Game.wine/config_info -> 
 f src/Proton Game.wine/drive_c/pg/pg.exe -> 
@@ -3232,8 +3889,10 @@ f src/Proton Game.wine/system.reg ->
 f src/Solo Game/autorun.cmd -> 
 f src/Solo Game/game/run me.exe -> 
 f userdata/roms/windows/Arcade Game.wsquashfs -> 
+f userdata/roms/windows/Hook Game.wsquashfs -> 
 f userdata/roms/windows/Old32.wsquashfs -> 
 f userdata/roms/windows/Old32.wsquashfs.autorun -> 
+f userdata/roms/windows/Pre Fail Game.wsquashfs -> 
 f userdata/roms/windows/Proton Game.wsquashfs -> 
 f userdata/roms/windows/Solo Game.wsquashfs -> 
 f userdata/saves/windows/Arcade Game/slot1 -> 
@@ -3488,12 +4147,20 @@ d saves/Arcade Game/drive_c/users ->
 d saves/Arcade Game/drive_c/users/steamuser -> 
 d saves/Arcade Game/drive_c/users/steamuser/Music -> 
 d saves/Arcade Game/drive_c/users/wsqtest -> 
+d saves/Hook Game -> 
+d saves/Hook Game/drive_c -> 
+d saves/Hook Game/drive_c/users -> 
+d saves/Hook Game/drive_c/users/wsqtest -> 
 d saves/Old32 -> 
 d saves/Old32/drive_c -> 
 d saves/Old32/drive_c/users -> 
 d saves/Old32/drive_c/users/wsqtest -> 
 d saves/Old32/drive_c/windows -> 
 d saves/Old32/drive_c/windows/system32 -> 
+d saves/Pre Fail Game -> 
+d saves/Pre Fail Game/drive_c -> 
+d saves/Pre Fail Game/drive_c/users -> 
+d saves/Pre Fail Game/drive_c/users/wsqtest -> 
 d saves/Solo Game -> 
 d saves/Solo Game/drive_c -> 
 d saves/Solo Game/drive_c/users -> 
@@ -3514,11 +4181,15 @@ d src/Arcade Game.wine/drive_c/windows ->
 d src/Arcade Game.wine/drive_c/windows/system32 -> 
 d src/Arcade Game.wine/drive_c/windows/syswow64 -> 
 d src/Arcade Game.wine/regs -> 
+d src/Hook Game -> 
+d src/Hook Game/game -> 
 d src/Old32.wine -> 
 d src/Old32.wine/drive_c -> 
 d src/Old32.wine/drive_c/game -> 
 d src/Old32.wine/drive_c/windows -> 
 d src/Old32.wine/drive_c/windows/system32 -> 
+d src/Pre Fail Game -> 
+d src/Pre Fail Game/game -> 
 d src/Proton Game.wine -> 
 d src/Proton Game.wine/drive_c -> 
 d src/Proton Game.wine/drive_c/pg -> 
@@ -3536,19 +4207,27 @@ d userdata/saves/windows/Old32 ->
 d userdata/saves/windows/Old32/drive_c -> 
 d userdata/saves/windows/Old32/drive_c/game -> 
 f cache/locks/Arcade Game.lock -> 
+f cache/locks/Hook Game.lock -> 
 f cache/locks/Old32.lock -> 
+f cache/locks/Pre Fail Game.lock -> 
 f cache/locks/Proton Game.lock -> 
 f cache/locks/Solo Game.lock -> 
 f saves/.images/Arcade Game -> 
+f saves/.images/Hook Game -> 
 f saves/.images/Old32 -> 
+f saves/.images/Pre Fail Game -> 
 f saves/.images/Proton Game -> 
 f saves/.images/Solo Game -> 
 f saves/Arcade Game/drive_c/Game Dir/Bin/Game.EXE -> 
 f saves/Arcade Game/drive_c/users/steamuser/Music/.wh..wh..opq -> 
 f saves/Arcade Game/drive_c/users/wsqtest/.wh..wh..opq -> 
+f saves/Hook Game/drive_c/users/.wh..wh..opq -> 
+f saves/Hook Game/drive_c/users/wsqtest/.wh..wh..opq -> 
 f saves/Old32/drive_c/users/.wh..wh..opq -> 
 f saves/Old32/drive_c/users/wsqtest/.wh..wh..opq -> 
 f saves/Old32/system.reg -> 
+f saves/Pre Fail Game/drive_c/users/.wh..wh..opq -> 
+f saves/Pre Fail Game/drive_c/users/wsqtest/.wh..wh..opq -> 
 f saves/Solo Game/drive_c/users/.wh..wh..opq -> 
 f saves/Solo Game/drive_c/users/wsqtest/.wh..wh..opq -> 
 f saves/Solo Game/drive_c/windows/.wh..wh..opq -> 
@@ -3564,10 +4243,16 @@ f src/Arcade Game.wine/drive_c/windows/system32/explorer.exe ->
 f src/Arcade Game.wine/drive_c/windows/system32/kernel32.dll -> 
 f src/Arcade Game.wine/regs/a.reg -> 
 f src/Arcade Game.wine/system.reg -> 
+f src/Hook Game/autorun.cmd -> 
+f src/Hook Game/game/attach.sh -> 
+f src/Hook Game/game/hook.exe -> 
+f src/Hook Game/game/pre.sh -> 
 f src/Old32.wine/autorun.cmd -> 
 f src/Old32.wine/drive_c/game/start.bat -> 
 f src/Old32.wine/drive_c/windows/system32/explorer.exe -> 
 f src/Old32.wine/system.reg -> 
+f src/Pre Fail Game/autorun.cmd -> 
+f src/Pre Fail Game/game/hook.exe -> 
 f src/Proton Game.wine/autorun.cmd -> 
 f src/Proton Game.wine/config_info -> 
 f src/Proton Game.wine/drive_c/pg/pg.exe -> 
@@ -3575,7 +4260,9 @@ f src/Proton Game.wine/system.reg ->
 f src/Solo Game/autorun.cmd -> 
 f src/Solo Game/game/run me.exe -> 
 f userdata/roms/windows/Arcade Game.wsquashfs -> 
+f userdata/roms/windows/Hook Game.wsquashfs -> 
 f userdata/roms/windows/Old32.wsquashfs -> 
+f userdata/roms/windows/Pre Fail Game.wsquashfs -> 
 f userdata/roms/windows/Proton Game.wsquashfs -> 
 f userdata/roms/windows/Solo Game.wsquashfs -> 
 f userdata/saves/windows/Arcade Game/slot1 -> 
