@@ -38,7 +38,7 @@ Tableau, une ligne par image :
 | Taille | fichier |
 | Version | `GAME_VERSION=` de l'autorun (lu sans monter : `unsquashfs -cat`) |
 | Type | prefix Wine (Batocera), prefix Proton (`config_info` + version), jeu seul |
-| Runner | `WINE=` / `PROTON=` / `RUNNER=`, sinon « défaut » |
+| Runner | `WINE=` / `PROTON=` / `RUNNER=`, sinon « défaut » ; « joint » si le runner est dans `runners/` de l'image (comme `--info`) |
 | Manettes | `HIDRAW=1` (DualSense USB par le pont), `HIDRAW=bt` (DualSense Bluetooth en direct) ou XInput |
 | Commande | `CMD=` |
 | Extras | `.keys` présent, relais `fakeping`, `DllOverrides` particuliers |

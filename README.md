@@ -283,17 +283,49 @@ fonctionnera pas tel quel.
 
 | Variable | Description | Exemples |
 |---|---|---|
-| `WINE` | Version Wine dans `/opt/wine-<VERSION>/bin/wine`, ou `system` pour le Wine du système | `9.0`, `tkg`, `system` |
-| `PROTON` | Runner Proton de Heroic/Steam (nom du dossier ou version), à défaut proton-cachyos, sinon l'UMU-Proton le plus récent | `proton-cachyos-slr`, `UMU-Proton-10.0-4`, `GE-Proton8-25` |
-| `RUNNER` | Chemin absolu vers un runner personnalisé | `/opt/wine-custom/bin/wine` |
+| `WINE` | Wine joint à l'image (`runners/<VERSION>/`), sinon version dans `/opt/wine-<VERSION>/bin/wine`, ou `system` pour le Wine du système. Introuvable : erreur | `9.0`, `tkg`, `system` |
+| `PROTON` | Proton joint à l'image (`runners/<nom>/`), sinon runner Proton de Heroic/Steam (nom du dossier ou version). Introuvable : erreur (plus de repli sur un autre Proton) | `DenuvOwO-cachyos-11.0`, `UMU-Proton-10.0-4`, `GE-Proton8-25` |
+| `RUNNER` | Chemin **absolu** d'un binaire wine de la machine (un runner joint au jeu passe par `runners/` et `PROTON`/`WINE`) | `/opt/wine-custom/bin/wine` |
 | `ARCH` | Architecture Wine (défaut : `win64`) | `win32`, `win64` |
 | `LANG` | Langue (`LC_ALL`) | `fr_FR.UTF-8` |
 | `ENV` | Variables d'environnement additionnelles | `VAR1=val1 VAR2=val2` |
 | `HIDRAW` | `1` : manettes Sony par hidraw pour ce jeu s'il gère la DualSense **lui-même**, sans Steam Input (repli XInput si illisible) ; défaut XInput. Une DualSense Bluetooth (celle de Sunshine) est présentée au jeu en DualSense USB par [dualsense-usb-bridge](tools/dualsense-usb-bridge/README.md) : les `libScePad` de 2022 (F1 22) refusent la Bluetooth. `bt` : DualSense Bluetooth en direct, pour les jeux dont les haptiques passent en Bluetooth (Until Dawn) — en USB, elles partent en audio, non transmis. Sous GE-Proton, le mode XInput passe aussi par hidraw : GE confie toujours les manettes Sony à hidraw et les convertit en XInput (`PROTON_SONY_HIDRAW_XINPUT=1`, posé par le lanceur) | `1` |
 
+### Runner joint au jeu
+
+Un jeu qui ne fonctionne qu'avec un runner précis (Proton modifié pour lui,
+comme DenuvOwO pour Anno 117, ou Wine particulier d'un jeu arcade) peut le
+porter dans son image : l'image reste autonome, rien à installer sur la
+machine.
+
+```
+Anno 117 Pax Romana.wine/            → wsquashfs-launcher --pack, sans option
+├── autorun.cmd    PROTON=DenuvOwO-cachyos-11.0
+├── runners/
+│   └── DenuvOwO-cachyos-11.0/       dossier du runner tel quel
+│       (Proton : proton + files/bin/wine ; Wine : bin/wine)
+└── drive_c/ …
+```
+
+- `PROTON=<nom>` ou `WINE=<nom>` cherchent d'abord `runners/<nom>/` (aussi
+  `runners/wine-<nom>/`, casse ignorée), puis les runners de la machine. Sans
+  clé, un runner seul dans `runners/` est utilisé.
+- Priorité : `--wine` > runner joint > runners de la machine.
+- Il sert depuis l'image en lecture seule : Proton n'écrit rien dans les
+  sauvegardes, et son chemin ne change pas d'un lancement à l'autre (sinon
+  Proton refait la mise en place du prefix).
+- Un runner nommé introuvable (ni dans l'image ni sur la machine) arrête le
+  lancement avec un message : le jeu ne part plus sous un autre runner qu'il
+  ne supporte pas.
+- Pour les runners propres à un jeu seulement : un Proton standard (UMU-Proton,
+  GE-Proton, proton-cachyos) n'a pas à être joint, le choix automatique de la
+  machine reste meilleur. Compter ~250 Mo compressés pour un Proton.
+- Batocera ignore `runners/` (seulement de la place). `--info` indique si le
+  runner est joint à l'image.
+
 ### Choix du runner Wine
 
-Sans `WINE`, `PROTON`, `RUNNER` ni `--wine` :
+Sans `WINE`, `PROTON`, `RUNNER`, runner joint ni `--wine` :
 
 - **Prefix créé par Proton** (Heroic, Steam : fichier `config_info` à la racine) :
   la même version de Proton, cherchée dans `~/.config/heroic/tools/proton`,

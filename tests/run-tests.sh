@@ -257,6 +257,32 @@ echo "ATTACH : fin du jeu vue"
 EOF
 printf 'DIR=game\nCMD=loader.exe\nATTACH="bash" "attach me.sh"\nATTACH_PROCESS="hook.exe"\n' > "$LG/autorun.cmd"
 
+# Runners joints à l'image (runners/<nom>) : jeux seuls, game/game.exe.
+# mkjoint <jeu> <autorun> : crée le jeu ; mkproton <dossier> <version> : faux
+# Proton (proton + files/bin/wine).
+mkjoint() {
+    mkdir -p "${ROOT}/src/$1/game"
+    printf 'MZ' > "${ROOT}/src/$1/game/game.exe"
+    printf 'CMD=game/game.exe\n%b' "$2" > "${ROOT}/src/$1/autorun.cmd"
+}
+mkproton() {
+    mkwine "$1/files"
+    printf '#!/bin/bash\nexit 0\n' > "$1/proton"
+    chmod +x "$1/proton"
+    echo "1700000001 $2" > "$1/version"
+}
+mkjoint "Joint Game" ""
+mkproton "${ROOT}/src/Joint Game/runners/Joint-Proton" Joint-Proton-1
+mkjoint "Named Game" 'PROTON=GE-Proton9-1\n'
+mkproton "${ROOT}/src/Named Game/runners/GE-Proton9-1" GE-Proton9-1
+mkjoint "Wine Joint Game" 'WINE=mine\n'
+mkwine "${ROOT}/src/Wine Joint Game/runners/wine-mine"
+mkjoint "Missing Runner Game" 'PROTON=Absent-Proton\n'
+mkjoint "Relative Runner Game" 'RUNNER=runner/files/bin/wine\n'
+mkjoint "Two Runners Game" ""
+mkproton "${ROOT}/src/Two Runners Game/runners/A-Proton" A-Proton
+mkproton "${ROOT}/src/Two Runners Game/runners/B-Proton" B-Proton
+
 # Faux sysfs hidraw : une DualSense Bluetooth dont le nœud est illisible
 mkdir -p "${ROOT}/sysfs/hidraw99/device"
 echo "HID_ID=0005:0000054C:00000CE6" > "${ROOT}/sysfs/hidraw99/device/uevent"
@@ -432,6 +458,25 @@ step hook-exec     env WSQUASHFS_UMU=0 "$L" --exec "$ROMS/Hook Game.wsquashfs" h
 step pack-loader   "$L" --pack "$LG" "$ROMS/Loader Game.wsquashfs"
 step hook-loader   env WSQUASHFS_UMU=0 FAKE_SLEEP=1 FAKE_COMM=hook.exe FAKE_DETACH=1 "$L" "$ROMS/Loader Game.wsquashfs"
 note "processus laissés par ATTACH : $(pgrep -fc '^wsq-attach-child')"
+
+# Runner joint à l'image : pris dans l'image en lecture seule (cache/mnt),
+# avant les runners de la machine ; --wine reste prioritaire ; introuvable :
+# erreur.
+for g in "Joint Game" "Named Game" "Wine Joint Game" "Missing Runner Game" \
+         "Relative Runner Game" "Two Runners Game"; do
+    step "pack-${g// /-}" "$L" --pack "${ROOT}/src/$g" "$ROMS/$g.wsquashfs"
+done
+step info-joint    "$L" --info "$ROMS/Joint Game.wsquashfs"
+step info-named    "$L" --info "$ROMS/Named Game.wsquashfs"
+step info-two      "$L" --info "$ROMS/Two Runners Game.wsquashfs"
+step joint-auto    "$L" "$ROMS/Joint Game.wsquashfs"
+step joint-named   "$L" "$ROMS/Named Game.wsquashfs"
+step joint-option  env WSQUASHFS_UMU=0 "$L" --wine tkg-fake "$ROMS/Named Game.wsquashfs"
+step joint-wine    env WSQUASHFS_UMU=0 "$L" "$ROMS/Wine Joint Game.wsquashfs"
+step joint-missing "$L" "$ROMS/Missing Runner Game.wsquashfs"
+step joint-relative "$L" "$ROMS/Relative Runner Game.wsquashfs"
+step joint-two     env WSQUASHFS_UMU=0 "$L" "$ROMS/Two Runners Game.wsquashfs"
+step joint-copy    env FAIL_OVERLAY=1 "$L" "$ROMS/Joint Game.wsquashfs"
 
 # --mount / --umount : les démons FUSE ne doivent pas garder le verrou
 step mount         "$L" --mount "$ROMS/Solo Game.wsquashfs"

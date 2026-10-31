@@ -88,6 +88,7 @@ LOCKED_GAME=""          # jeu dont ce lancement tient le verrou
 
 # ── autorun.cmd (read_autorun) ─────────────────────────────────────────
 DIR="" CMD="" WINE_VERSION="" PROTON_VERSION="" RUNNER="" WINE_ARCH=""
+IMAGE_RUNNER=""          # binaire wine du runner joint à l'image (resolve_image_runner)
 DXVK="" DXVK_WANTED="" VKD3D="" D7VK="" SAVEDIR="" SAVEFILES=""
 ESYNC="" FSYNC="" WINE_LANG="" WINE_ENV="" VIRTUAL_DESKTOP=""
 PRE_CMD="" ATTACH_CMD="" ATTACH_PROCESS="" ATTACH_PID=""
@@ -1127,6 +1128,93 @@ proton_dir_of() {
     echo "${1%/files/bin/wine}"
 }
 
+# ── Runner joint à l'image ─────────────────────────────────────────────
+#
+# Un jeu peut porter son runner (31/10, Anno 117 : Proton DenuvOwO, compilé
+# pour ce jeu) : dossier runners/<nom> à la racine de l'image, désigné par
+# PROTON=<nom> ou WINE=<nom>, ou seul dans runners/.
+# Il passe avant les runners de la machine. Pris dans l'image montée en
+# lecture seule, pas dans l'overlay : Proton n'écrit rien dans les
+# sauvegardes, et son chemin, noté dans config_info du prefix, reste le même
+# d'un lancement à l'autre — sinon Proton refait toute sa mise en place.
+
+# Racine de l'image en lecture seule : l'image montée sous l'overlay, le
+# prefix lui-même en mode copy ou dossier.
+image_root() {
+    if [[ "$MOUNT_MODE" == "overlay" && -n "$SQUASHFSPOINT" ]]; then
+        echo "$SQUASHFSPOINT"
+    else
+        echo "$WINEPOINT"
+    fi
+}
+
+# Binaire wine d'un dossier de runner : Proton (files/bin/wine) ou Wine
+# (bin/wine), retour 1 sinon.
+runner_wine_of() {
+    if [[ -x "$1/files/bin/wine" ]]; then
+        echo "$1/files/bin/wine"
+    elif [[ -x "$1/bin/wine" ]]; then
+        echo "$1/bin/wine"
+    else
+        return 1
+    fi
+}
+
+# Binaire wine du runner <nom> joint à l'image : dossier runners/<nom> ou
+# runners/wine-<nom> (casse ignorée), ou Proton de cette version (fichier
+# version) ; retour 1 sinon.
+find_image_runner() {
+    local want="${1,,}" d name
+    for d in "$(image_root)/runners"/*/; do
+        d="${d%/}"
+        name="${d##*/}"
+        name="${name,,}"
+        if [[ "$name" == "$want" || "$name" == "wine-${want}" ]] || proton_runner_is "$d" "$1"; then
+            runner_wine_of "$d" && return 0
+        fi
+    done
+    return 1
+}
+
+# Nom du runner joint s'il est seul dans runners/, retour 1 sinon.
+single_image_runner() {
+    local d found=()
+    for d in "$(image_root)/runners"/*/; do
+        d="${d%/}"
+        runner_wine_of "$d" >/dev/null && found+=("${d##*/}")
+    done
+    ((${#found[@]} == 1)) || return 1
+    echo "${found[0]}"
+}
+
+# Runner joint désigné par PROTON= / WINE= (ou seul dans runners/) :
+# IMAGE_RUNNER reçoit son binaire wine. RUNNER= reste un chemin de la
+# machine : un chemin relatif (ancienne image Call of Duty MW4, runner/) est
+# refusé avec la convention à suivre.
+resolve_image_runner() {
+    local path name
+    IMAGE_RUNNER=""
+    if [[ -n "$RUNNER" ]]; then
+        [[ "$RUNNER" == /* ]] || die "RUNNER=${RUNNER} : chemin absolu de la machine attendu" \
+            "  → runner joint au jeu : dossier runners/<nom>/ de l'image et PROTON=<nom> (ou WINE=<nom>)"
+        return 0
+    fi
+    if [[ -z "${PROTON_VERSION}${WINE_VERSION}" ]]; then
+        if ! name=$(single_image_runner); then
+            [[ -d "$(image_root)/runners" ]] \
+                && warn "runners/ de l'image sans runner unique, aucun désigné (PROTON=/WINE=) : runner par défaut"
+            return 0
+        fi
+        path=$(find_image_runner "$name")
+        if proton_dir_of "$path" >/dev/null; then
+            PROTON_VERSION="$name"
+        else
+            WINE_VERSION="$name"
+        fi
+    fi
+    IMAGE_RUNNER=$(find_image_runner "${PROTON_VERSION:-$WINE_VERSION}") || IMAGE_RUNNER=""
+}
+
 # ════════════════════════════════════════════════════════════════════════
 # 6. PRÉPARATION DU PREFIX
 # ════════════════════════════════════════════════════════════════════════
@@ -1573,7 +1661,8 @@ Usage :
   wsquashfs-launcher --umount [<jeu.wsquashfs>]
         Démonte un jeu (ou tous les jeux montés).
   wsquashfs-launcher --pack <Jeu.wine> [sortie.wsquashfs]
-        Crée un .wsquashfs (zstd) à partir d'un prefix Wine.
+        Crée un .wsquashfs (zstd) à partir d'un prefix Wine. Un runner propre
+        au jeu se joint en le copiant dans <Jeu.wine>/runners/<nom>/.
   wsquashfs-launcher --install <jeu.wsquashfs> [dossier]
         Extrait le jeu dans <dossier>/<Jeu> (défaut : à côté de l'image), pour
         jouer sans FUSE ; l'image est conservée, ses sauvegardes non reprises.
@@ -1608,6 +1697,12 @@ Options :
                     ~/.local/share/wsquashfs/wine, chemin d'un binaire wine,
                     ou "system". Un Proton (Heroic, Steam) est lancé via umu
                     sur un jeu à prefix Proton ou sans prefix.
+
+Runner joint au jeu :
+  runners/<nom>/ à la racine de l'image (Proton : proton + files/bin/wine ;
+  Wine : bin/wine), désigné par PROTON=<nom> ou WINE=<nom>, ou seul dans
+  runners/. Il passe avant les runners de la machine (--wine excepté) et sert
+  en lecture seule. Runner nommé introuvable : erreur.
 
 Modes de montage (automatique) :
   overlay   sauvegardes isolées, idéal : overlay du noyau dans un namespace
@@ -2140,18 +2235,20 @@ pack_prefix() {
 # --info <jeu.wsquashfs | dossier> (29/09) : version et type du jeu, lus
 # dans l'image sans la monter.
 show_info() {
-    local src="$1" autorun type="" version proton cmd
+    local src="$1" autorun type="" version proton cmd joined
     [[ -n "$src" && -e "$src" ]] || usage_error "$0 --info <jeu.wsquashfs | dossier du jeu>"
     src=$(realpath "$src")
     if [[ -d "$src" ]]; then
         autorun=$(cat "${src}/autorun.cmd" 2>/dev/null)
         [[ -f "${src}/system.reg" ]] && type=prefix
         proton=$(head -1 "${src}/config_info" 2>/dev/null)
+        joined=$(find "${src}/runners" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | sort)
     else
         command -v unsquashfs &>/dev/null || die "unsquashfs absent (squashfs-tools)"
         autorun=$(unsquashfs -cat "$src" autorun.cmd 2>/dev/null)
         unsquashfs -cat "$src" system.reg >/dev/null 2>&1 && type=prefix
         proton=$(unsquashfs -cat "$src" config_info 2>/dev/null | head -1)
+        joined=$(unsquashfs -l "$src" runners 2>/dev/null | awk -F/ 'NF >= 4 { print $3 }' | sort -u)
     fi
     proton="${proton%$'\r'}"
     version=$(game_version "$src")
@@ -2173,10 +2270,45 @@ show_info() {
     else
         echo "Commande      : aucun autorun.cmd"
     fi
+    echo "Runner        : $(info_runner "$autorun" "$joined")"
     if [[ -f "${src%/}.autorun" ]]; then
         echo "Surcharge     : $(basename "${src%/}.autorun") ($(override_keys "${src%/}.autorun")) — non lue par Batocera"
     fi
     echo "Taille        : $(du -sh "$src" | cut -f1)"
+}
+
+# Ligne Runner de --info : clé de l'autorun ($1) et runners joints à l'image
+# ($2, un nom par ligne), comme les résout le lancement (resolve_image_runner).
+info_runner() {
+    local autorun="$1" joined="$2" key name n
+    for key in RUNNER PROTON WINE; do
+        name=$(grep -m1 "^${key}=" <<< "$autorun" | sed "s/^${key}=//" | tr -d '\r')
+        [[ -n "$name" ]] && break
+    done
+    if [[ "$key" == RUNNER && -n "$name" ]]; then
+        if [[ "$name" == /* ]]; then
+            echo "${name} (machine)"
+        else
+            echo "RUNNER=${name} refusé (chemin absolu attendu ; runner joint : runners/<nom>/ et PROTON=)"
+        fi
+        return
+    fi
+    if [[ -n "$name" ]]; then
+        if grep -qixF -e "$name" -e "wine-${name}" <<< "$joined"; then
+            echo "${name} (joint à l'image)"
+        else
+            echo "${name} (runner de la machine)"
+        fi
+        return
+    fi
+    n=$(grep -c . <<< "$joined")
+    if ((n == 1)); then
+        echo "${joined} (joint à l'image)"
+    elif ((n > 1)); then
+        echo "défaut — plusieurs runners joints ($(paste -sd, <<< "$joined" | sed 's/,/, /g')) : PROTON= ou WINE= à préciser"
+    else
+        echo "défaut (choisi au lancement)"
+    fi
 }
 
 # --install <jeu.wsquashfs> [dossier] (29/09) : l'inverse de --pack —
@@ -2562,6 +2694,9 @@ choose_proton_default() {
         fi
     fi
 
+    # PROTON= (ou runner joint) : choisi par apply_autorun_runner, sans
+    # avertissement trompeur sur le Proton du prefix.
+    [[ -z "$PROTON_VERSION" ]] || return 0
     [[ -n "$PREFIX_PROTON" || "$AUTO_PROTON" == "1" ]] || return 0
     if found=$(find_proton_runner "$PREFIX_PROTON") && [[ -n "$found" ]]; then
         WINE_BINARY="${found}/files/bin/wine"
@@ -2574,40 +2709,46 @@ choose_proton_default() {
     fi
 }
 
-# Runner imposé par l'autorun.cmd : RUNNER= (binaire), PROTON= ou WINE=.
+# Runner imposé par l'autorun.cmd : RUNNER= (binaire), PROTON= ou WINE=,
+# joint à l'image d'abord (IMAGE_RUNNER), puis sur la machine. Introuvable :
+# erreur (31/10) — le repli sur un autre runner faisait tourner le jeu sous
+# un runner qu'il ne supporte pas (Anno 117 sans son Proton DenuvOwO).
 apply_autorun_runner() {
     local found="" d
     if [[ -n "$RUNNER" ]]; then
-        if [[ -x "$RUNNER" ]]; then
-            WINE_BINARY="$RUNNER"
-        else
-            warn "runner ${RUNNER} non exécutable, utilisation de $(runner_name "$WINE_BINARY")"
-        fi
+        [[ -x "$RUNNER" ]] || die "runner ${RUNNER} introuvable ou non exécutable" \
+            "  → --wine <runner> pour en utiliser un autre"
+        WINE_BINARY="$RUNNER"
     elif [[ -n "$PROTON_VERSION" ]]; then
-        if found=$(find_proton_runner "$PROTON_VERSION") && [[ -n "$found" ]]; then
+        if [[ -n "$IMAGE_RUNNER" ]]; then
+            WINE_BINARY="$IMAGE_RUNNER"
+        elif found=$(find_proton_runner "$PROTON_VERSION") && [[ -n "$found" ]] \
+             && proton_runner_is "$found" "$PROTON_VERSION"; then
             WINE_BINARY="${found}/files/bin/wine"
-        elif [[ -x "/usr/local/bin/proton" ]]; then
+        elif [[ -z "$(proton_runner_dirs)" && -x "/usr/local/bin/proton" ]]; then
             WINE_BINARY="/usr/local/bin/proton"
         else
-            warn "Proton absent, utilisation de $(runner_name "$WINE_BINARY")"
+            die "Proton ${PROTON_VERSION} introuvable" \
+                "  cherché : runners/ de l'image, Heroic, Steam (compatibilitytools.d)" \
+                "  → le joindre à l'image (runners/${PROTON_VERSION}/), l'installer, ou --wine <runner>"
         fi
     elif [[ -n "$WINE_VERSION" ]]; then
         # WINE=system (30/09) : le Wine du système, comme --wine system. Jeux
         # 32 bits qui échouent sous wine-tkg (non WoW64) mais passent en
         # WoW64 : GTI Club (réservation de 450 Mo refusée), Castlevania (mmap
         # du son). Valeur ignorée par Batocera, qui choisit son runner dans ES.
-        if [[ "${WINE_VERSION,,}" == "system" ]]; then
+        found="$IMAGE_RUNNER"
+        if [[ -z "$found" && "${WINE_VERSION,,}" == "system" ]]; then
             found=$(command -v wine)
         fi
         for d in "/opt/wine-${WINE_VERSION}" "$HOME/.local/share/wsquashfs/wine/wine-${WINE_VERSION}"; do
             [[ -n "$found" ]] && break
             [[ -x "${d}/bin/wine" ]] && found="${d}/bin/wine" && break
         done
-        if [[ -n "$found" ]]; then
-            WINE_BINARY="$found"
-        else
-            warn "Wine ${WINE_VERSION} absent, utilisation de $(runner_name "$WINE_BINARY")"
-        fi
+        [[ -n "$found" ]] || die "Wine ${WINE_VERSION} introuvable" \
+            "  cherché : runners/ de l'image, /opt/wine-${WINE_VERSION}, ~/.local/share/wsquashfs/wine/wine-${WINE_VERSION}" \
+            "  → le joindre à l'image (runners/${WINE_VERSION}/), l'installer, ou --wine <runner>"
+        WINE_BINARY="$found"
     fi
 }
 
@@ -2644,6 +2785,8 @@ setup_umu() {
         elif proton_dir_of "$WINE_BINARY" >/dev/null && UMU_RUN=$(find_umu_run); then
             PROTON_DIR=$(proton_dir_of "$WINE_BINARY")
             export GAMEID="${GAMEID:-umu-default}" PROTONPATH="$PROTON_DIR"
+            # Proton joint : image en lecture seule, pas de __pycache__.
+            [[ "$WINE_BINARY" == "$IMAGE_RUNNER" ]] && export PYTHONDONTWRITEBYTECODE=1
         elif [[ "$AUTO_PROTON" == "1" ]]; then
             UMU_RUN=""
             WINE_BINARY=$(find_wine_binary)
@@ -2659,6 +2802,7 @@ setup_umu() {
 select_runner() {
     # Base : Wine le plus compatible avec les prefixes Batocera
     WINE_BINARY=$(find_wine_binary)
+    resolve_image_runner
     choose_proton_default
     apply_autorun_runner
     apply_wine_option
@@ -2928,11 +3072,19 @@ print_summary() {
     echo "Arguments     : ${EXEC_ARGS:-<aucun>}"
     local version
     if [[ -n "$UMU_RUN" ]]; then
-        echo "Proton        : $(basename "$PROTON_DIR") via umu ($PROTON_DIR)"
+        if [[ "${PROTON_DIR}/files/bin/wine" == "$IMAGE_RUNNER" ]]; then
+            echo "Proton        : $(basename "$PROTON_DIR") via umu ($PROTON_DIR) — joint à l'image"
+        else
+            echo "Proton        : $(basename "$PROTON_DIR") via umu ($PROTON_DIR)"
+        fi
         version=$(runner_version "${PROTON_DIR}/files/bin/wine")
         [[ -n "$version" ]] && echo "Version Proton: $version"
     else
-        echo "Wine          : $WINE_BINARY ($WINE_ARCH)"
+        if [[ -n "$IMAGE_RUNNER" && "$WINE_BINARY" == "$IMAGE_RUNNER" ]]; then
+            echo "Wine          : $WINE_BINARY ($WINE_ARCH) — joint à l'image"
+        else
+            echo "Wine          : $WINE_BINARY ($WINE_ARCH)"
+        fi
         version=$(runner_version "$WINE_BINARY")
         [[ -n "$version" ]] && echo "Version Wine  : $version"
     fi
@@ -3002,6 +3154,7 @@ run_as_target_user() {
         PROTON_SONY_HIDRAW_XINPUT="${PROTON_SONY_HIDRAW_XINPUT:-}" \
         ${PROTON_USE_WINED3D:+PROTON_USE_WINED3D=$PROTON_USE_WINED3D} \
         PROTON_DLL_COPY="${PROTON_DLL_COPY-}" \
+        ${PYTHONDONTWRITEBYTECODE:+PYTHONDONTWRITEBYTECODE=$PYTHONDONTWRITEBYTECODE} \
         MANGOHUD="${MANGOHUD:-}" \
         MANGOHUD_CONFIG="${MANGOHUD_CONFIG:-}" \
         MANGOHUD_CONFIGFILE="${MANGOHUD_CONFIGFILE:-}" \
@@ -3054,7 +3207,10 @@ run_pre_command() {
 # même nom (Game.exe, Launcher.exe).
 game_process_pid() {
     local pid re
-    re="^WINEPREFIX=$(regex_escape "$WINEPOINT")(/.*)?$"
+    # Chemin tel quel ou résolu : Proton (pressure-vessel) résout les liens
+    # (SteamBox, 01/11 : /home/arcade → /config), ATTACH ne trouvait jamais
+    # le jeu.
+    re="^WINEPREFIX=($(regex_escape "$WINEPOINT")|$(regex_escape "$(readlink -f "$WINEPOINT")"))(/.*)?$"
     for pid in $(pgrep -x -- "$(regex_escape "${1:0:15}")"); do
         grep -qszE "$re" "/proc/${pid}/environ" 2>/dev/null && { echo "$pid"; return 0; }
     done
