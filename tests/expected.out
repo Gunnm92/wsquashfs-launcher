@@ -2775,19 +2775,19 @@ Démontage     : LAUNCHER --umount "ROOT/userdata/roms/windows/Solo Game.wsquash
 ## verrou Solo Game pendant --mount : libre
 ################ list-mounted
 Jeu                   État        Version     Sauvegardes  Image
-Arcade Game           -           1.2.3       SIZE          ROOT/userdata/roms/windows/Arcade Game.wsquashfs
-Hook Game             -           -           SIZE          ROOT/userdata/roms/windows/Hook Game.wsquashfs
-Joint Game            -           -           0            ROOT/userdata/roms/windows/Joint Game.wsquashfs
-Loader Game           -           -           SIZE          ROOT/userdata/roms/windows/Loader Game.wsquashfs
-Missing Runner Game   -           -           SIZE          ROOT/userdata/roms/windows/Missing Runner Game.wsquashfs
-Named Game            -           -           SIZE          ROOT/userdata/roms/windows/Named Game.wsquashfs
-Old32                 -           -           SIZE          ROOT/userdata/roms/windows/Old32.wsquashfs
-Pre Fail Game         -           -           SIZE          ROOT/userdata/roms/windows/Pre Fail Game.wsquashfs
-Proton Game           -           -           0            ROOT/userdata/roms/windows/Proton Game.wsquashfs
-Relative Runner Game  -           -           SIZE          ROOT/userdata/roms/windows/Relative Runner Game.wsquashfs
-Solo Game             monté       -           SIZE          ROOT/userdata/roms/windows/Solo Game.wsquashfs
-Two Runners Game      -           -           SIZE          ROOT/userdata/roms/windows/Two Runners Game.wsquashfs
-Wine Joint Game       -           -           SIZE          ROOT/userdata/roms/windows/Wine Joint Game.wsquashfs
+Arcade Game           -           1.2.3       SIZE         ROOT/userdata/roms/windows/Arcade Game.wsquashfs
+Hook Game             -           -           SIZE         ROOT/userdata/roms/windows/Hook Game.wsquashfs
+Joint Game            -           -           SIZE         ROOT/userdata/roms/windows/Joint Game.wsquashfs
+Loader Game           -           -           SIZE         ROOT/userdata/roms/windows/Loader Game.wsquashfs
+Missing Runner Game   -           -           SIZE         ROOT/userdata/roms/windows/Missing Runner Game.wsquashfs
+Named Game            -           -           SIZE         ROOT/userdata/roms/windows/Named Game.wsquashfs
+Old32                 -           -           SIZE         ROOT/userdata/roms/windows/Old32.wsquashfs
+Pre Fail Game         -           -           SIZE         ROOT/userdata/roms/windows/Pre Fail Game.wsquashfs
+Proton Game           -           -           SIZE         ROOT/userdata/roms/windows/Proton Game.wsquashfs
+Relative Runner Game  -           -           SIZE         ROOT/userdata/roms/windows/Relative Runner Game.wsquashfs
+Solo Game             monté       -           SIZE         ROOT/userdata/roms/windows/Solo Game.wsquashfs
+Two Runners Game      -           -           SIZE         ROOT/userdata/roms/windows/Two Runners Game.wsquashfs
+Wine Joint Game       -           -           SIZE         ROOT/userdata/roms/windows/Wine Joint Game.wsquashfs
 
 Sauvegardes : ROOT/saves (SIZE au total)
 == rc=0
@@ -4443,19 +4443,19 @@ l src/Arcade Game.wine/drive_c/windows/system32/dxgi.dll -> /userdata/system/win
 ##   Solo Game/drive_c/users/wsqtest/.wh..wh..opq
 ################ list-after-clear
 Jeu                   État        Version     Sauvegardes  Image
-Arcade Game           -           1.2.3       0            ROOT/userdata/roms/windows/Arcade Game.wsquashfs
-Hook Game             -           -           0            ROOT/userdata/roms/windows/Hook Game.wsquashfs
+Arcade Game           -           1.2.3       SIZE         ROOT/userdata/roms/windows/Arcade Game.wsquashfs
+Hook Game             -           -           SIZE         ROOT/userdata/roms/windows/Hook Game.wsquashfs
 Joint Game            -           -           aucune       ROOT/userdata/roms/windows/Joint Game.wsquashfs
-Loader Game           -           -           0            ROOT/userdata/roms/windows/Loader Game.wsquashfs
-Missing Runner Game   -           -           0            ROOT/userdata/roms/windows/Missing Runner Game.wsquashfs
-Named Game            -           -           0            ROOT/userdata/roms/windows/Named Game.wsquashfs
-Old32                 -           -           0            ROOT/userdata/roms/windows/Old32.wsquashfs
-Pre Fail Game         -           -           0            ROOT/userdata/roms/windows/Pre Fail Game.wsquashfs
+Loader Game           -           -           SIZE         ROOT/userdata/roms/windows/Loader Game.wsquashfs
+Missing Runner Game   -           -           SIZE         ROOT/userdata/roms/windows/Missing Runner Game.wsquashfs
+Named Game            -           -           SIZE         ROOT/userdata/roms/windows/Named Game.wsquashfs
+Old32                 -           -           SIZE         ROOT/userdata/roms/windows/Old32.wsquashfs
+Pre Fail Game         -           -           SIZE         ROOT/userdata/roms/windows/Pre Fail Game.wsquashfs
 Proton Game           -           -           aucune       ROOT/userdata/roms/windows/Proton Game.wsquashfs
-Relative Runner Game  -           -           0            ROOT/userdata/roms/windows/Relative Runner Game.wsquashfs
-Solo Game             -           -           0            ROOT/userdata/roms/windows/Solo Game.wsquashfs
-Two Runners Game      -           -           0            ROOT/userdata/roms/windows/Two Runners Game.wsquashfs
-Wine Joint Game       -           -           0            ROOT/userdata/roms/windows/Wine Joint Game.wsquashfs
+Relative Runner Game  -           -           SIZE         ROOT/userdata/roms/windows/Relative Runner Game.wsquashfs
+Solo Game             -           -           SIZE         ROOT/userdata/roms/windows/Solo Game.wsquashfs
+Two Runners Game      -           -           SIZE         ROOT/userdata/roms/windows/Two Runners Game.wsquashfs
+Wine Joint Game       -           -           SIZE         ROOT/userdata/roms/windows/Wine Joint Game.wsquashfs
 
 Sauvegardes : ROOT/saves (SIZE au total)
 == rc=0
@@ -5027,19 +5027,19 @@ Erreur : Old32 est déjà lancé
 == rc=1
 ################ list-running
 Jeu                   État        Version     Sauvegardes  Image
-Arcade Game           -           1.2.3       0            ROOT/userdata/roms/windows/Arcade Game.wsquashfs
-Hook Game             -           -           0            ROOT/userdata/roms/windows/Hook Game.wsquashfs
+Arcade Game           -           1.2.3       SIZE         ROOT/userdata/roms/windows/Arcade Game.wsquashfs
+Hook Game             -           -           SIZE         ROOT/userdata/roms/windows/Hook Game.wsquashfs
 Joint Game            -           -           aucune       ROOT/userdata/roms/windows/Joint Game.wsquashfs
-Loader Game           -           -           0            ROOT/userdata/roms/windows/Loader Game.wsquashfs
-Missing Runner Game   -           -           0            ROOT/userdata/roms/windows/Missing Runner Game.wsquashfs
-Named Game            -           -           0            ROOT/userdata/roms/windows/Named Game.wsquashfs
-Old32                 en cours    -           0            ROOT/userdata/roms/windows/Old32.wsquashfs
-Pre Fail Game         -           -           0            ROOT/userdata/roms/windows/Pre Fail Game.wsquashfs
+Loader Game           -           -           SIZE         ROOT/userdata/roms/windows/Loader Game.wsquashfs
+Missing Runner Game   -           -           SIZE         ROOT/userdata/roms/windows/Missing Runner Game.wsquashfs
+Named Game            -           -           SIZE         ROOT/userdata/roms/windows/Named Game.wsquashfs
+Old32                 en cours    -           SIZE         ROOT/userdata/roms/windows/Old32.wsquashfs
+Pre Fail Game         -           -           SIZE         ROOT/userdata/roms/windows/Pre Fail Game.wsquashfs
 Proton Game           -           -           aucune       ROOT/userdata/roms/windows/Proton Game.wsquashfs
-Relative Runner Game  -           -           0            ROOT/userdata/roms/windows/Relative Runner Game.wsquashfs
-Solo Game             -           -           0            ROOT/userdata/roms/windows/Solo Game.wsquashfs
-Two Runners Game      -           -           0            ROOT/userdata/roms/windows/Two Runners Game.wsquashfs
-Wine Joint Game       -           -           0            ROOT/userdata/roms/windows/Wine Joint Game.wsquashfs
+Relative Runner Game  -           -           SIZE         ROOT/userdata/roms/windows/Relative Runner Game.wsquashfs
+Solo Game             -           -           SIZE         ROOT/userdata/roms/windows/Solo Game.wsquashfs
+Two Runners Game      -           -           SIZE         ROOT/userdata/roms/windows/Two Runners Game.wsquashfs
+Wine Joint Game       -           -           SIZE         ROOT/userdata/roms/windows/Wine Joint Game.wsquashfs
 
 Sauvegardes : ROOT/saves (SIZE au total)
 == rc=0
@@ -5134,19 +5134,19 @@ Erreur : Old32 est déjà lancé
 == rc=1
 ################ list-locked
 Jeu                   État        Version     Sauvegardes  Image
-Arcade Game           -           1.2.3       0            ROOT/userdata/roms/windows/Arcade Game.wsquashfs
-Hook Game             -           -           0            ROOT/userdata/roms/windows/Hook Game.wsquashfs
+Arcade Game           -           1.2.3       SIZE         ROOT/userdata/roms/windows/Arcade Game.wsquashfs
+Hook Game             -           -           SIZE         ROOT/userdata/roms/windows/Hook Game.wsquashfs
 Joint Game            -           -           aucune       ROOT/userdata/roms/windows/Joint Game.wsquashfs
-Loader Game           -           -           0            ROOT/userdata/roms/windows/Loader Game.wsquashfs
-Missing Runner Game   -           -           0            ROOT/userdata/roms/windows/Missing Runner Game.wsquashfs
-Named Game            -           -           0            ROOT/userdata/roms/windows/Named Game.wsquashfs
-Old32                 verrouillé  -           0            ROOT/userdata/roms/windows/Old32.wsquashfs
-Pre Fail Game         -           -           0            ROOT/userdata/roms/windows/Pre Fail Game.wsquashfs
+Loader Game           -           -           SIZE         ROOT/userdata/roms/windows/Loader Game.wsquashfs
+Missing Runner Game   -           -           SIZE         ROOT/userdata/roms/windows/Missing Runner Game.wsquashfs
+Named Game            -           -           SIZE         ROOT/userdata/roms/windows/Named Game.wsquashfs
+Old32                 verrouillé  -           SIZE         ROOT/userdata/roms/windows/Old32.wsquashfs
+Pre Fail Game         -           -           SIZE         ROOT/userdata/roms/windows/Pre Fail Game.wsquashfs
 Proton Game           -           -           aucune       ROOT/userdata/roms/windows/Proton Game.wsquashfs
-Relative Runner Game  -           -           0            ROOT/userdata/roms/windows/Relative Runner Game.wsquashfs
-Solo Game             -           -           SIZE          ROOT/userdata/roms/windows/Solo Game.wsquashfs
-Two Runners Game      -           -           0            ROOT/userdata/roms/windows/Two Runners Game.wsquashfs
-Wine Joint Game       -           -           0            ROOT/userdata/roms/windows/Wine Joint Game.wsquashfs
+Relative Runner Game  -           -           SIZE         ROOT/userdata/roms/windows/Relative Runner Game.wsquashfs
+Solo Game             -           -           SIZE         ROOT/userdata/roms/windows/Solo Game.wsquashfs
+Two Runners Game      -           -           SIZE         ROOT/userdata/roms/windows/Two Runners Game.wsquashfs
+Wine Joint Game       -           -           SIZE         ROOT/userdata/roms/windows/Wine Joint Game.wsquashfs
 
 Sauvegardes : ROOT/saves (SIZE au total)
 == rc=0

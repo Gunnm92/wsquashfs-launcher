@@ -703,19 +703,19 @@ WINESERVER -k
 WINESERVER -w
 ################ kernel-list
 Jeu                   État        Version     Sauvegardes  Image
-Arcade Game           -           1.2.3       SIZE          ROOT/userdata/roms/windows/Arcade Game.wsquashfs
-Hook Game             -           -           0            ROOT/userdata/roms/windows/Hook Game.wsquashfs
+Arcade Game           -           1.2.3       SIZE         ROOT/userdata/roms/windows/Arcade Game.wsquashfs
+Hook Game             -           -           SIZE         ROOT/userdata/roms/windows/Hook Game.wsquashfs
 Joint Game            -           -           aucune       ROOT/userdata/roms/windows/Joint Game.wsquashfs
-Loader Game           -           -           0            ROOT/userdata/roms/windows/Loader Game.wsquashfs
-Missing Runner Game   -           -           0            ROOT/userdata/roms/windows/Missing Runner Game.wsquashfs
-Named Game            -           -           0            ROOT/userdata/roms/windows/Named Game.wsquashfs
-Old32                 -           -           SIZE          ROOT/userdata/roms/windows/Old32.wsquashfs
-Pre Fail Game         -           -           0            ROOT/userdata/roms/windows/Pre Fail Game.wsquashfs
+Loader Game           -           -           SIZE         ROOT/userdata/roms/windows/Loader Game.wsquashfs
+Missing Runner Game   -           -           SIZE         ROOT/userdata/roms/windows/Missing Runner Game.wsquashfs
+Named Game            -           -           SIZE         ROOT/userdata/roms/windows/Named Game.wsquashfs
+Old32                 -           -           SIZE         ROOT/userdata/roms/windows/Old32.wsquashfs
+Pre Fail Game         -           -           SIZE         ROOT/userdata/roms/windows/Pre Fail Game.wsquashfs
 Proton Game           -           -           aucune       ROOT/userdata/roms/windows/Proton Game.wsquashfs
-Relative Runner Game  -           -           0            ROOT/userdata/roms/windows/Relative Runner Game.wsquashfs
-Solo Game             en cours    -           SIZE          ROOT/userdata/roms/windows/Solo Game.wsquashfs
-Two Runners Game      -           -           0            ROOT/userdata/roms/windows/Two Runners Game.wsquashfs
-Wine Joint Game       -           -           0            ROOT/userdata/roms/windows/Wine Joint Game.wsquashfs
+Relative Runner Game  -           -           SIZE         ROOT/userdata/roms/windows/Relative Runner Game.wsquashfs
+Solo Game             en cours    -           SIZE         ROOT/userdata/roms/windows/Solo Game.wsquashfs
+Two Runners Game      -           -           SIZE         ROOT/userdata/roms/windows/Two Runners Game.wsquashfs
+Wine Joint Game       -           -           SIZE         ROOT/userdata/roms/windows/Wine Joint Game.wsquashfs
 
 Sauvegardes : ROOT/saves (SIZE au total)
 == rc=0

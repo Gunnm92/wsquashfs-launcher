@@ -320,7 +320,7 @@ normalize() {
         -e 's/ (\([0-9][0-9.,]*[KMGT]\{0,1\}\))$/ (SIZE)/' \
         -e 's/gardé [0-9][0-9.,]*[KMGT]\{0,1\} /gardé SIZE /' \
         -e 's/^\(Parallel unsquashfs: Using \)[0-9]* /\1N /' \
-        -e 's/ [0-9][0-9.,]*[KMGT]\( \{1,\}ROOT\/\)/ SIZE\1/' \
+        -e 's/ [0-9][0-9.,]*[KMGT]\{0,1\} \{1,\}ROOT\// SIZE         ROOT\//' \
         -e 's/(\([0-9][0-9.,]*[KMGT]\{0,1\}\) au total)/(SIZE au total)/'
 }
 
