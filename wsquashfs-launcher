@@ -57,6 +57,11 @@ OVERLAY_SQUASH_OPT=""   # options fuse-overlayfs squash_to_uid/gid
 OVERLAY_PREF=""         # auto | kernel | fuse (WSQUASHFS_OVERLAY)
 SELF=""                 # chemin de ce script, relancé dans le namespace
 
+# Racine des dossiers système fouillés (runners Wine/Proton, DXVK, DLL de
+# Wine) : vide en usage normal. Les tests la font pointer sur un dossier
+# vide, pour que les runners de la machine ne changent pas leurs résultats.
+SYSROOT="${WSQUASHFS_SYSROOT:-}"
+
 # ── Ligne de commande (parse_args) ─────────────────────────────────────
 ACTION="run"            # run | mount | exec | help, ou une commande de maintenance
                         # (clean, clear, umount, pack, install, info, backup, list, doctor)
@@ -646,6 +651,14 @@ kernel_overlay_unavailable() {
     return 1
 }
 
+# Options de l'overlay noyau, communes au montage et à l'essai de --doctor.
+# redirect_dir=nofollow : aucune redirection créée ni suivie, comme
+# fuse-overlayfs. Pas redirect_dir=off (01/11) : avec redirect_always_follow
+# (défaut du noyau), off vaut follow, refusé avec userxattr — sur Linux 6.18
+# (SteamBox), chaque montage échouait (EINVAL) et retombait sur
+# fuse-overlayfs, alors que l'essai de --doctor, sans cette option, passait.
+KERNEL_OVERLAY_OPTS="userxattr,redirect_dir=nofollow"
+
 # unshare du lancement en namespace.
 ns_unshare() {
     unshare --user --map-current-user --mount --keep-caps -- "$@"
@@ -660,8 +673,8 @@ kernel_overlay_probe() {
     tmp=$(mktemp -d "${dir}/.wsquashfs-probe.XXXXXX" 2>/dev/null) || { echo "${dir} : écriture impossible"; return 1; }
     # shellcheck disable=SC2016  # développé par le shell du namespace
     err=$(ns_unshare sh -c \
-        'cd "$1" && mkdir l u w m && mount -t overlay overlay -o lowerdir=l,upperdir=u,workdir=w,userxattr m' \
-        _ "$tmp" 2>&1)
+        'cd "$1" && mkdir l u w m && mount -t overlay overlay -o "lowerdir=l,upperdir=u,workdir=w,$2" m' \
+        _ "$tmp" "$KERNEL_OVERLAY_OPTS" 2>&1)
     rc=$?
     reset_workdir "$tmp"
     rmdir "$tmp"
@@ -732,7 +745,7 @@ run_in_kernel_overlay() {
         # lui, une tâche de fond lit /dev/null. unshare appelé directement,
         # pas par ns_unshare : NS_PID serait le sous-shell de la fonction, et
         # le SIGTERM n'atteindrait pas le lanceur du namespace.
-        WSQUASHFS_NS_STAGE=1 WSQUASHFS_NS_DIR="$NS_DIR" \
+        WSQUASHFS_NS_STAGE=1 WSQUASHFS_NS_DIR="$NS_DIR" WSQUASHFS_NS_LOCK_FD="$LOCK_FD" \
             unshare --user --map-current-user --mount --keep-caps -- "$BASH" "$SELF" "${ORIG_ARGS[@]}" <&0 &
         NS_PID=$!
         wait "$NS_PID"
@@ -743,6 +756,10 @@ run_in_kernel_overlay() {
         NS_DIR=""
         [[ "$status" == "ready" ]] && exit "$rc"
         reason="${status:-namespace utilisateur refusé}"
+        # Montage noyau interrompu : work/ (mode 000) resté dans le workdir,
+        # que fuse-overlayfs refuse — repli silencieux en mode copie sinon.
+        reset_workdir "$WORKPOINT"
+        chown_to_target "$WORKPOINT"
     fi
     [[ "$OVERLAY_PREF" == "kernel" ]] && die "overlay noyau impossible : ${reason}"
     echo "Overlay noyau : échec, ${reason}"
@@ -752,7 +769,7 @@ run_in_kernel_overlay() {
 mount_kernel_overlay_layer() {
     (
         cd "$NS_DIR" || exit 1
-        mount -t overlay overlay -o lowerdir=lower,upperdir=upper,workdir=work,userxattr,redirect_dir=off \
+        mount -t overlay overlay -o "lowerdir=lower,upperdir=upper,workdir=work,${KERNEL_OVERLAY_OPTS}" \
             "$WINEPOINT"
     )
 }
@@ -762,6 +779,9 @@ mount_kernel_overlay_layer() {
 # cause de l'échec, après quoi il se replie sur fuse-overlayfs.
 use_kernel_overlay() {
     local i err
+    # PID du lanceur, pour --umount (ns_launcher_pid) : même PID vu de l'hôte
+    # (pas de namespace PID).
+    echo "$$" > "${NS_DIR}/pid"
     # --pdeathsig : squashfuse meurt avec le lanceur, même tué par SIGKILL ;
     # il libère alors le verrou hérité (sans without_lock, dont le
     # sous-shell deviendrait son parent).
@@ -793,15 +813,19 @@ use_kernel_overlay() {
 # Lanceur en namespace d'un jeu (PID), pour --umount : ses montages sont
 # invisibles d'ici, et son wineserver injoignable (socket lié au prefix vu
 # dans le namespace).
+# PID écrit par le lanceur lui-même (use_kernel_overlay) : chercher par la
+# ligne de commande renvoyait parfois un de ses sous-shells (même commande,
+# même environnement), tué à sa place. L'environnement vérifie que le PID
+# n'a pas été réutilisé après un plantage.
 ns_launcher_pid() {
-    local f pid
+    local f dir pid
     for f in "${CACHE_DIR}/ns"/*/game; do
         [[ -f "$f" && "$(< "$f")" == "$1" ]] || continue
-        for pid in $(pgrep -f -- "$SELF" 2>/dev/null); do
-            grep -qszxF "WSQUASHFS_NS_DIR=${f%/game}" "/proc/${pid}/environ" \
-                && grep -qszxF 'WSQUASHFS_NS_STAGE=1' "/proc/${pid}/environ" \
-                && { echo "$pid"; return 0; }
-        done
+        dir="${f%/game}"
+        pid=$(cat "${dir}/pid" 2>/dev/null) || continue
+        [[ "$pid" =~ ^[0-9]+$ ]] || continue
+        grep -qszxF "WSQUASHFS_NS_DIR=${dir}" "/proc/${pid}/environ" \
+            && { echo "$pid"; return 0; }
     done
     return 1
 }
@@ -922,11 +946,11 @@ umount_game() {
     if pid=$(ns_launcher_pid "$name"); then
         kill -TERM "$pid" 2>/dev/null
         for ((i = 0; i < 30; i++)); do
-            kill -0 "$pid" 2>/dev/null || break
+            kill -0 "$pid" 2>/dev/null || { echo "✓ Arrêté et démonté : ${name}"; return 0; }
             sleep 0.5
         done
-        echo "✓ Arrêté et démonté : ${name}"
-        return 0
+        warn "${name} toujours en cours après 15 s (lanceur ${pid}), non démonté"
+        return 1
     fi
     [[ -d "${CACHE_DIR}/wine/${name}" ]] || return 0
     run_wineserver "${CACHE_DIR}/wine/${name}" -k || true
@@ -988,11 +1012,11 @@ installed_wines() {
 find_wine_binary() {
     local candidates=() c w
     mapfile -t candidates < <(
-        echo "/usr/wine/wine-tkg/bin/wine"
+        echo "${SYSROOT}/usr/wine/wine-tkg/bin/wine"
         installed_wines -i 'tkg'
-        echo "/usr/wine/ge-custom/bin/wine"
+        echo "${SYSROOT}/usr/wine/ge-custom/bin/wine"
         installed_wines -iE '/(wine-ge|lutris-|wine-lutris)'
-        echo "/usr/wine/wine-proton/bin/wine"
+        echo "${SYSROOT}/usr/wine/wine-proton/bin/wine"
     )
     for c in "${candidates[@]}"; do
         [[ -x "$c" ]] || continue
@@ -1023,7 +1047,7 @@ find_win32_wine() {
     local w
     while IFS= read -r -d '' w; do
         wine_supports_win32 "$w" && { echo "$w"; return 0; }
-    done < <(find /usr/wine /opt "$HOME/.local/share/wsquashfs/wine" -maxdepth 3 \
+    done < <(find "${SYSROOT}/usr/wine" "${SYSROOT}/opt" "$HOME/.local/share/wsquashfs/wine" -maxdepth 3 \
                  -path '*/bin/wine' -print0 2>/dev/null)
     return 1
 }
@@ -1037,7 +1061,7 @@ proton_runner_dirs() {
     for base in "$HOME/.config/heroic/tools/proton" \
                 "$HOME/.local/share/Steam/compatibilitytools.d" \
                 "$HOME/.steam/root/compatibilitytools.d" \
-                /usr/share/steam/compatibilitytools.d; do
+                "${SYSROOT}/usr/share/steam/compatibilitytools.d"; do
         for d in "$base"/*; do
             [[ -x "${d}/files/bin/wine" ]] && readlink -f "$d"
         done
@@ -1048,7 +1072,7 @@ proton_runner_dirs() {
 # (Wine classique, Kron4ek...) ou files/bin/wine (Proton-GE).
 list_wine_runners() {
     local d
-    for d in /opt/* /usr/wine/* "$HOME/.local/share/wsquashfs/wine"/*; do
+    for d in "${SYSROOT}"/opt/* "${SYSROOT}"/usr/wine/* "$HOME/.local/share/wsquashfs/wine"/*; do
         [[ -x "${d}/bin/wine" || -x "${d}/files/bin/wine" ]] && echo "$d"
     done 2>/dev/null
     proton_runner_dirs
@@ -1190,12 +1214,12 @@ single_image_runner() {
 # Runner joint désigné par PROTON= / WINE= (ou seul dans runners/) :
 # IMAGE_RUNNER reçoit son binaire wine. RUNNER= reste un chemin de la
 # machine : un chemin relatif (ancienne image Call of Duty MW4, runner/) est
-# refusé avec la convention à suivre.
+# refusé avec la convention à suivre, sauf avec --wine, qui le remplace.
 resolve_image_runner() {
     local path name
     IMAGE_RUNNER=""
     if [[ -n "$RUNNER" ]]; then
-        [[ "$RUNNER" == /* ]] || die "RUNNER=${RUNNER} : chemin absolu de la machine attendu" \
+        [[ "$RUNNER" == /* || -n "$WINE_OVERRIDE" ]] || die "RUNNER=${RUNNER} : chemin absolu de la machine attendu" \
             "  → runner joint au jeu : dossier runners/<nom>/ de l'image et PROTON=<nom> (ou WINE=<nom>)"
         return 0
     fi
@@ -1317,9 +1341,9 @@ sync_wine_stubs() {
         "${wine_root}/lib64/wine/x86_64-windows:system32"   # wine-ge/lutris met les DLL 64 bits ici
         "${wine_root}/lib/wine/i386-windows:syswow64"
         # chemins Debian/Ubuntu
-        "/usr/lib/x86_64-linux-gnu/wine/x86_64-windows:system32"
-        "/usr/lib/x86_64-linux-gnu/wine/i386-windows:syswow64"
-        "/usr/lib/i386-linux-gnu/wine/i386-windows:syswow64"
+        "${SYSROOT}/usr/lib/x86_64-linux-gnu/wine/x86_64-windows:system32"
+        "${SYSROOT}/usr/lib/x86_64-linux-gnu/wine/i386-windows:syswow64"
+        "${SYSROOT}/usr/lib/i386-linux-gnu/wine/i386-windows:syswow64"
     )
     local entry src_dir dst_subdir src name f
     for entry in "${src_dirs[@]}"; do
@@ -1393,7 +1417,7 @@ link_dll_set() {
 # aussitôt sans erreur.
 find_dxvk_dir() {
     local d
-    for d in "${WSQUASHFS_DXVK_DIR:-}" /usr/share/dxvk "$HOME/.local/share/wsquashfs/dxvk"; do
+    for d in "${WSQUASHFS_DXVK_DIR:-}" "${SYSROOT}/usr/share/dxvk" "$HOME/.local/share/wsquashfs/dxvk"; do
         [[ -n "$d" && -f "${d}/x64/dxgi.dll" ]] && echo "$d" && return
     done
 }
@@ -1415,7 +1439,7 @@ install_dxvk() {
 # /usr/share/vkd3d-proton/{x64,x86}), pas la bibliothèque Linux.
 find_vkd3d_dir() {
     local d
-    for d in "${WSQUASHFS_VKD3D_DIR:-}" /usr/share/vkd3d-proton "$HOME/.local/share/wsquashfs/vkd3d-proton"; do
+    for d in "${WSQUASHFS_VKD3D_DIR:-}" "${SYSROOT}/usr/share/vkd3d-proton" "$HOME/.local/share/wsquashfs/vkd3d-proton"; do
         [[ -n "$d" && -f "${d}/x64/d3d12.dll" ]] && echo "$d" && return
     done
 }
@@ -1433,7 +1457,7 @@ install_vkd3d() {
 # l'OpenGL de wined3d, soit llvmpipe (rendu logiciel) sous Xwayland + NVIDIA.
 find_d7vk() {
     local f
-    for f in "${WSQUASHFS_D7VK_DLL:-}" /usr/share/d7vk/x32/ddraw.dll \
+    for f in "${WSQUASHFS_D7VK_DLL:-}" "${SYSROOT}/usr/share/d7vk/x32/ddraw.dll" \
              "$HOME/.local/share/wsquashfs/d7vk/x32/ddraw.dll"; do
         [[ -n "$f" && -f "$f" ]] && echo "$f" && return
     done
@@ -1447,7 +1471,7 @@ install_d7vk() {
     wine_root=$(runner_root "$WINE_BINARY")
     for c in "${wine_root}/lib/wine/i386-windows/ddraw.dll" \
              "${wine_root}/lib32/wine/i386-windows/ddraw.dll" \
-             /usr/lib/wine/i386-windows/ddraw.dll; do
+             "${SYSROOT}/usr/lib/wine/i386-windows/ddraw.dll"; do
         [[ -f "$c" ]] && { builtin="$c"; break; }
     done
     mkdir -p "${target_root}/drive_c/windows/${sub}" 2>/dev/null || true
@@ -2173,16 +2197,16 @@ cmd_doctor() {
 
 # cmd_umount [jeu] : un jeu, ou tous les jeux montés.
 cmd_umount() {
-    local g
+    local g rc=0
     if [[ -n "${1:-}" ]]; then
-        umount_game "$(basename "$1" .wsquashfs)"
+        umount_game "$(basename "$1" .wsquashfs)" || rc=1
     else
         for g in "${CACHE_DIR}/wine"/*/; do
-            [[ -d "$g" ]] && umount_game "$(basename "$g")"
+            [[ -d "$g" ]] && { umount_game "$(basename "$g")" || rc=1; }
         done
         unmount_all_stale
     fi
-    return 0
+    return "$rc"
 }
 
 # ── --pack / --install / --info ────────────────────────────────────────
@@ -2713,8 +2737,11 @@ choose_proton_default() {
 # joint à l'image d'abord (IMAGE_RUNNER), puis sur la machine. Introuvable :
 # erreur (31/10) — le repli sur un autre runner faisait tourner le jeu sous
 # un runner qu'il ne supporte pas (Anno 117 sans son Proton DenuvOwO).
+# Avec --wine, rien n'est cherché : l'erreur empêchait d'utiliser --wine,
+# la solution que propose son propre message.
 apply_autorun_runner() {
     local found="" d
+    [[ -z "$WINE_OVERRIDE" ]] || return 0
     if [[ -n "$RUNNER" ]]; then
         [[ -x "$RUNNER" ]] || die "runner ${RUNNER} introuvable ou non exécutable" \
             "  → --wine <runner> pour en utiliser un autre"
@@ -2725,8 +2752,8 @@ apply_autorun_runner() {
         elif found=$(find_proton_runner "$PROTON_VERSION") && [[ -n "$found" ]] \
              && proton_runner_is "$found" "$PROTON_VERSION"; then
             WINE_BINARY="${found}/files/bin/wine"
-        elif [[ -z "$(proton_runner_dirs)" && -x "/usr/local/bin/proton" ]]; then
-            WINE_BINARY="/usr/local/bin/proton"
+        elif [[ -z "$(proton_runner_dirs)" && -x "${SYSROOT}/usr/local/bin/proton" ]]; then
+            WINE_BINARY="${SYSROOT}/usr/local/bin/proton"
         else
             die "Proton ${PROTON_VERSION} introuvable" \
                 "  cherché : runners/ de l'image, Heroic, Steam (compatibilitytools.d)" \
@@ -2741,7 +2768,7 @@ apply_autorun_runner() {
         if [[ -z "$found" && "${WINE_VERSION,,}" == "system" ]]; then
             found=$(command -v wine)
         fi
-        for d in "/opt/wine-${WINE_VERSION}" "$HOME/.local/share/wsquashfs/wine/wine-${WINE_VERSION}"; do
+        for d in "${SYSROOT}/opt/wine-${WINE_VERSION}" "$HOME/.local/share/wsquashfs/wine/wine-${WINE_VERSION}"; do
             [[ -n "$found" ]] && break
             [[ -x "${d}/bin/wine" ]] && found="${d}/bin/wine" && break
         done
@@ -3413,7 +3440,11 @@ main() {
     if [[ -n "${WSQUASHFS_NS_STAGE:-}" ]]; then
         NS_STAGE="$WSQUASHFS_NS_STAGE"
         NS_DIR="$WSQUASHFS_NS_DIR"
-        unset WSQUASHFS_NS_STAGE WSQUASHFS_NS_DIR
+        # Verrou hérité : son numéro, pour que without_lock le retire aux
+        # démons lancés depuis le namespace (pont DualSense).
+        [[ "${WSQUASHFS_NS_LOCK_FD:-}" =~ ^[0-9]+$ && -e "/proc/self/fd/${WSQUASHFS_NS_LOCK_FD}" ]] \
+            && LOCK_FD="$WSQUASHFS_NS_LOCK_FD"
+        unset WSQUASHFS_NS_STAGE WSQUASHFS_NS_DIR WSQUASHFS_NS_LOCK_FD
     fi
     trap cleanup EXIT INT TERM
 
