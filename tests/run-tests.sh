@@ -45,13 +45,6 @@ if ((${#missing[@]})); then
     echo "Tests ignorés, prérequis absents : ${missing[*]}" >&2
     exit 77
 fi
-# Les runners installés pour tout le système sont aussi vus par le lanceur et
-# peuvent changer ses choix.
-for d in /usr/wine /usr/share/steam/compatibilitytools.d; do
-    [[ -d "$d" ]] && echo "Attention : ${d} présent, les résultats peuvent différer" >&2
-done
-compgen -G '/opt/*/bin/wine' >/dev/null && echo "Attention : Wine dans /opt, les résultats peuvent différer" >&2
-
 ROOT=$(mktemp -d "${TMPDIR:-/tmp}/wsquashfs-tests.XXXXXX")
 OUT="${ROOT}/actual.out"
 BG_PIDS=()
@@ -90,6 +83,12 @@ export HIDRAW_SYSFS="${ROOT}/no-sysfs"
 # fuse-overlayfs imposé : la trace ne dépend pas de la machine (namespaces
 # permis ou non). L'overlay noyau a ses scénarios, en fin de fichier.
 export WSQUASHFS_OVERLAY=fuse
+# Rien de la machine : runners Wine/Proton, DXVK et DLL de Wine du système
+# (/opt, /usr/wine, /usr/share/steam…) sont cherchés sous une racine vide,
+# et le PATH (sysbin, plus bas) n'a ni Wine, ni Proton, ni umu du système.
+# Avant (01/11), ceux de SteamBox entraient dans la trace.
+export WSQUASHFS_SYSROOT="${ROOT}/sysroot"
+mkdir -p "$WSQUASHFS_SYSROOT"
 
 # mkwine <racine> : faux runner Wine (classique, avec i386-unix) dont bin/wine
 # journalise ses appels ; wineboot crée un prefix minimal.
@@ -107,8 +106,12 @@ mkwine() {
 } >> "$FAKELOG"
 case "$1" in
   --version) echo "wine-9.0 (fake)" ;;
+  # Comme Wine : un prefix existant garde son architecture (wineboot -u) ;
+  # un nouveau prend WINEARCH. Réécrit sans #arch (avant le 01/11), un
+  # prefix win32 passait en win64 dès la première mise à jour.
   wineboot)  mkdir -p "$WINEPREFIX/drive_c/windows/system32" "$WINEPREFIX/drive_c/users/$USER"
-             echo "WINE REGISTRY Version 2" > "$WINEPREFIX/system.reg"
+             [[ -f "$WINEPREFIX/system.reg" ]] \
+                 || printf 'WINE REGISTRY Version 2\n#arch=%s\n' "${WINEARCH:-win64}" > "$WINEPREFIX/system.reg"
              touch "$WINEPREFIX/drive_c/windows/system32/explorer.exe" ;;
   reg|regedit) ;;
   *)
@@ -172,7 +175,22 @@ cat > "${FAKEBIN}/fuse-overlayfs" <<EOF
 exec $(command -v fuse-overlayfs) "\$@"
 EOF
 chmod +x "${FAKEBIN}"/*
-export PATH="${FAKEBIN}:${PATH}"
+# PATH des tests : les faux outils, puis des liens vers ceux de la machine,
+# sauf Wine, Proton, umu et winetricks (le lanceur les trouverait par
+# command -v : Wine « system »).
+SYSBIN="${ROOT}/sysbin"
+mkdir -p "$SYSBIN"
+IFS=: read -r -a path_dirs <<< "$PATH"
+for d in "${path_dirs[@]}"; do
+    for f in "$d"/*; do
+        name=${f##*/}
+        [[ -x "$f" && ! -d "$f" && ! -e "${SYSBIN}/${name}" ]] || continue
+        case "$name" in wine*|proton*|umu-run|winetricks) continue ;; esac
+        ln -s "$f" "${SYSBIN}/${name}"
+    done
+done
+unset path_dirs d f name
+export PATH="${FAKEBIN}:${SYSBIN}"
 
 # DXVK / VKD3D / d7vk factices
 mkdir -p "${ROOT}/dxvk/x64" "${ROOT}/dxvk/x32" "${ROOT}/vkd3d/x64" "${ROOT}/vkd3d/x86" "${ROOT}/d7vk/x32"
@@ -295,12 +313,15 @@ echo "HID_ID=0005:0000054C:00000CE6" > "${ROOT}/sysfs/hidraw99/device/uevent"
 normalize() {
     sed -e "s#${ROOT}#ROOT#g" -e "s#${LAUNCHER}#LAUNCHER#g" \
         -e 's/-[0-9]\{8\}-[0-9]\{6\}\(-[0-9]*\)\{0,1\}\.tar\./-DATE.tar./g' \
-        -e 's#^\(  ✓ [a-z0-9-]*\) (/[^)]*)#\1 (PATH)#' \
+        -e 's#^\(  ✓ [a-z0-9-]*\) (\(/\|ROOT/sysbin/\)[^)]*)#\1 (PATH)#' \
         -e 's#^\(  ✓ dualsense-usb-bridge\) (.*)#\1 (PATH)#' \
         -e 's/^\(Environnement : \).*/\1ENV/' \
         -e 's/^\(Taille *: \).*/\1SIZE/' \
         -e 's/ (\([0-9][0-9.,]*[KMGT]\{0,1\}\))$/ (SIZE)/' \
-        -e 's/gardé [0-9][0-9.,]*[KMGT]\{0,1\} /gardé SIZE /'
+        -e 's/gardé [0-9][0-9.,]*[KMGT]\{0,1\} /gardé SIZE /' \
+        -e 's/^\(Parallel unsquashfs: Using \)[0-9]* /\1N /' \
+        -e 's/ [0-9][0-9.,]*[KMGT]\( \{1,\}ROOT\/\)/ SIZE\1/' \
+        -e 's/(\([0-9][0-9.,]*[KMGT]\{0,1\}\) au total)/(SIZE au total)/'
 }
 
 # step <titre> <commande...> : exécute, puis journalise sorties, code de
@@ -475,6 +496,8 @@ step joint-option  env WSQUASHFS_UMU=0 "$L" --wine tkg-fake "$ROMS/Named Game.ws
 step joint-wine    env WSQUASHFS_UMU=0 "$L" "$ROMS/Wine Joint Game.wsquashfs"
 step joint-missing "$L" "$ROMS/Missing Runner Game.wsquashfs"
 step joint-relative "$L" "$ROMS/Relative Runner Game.wsquashfs"
+step joint-missing-option env WSQUASHFS_UMU=0 "$L" --wine tkg-fake "$ROMS/Missing Runner Game.wsquashfs"
+step joint-relative-option env WSQUASHFS_UMU=0 "$L" --wine tkg-fake "$ROMS/Relative Runner Game.wsquashfs"
 step joint-two     env WSQUASHFS_UMU=0 "$L" "$ROMS/Two Runners Game.wsquashfs"
 step joint-copy    env FAIL_OVERLAY=1 "$L" "$ROMS/Joint Game.wsquashfs"
 
@@ -492,14 +515,17 @@ step install-exist "$L" --install "$ROMS/Arcade Game.wsquashfs" "$ROOT/installed
 step run-dir       env WSQUASHFS_UMU=0 "$L" "$ROOT/installed/Arcade Game"
 step mount-dir     "$L" --mount "$ROOT/installed/Arcade Game"
 
-# --backup : attributs étendus (DOS de Wine, dossier opaque) conservés
-setfattr -n user.DOSATTRIB -v archive-ok "$ROOT/saves/Arcade Game/system.reg"
+# --backup : attributs étendus (DOS de Wine, dossier opaque) conservés. Le
+# fichier est créé ici : system.reg, utilisé avant le 01/11, n'était dans
+# les sauvegardes que parce que le faux wineboot le réécrivait.
+printf 'save\n' > "$ROOT/saves/Arcade Game/xattr.sav"
+setfattr -n user.DOSATTRIB -v archive-ok "$ROOT/saves/Arcade Game/xattr.sav"
 step backup-one    "$L" --backup "Arcade Game.wsquashfs"
 backups_of "Arcade Game"
 mkdir -p "$ROOT/restore"
 tar -C "$ROOT/restore" --xattrs --xattrs-include='user.*' -xpf \
     "$(compgen -G "$HOME/.local/share/wsquashfs/backups/Arcade Game-*.tar.zst" | head -1)"
-note "attribut après restauration : $(getfattr --only-values -n user.DOSATTRIB "$ROOT/restore/Arcade Game/system.reg" 2>/dev/null || echo absent)"
+note "attribut après restauration : $(getfattr --only-values -n user.DOSATTRIB "$ROOT/restore/Arcade Game/xattr.sav" 2>/dev/null || echo absent)"
 rm -rf "$ROOT/restore"
 step backup-unknown "$L" --backup "Unknown"
 
@@ -598,16 +624,34 @@ note "montages restants : $(mount | grep -cF "$ROOT")"
 
 # ── Overlay noyau (namespace utilisateur) ──────────────────────────────
 #
-# Trace à part (expected-kernel.out), produite seulement là où le lanceur
+# Trace à part (expected-kernel.out), produite seulement là où la MACHINE
 # peut monter un overlay noyau : la trace principale ne dépend pas de la
 # machine.
+# Décidé sans le code du lanceur (01/11) : avec son propre essai, une
+# régression qui cassait l'overlay noyau faisait aussi ignorer ces
+# scénarios, sans échec (redirect_dir=off refusé par Linux 6.18).
+
+# Cause pour laquelle la machine ne peut pas monter d'overlay noyau en
+# namespace utilisateur (squashfuse_ll avec uid=, essai réel sur le système
+# de fichiers des sauvegardes), rien si elle le peut.
+kernel_skip_reason() {
+    local t tmp
+    for t in unshare setpriv squashfuse_ll; do
+        command -v "$t" &>/dev/null || { echo "${t} absent"; return; }
+    done
+    squashfuse_ll -h 2>&1 | grep -q 'uid=N' || { echo "squashfuse_ll sans option uid="; return; }
+    tmp=$(mktemp -d "${ROOT}/kernel-probe.XXXXXX")
+    # shellcheck disable=SC2016  # développé par le shell du namespace
+    unshare --user --map-current-user --mount --keep-caps -- sh -c \
+        'cd "$1" && mkdir l u w m && mount -t overlay overlay -o lowerdir=l,upperdir=u,workdir=w,userxattr m' \
+        _ "$tmp" &>/dev/null || echo "overlay noyau impossible en namespace utilisateur"
+    chmod -R u+rwx "$tmp"
+    rm -rf "$tmp"
+}
 
 EXPECTED_KERNEL="${TESTS_DIR}/expected-kernel.out"
 OUT_MAIN="$OUT"
-# shellcheck disable=SC2016  # code exécuté par le bash enfant
-KERNEL_SKIP=$(WSQUASHFS_OVERLAY=auto bash -c \
-    'source "$1"; init_config; kernel_overlay_unavailable && exit 0; kernel_overlay_probe && exit 1; exit 0' \
-    _ "$L")
+KERNEL_SKIP=$(kernel_skip_reason)
 if [[ -z "$KERNEL_SKIP" ]]; then
     OUT="${ROOT}/actual-kernel.out"
     : > "$OUT"
@@ -648,6 +692,23 @@ if [[ -z "$KERNEL_SKIP" ]]; then
     step kernel-forced env WSQUASHFS_OVERLAY=kernel WSQUASHFS_UMU=0 PATH="$ROOT/nons:$PATH" \
         "$L" "$ROMS/Solo Game.wsquashfs"
 
+    # Montage noyau interrompu (work/ en mode 000 laissé dans le workdir) :
+    # repli sur fuse-overlayfs, pas en mode copie. Seul le montage du jeu
+    # (workdir=work) échoue, pas l'essai à vide.
+    mkdir -p "$ROOT/brokenov"
+    cat > "$ROOT/brokenov/mount" <<EOF
+#!/bin/bash
+if [[ "\$*" == *"-t overlay"*"workdir=work,"* ]]; then
+    mkdir -p work/work && chmod 000 work/work
+    echo "mount: overlay: simulated failure" >&2
+    exit 32
+fi
+exec $(command -v mount) "\$@"
+EOF
+    chmod +x "$ROOT/brokenov/mount"
+    step kernel-fallback env WSQUASHFS_OVERLAY=auto WSQUASHFS_UMU=0 PATH="$ROOT/brokenov:$PATH" \
+        "$L" "$ROMS/Solo Game.wsquashfs"
+
     # Partie en cours dans le namespace : vue en cours, pas relancée,
     # arrêtée par --umount.
     WSQUASHFS_OVERLAY=kernel WSQUASHFS_UMU=0 FAKE_SLEEP=60 \
@@ -667,8 +728,12 @@ if [[ -z "$KERNEL_SKIP" ]]; then
     WSQUASHFS_OVERLAY=kernel WSQUASHFS_UMU=0 FAKE_SLEEP=60 \
         "$L" "$ROMS/Solo Game.wsquashfs" < /dev/null > /dev/null 2>&1 &
     pid=$!
-    for _ in {1..100}; do pgrep -f '^wsq-fake-game' >/dev/null && break; sleep 0.1; done
-    kill -TERM "$pid"
+    started="non démarrée"
+    for _ in {1..100}; do pgrep -f '^wsq-fake-game' >/dev/null && { started="démarrée"; break; }; sleep 0.1; done
+    # Partie jamais démarrée : la trace le dit, au lieu d'un « arrêtée »
+    # qui passerait sans rien avoir vérifié.
+    note "partie avant SIGTERM au lanceur : ${started}"
+    kill -TERM "$pid" 2>/dev/null
     wait "$pid" 2>/dev/null
     note "partie après SIGTERM au lanceur : $(pgrep -f '^wsq-fake-game' >/dev/null && echo en cours || echo arrêtée)"
     note "verrou Solo Game : $(lock_state "Solo Game")"

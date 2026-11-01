@@ -75,11 +75,27 @@ Prérequis : squashfuse, fuse-overlayfs, squashfs-tools, attr (getfattr),
 util-linux (flock) et l'accès à `/dev/fuse`. Un nouveau comportement
 s'accompagne d'un scénario dans `tests/run-tests.sh`.
 
+La trace ne dépend pas de la machine : les runners du système (`/opt`,
+`/usr/wine`, `/usr/share/steam/compatibilitytools.d`…) sont cherchés sous
+une racine vide (`WSQUASHFS_SYSROOT`), le PATH des tests n'a ni Wine, ni
+Proton, ni umu du système, et les valeurs propres à la machine (tailles,
+nombre de processeurs) sont normalisées. Une différence sur une autre
+machine est donc un vrai écart, à corriger dans le lanceur ou le harnais,
+jamais à absorber par `make test-update`.
+
+Après `make test-update`, relire le diff **scénario par scénario** : une
+ligne qui disparaît doit correspondre à un changement voulu. Un faux outil
+qui s'éloigne du vrai (faux `wineboot` qui perdait l'architecture du
+prefix) ou un scénario qui ne vérifie plus rien (partie jamais démarrée,
+notée « arrêtée ») passent sinon inaperçus.
+
 Les scénarios de l'overlay noyau ont leur propre trace,
 `tests/expected-kernel.out`. Elle n'est produite et comparée que si la
-machine permet l'overlay noyau, ce que `--doctor` indique ; sinon ces
-scénarios sont ignorés, avec un message. `make test-update` sur une machine
-sans overlay noyau laisse cette trace inchangée.
+machine sait monter un overlay noyau en namespace utilisateur. Le harnais
+le vérifie lui-même, sans le code du lanceur : une régression du lanceur
+fait donc échouer ces scénarios au lieu de les faire ignorer. Sur une
+machine sans overlay noyau, ils sont ignorés avec un message, et
+`make test-update` laisse cette trace inchangée.
 
 Avant de soumettre une PR :
 
