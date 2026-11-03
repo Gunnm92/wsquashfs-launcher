@@ -1,0 +1,530 @@
+#!/usr/bin/env python3
+# wsquashfs-agent — expose à wsquashfs-manager les opérations de la machine
+# de jeu : état du lanceur, lancement d'essai, runners installés.
+#
+# Activé à la demande : installé en service à activation par socket systemd
+# (~/.config/systemd/user/wsquashfs-agent.{socket,service}). Au repos, aucun
+# processus ; la première connexion le lance, il s'arrête seul après 60 s sans
+# requête. Sans systemd (conteneur, SteamBox) : « serve --standalone ».
+#
+# Opérations fixes, rien d'autre : pas d'exécution de commande fournie par le
+# client. HTTPS avec certificat auto-signé (empreinte affichée par « pair »,
+# à épingler côté gestionnaire) et jeton (en-tête Authorization: Bearer).
+#
+# Commandes :
+#   init [--roms DIR]...   jeton, certificat, configuration (installeur)
+#   serve [--standalone]   serveur HTTPS
+#   pair                   adresses, jeton, empreinte du certificat
+#   reset-token            nouveau jeton
+#   trial <image> [durée]  essai en local, sortie brute (même format)
+#
+# Bibliothèque standard uniquement. Python 3.9+.
+from __future__ import annotations
+
+import argparse
+import base64
+import getpass
+import hashlib
+import hmac
+import json
+import os
+import re
+import secrets
+import shutil
+import socket
+import ssl
+import subprocess
+import sys
+import threading
+import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from urllib.parse import parse_qs, urlparse
+
+VERSION = "1"
+DEFAULT_PORT = 8766
+IDLE_EXIT = int(os.environ.get("WSQUASHFS_AGENT_IDLE", "60"))   # s sans requête avant de quitter (socket activée)
+DOCTOR_TTL = 300                # s : --doctor prend quelques secondes
+SD_LISTEN_FDS_START = 3
+CONF_DIR = Path(os.environ.get("WSQUASHFS_AGENT_CONFIG", Path.home() / ".config" / "wsquashfs-agent"))
+RUNNER_LINE = re.compile(r"^      (\S+)\s{2,}(/\S.*)$")
+
+
+class AgentError(Exception):
+    def __init__(self, code: int, message: str):
+        super().__init__(message)
+        self.code = code
+
+
+# ──────────────────────────────────────────────────────────── configuration
+
+def config_path() -> Path:
+    return CONF_DIR / "config.json"
+
+
+def load_config() -> dict:
+    try:
+        data = json.loads(config_path().read_text())
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def save_config(cfg: dict) -> None:
+    CONF_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
+    tmp = config_path().with_suffix(".tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as fh:
+        json.dump(cfg, fh, indent=2, ensure_ascii=False)
+        fh.write("\n")
+    os.replace(tmp, config_path())
+
+
+def cert_paths() -> tuple[Path, Path]:
+    return CONF_DIR / "cert.pem", CONF_DIR / "key.pem"
+
+
+def launcher_path() -> str | None:
+    env = os.environ.get("WSQUASHFS_AGENT_LAUNCHER")
+    if env:
+        return env
+    return shutil.which("wsquashfs-launcher") or str(Path.home() / ".local/bin/wsquashfs-launcher")
+
+
+def fingerprint(cert: Path) -> str:
+    der = ssl.PEM_cert_to_DER_cert(cert.read_text())
+    digest = hashlib.sha256(der).hexdigest().upper()
+    return ":".join(digest[i:i + 2] for i in range(0, len(digest), 2))
+
+
+def local_addresses() -> list[str]:
+    found = []
+    for info in socket.getaddrinfo(socket.gethostname(), None):
+        addr = info[4][0]
+        if addr not in found and not addr.startswith("127.") and addr != "::1" and "%" not in addr:
+            found.append(addr)
+    return found
+
+
+# ──────────────────────────────────────────────────────────── commandes
+
+def cmd_init(args: argparse.Namespace) -> int:
+    cfg = load_config()
+    cfg.setdefault("port", DEFAULT_PORT)
+    cfg.setdefault("session_process", "emulationstation")
+    cfg.setdefault("token", secrets.token_urlsafe(32))
+    if args.roms:
+        cfg["roms"] = [str(Path(r).expanduser().resolve()) for r in args.roms]
+    cfg.setdefault("roms", [])
+    save_config(cfg)
+    cert, key = cert_paths()
+    if not (cert.exists() and key.exists()):
+        if not shutil.which("openssl"):
+            print("openssl introuvable : installer openssl, puis relancer « init »", file=sys.stderr)
+            return 1
+        names = ["DNS:localhost", "IP:127.0.0.1"] + [f"IP:{a}" for a in local_addresses()]
+        names.insert(0, f"DNS:{socket.gethostname()}")
+        subprocess.run(["openssl", "req", "-x509", "-newkey", "ec", "-pkeyopt",
+                        "ec_paramgen_curve:prime256v1", "-nodes", "-keyout", str(key),
+                        "-out", str(cert), "-days", "3650", "-subj", "/CN=wsquashfs-agent",
+                        "-addext", "subjectAltName=" + ",".join(names)],
+                       check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        key.chmod(0o600)
+    print(f"Configuration : {config_path()}")
+    return 0
+
+
+def cmd_pair(args: argparse.Namespace) -> int:
+    cfg = load_config()
+    cert, _ = cert_paths()
+    if not cfg.get("token") or not cert.exists():
+        print("Agent non initialisé : « wsquashfs-agent init » d'abord", file=sys.stderr)
+        return 1
+    port = cfg.get("port", DEFAULT_PORT)
+    print(f"Adresse  : https://{socket.gethostname()}:{port}")
+    for addr in local_addresses():
+        print(f"           https://{addr}:{port}")
+    print(f"Jeton    : {cfg['token']}")
+    print(f"Empreinte: {fingerprint(cert)}")
+    print("Dans wsquashfs-manager (Réglages → Machine de jeu → Agent réseau) : coller l'adresse")
+    print("et le jeton, puis vérifier que l'empreinte est identique.")
+    return 0
+
+
+def cmd_reset_token(args: argparse.Namespace) -> int:
+    cfg = load_config()
+    cfg["token"] = secrets.token_urlsafe(32)
+    save_config(cfg)
+    print("Nouveau jeton : " + cfg["token"])
+    print("À reporter dans wsquashfs-manager (le jeton précédent ne fonctionne plus).")
+    return 0
+
+
+# ──────────────────────────────────────────────────────────── opérations
+
+SCRIPT = r'''
+IMG="$1"; DUR="${2:-60}"; SESSION="${3:-}"; STEM=$(basename "$IMG" .wsquashfs)
+# Un jeu .wsquashfs en cours : ses montages et ceux de l'essai se gêneraient
+busy=$(ps -eo comm= | grep -cxE 'wsquashfs-launc|umu-run')
+if [ "$busy" != 0 ]; then echo "@@BUSY"; exit 3; fi
+[ -f "$IMG" ] || { echo "@@NOIMAGE"; exit 4; }
+# Environnement de la session graphique (DISPLAY, WAYLAND_DISPLAY…) ; comm est
+# tronqué à 15 caractères par le noyau
+ES=""
+[ -n "$SESSION" ] && ES=$(ps -eo pid=,comm= | awk -v s="${SESSION:0:15}" '$2==s{print $1; exit}')
+if [ -n "$ES" ] && [ -r "/proc/$ES/environ" ]; then
+  while IFS= read -r -d '' v; do export "$v"; done < "/proc/$ES/environ"
+fi
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+OUT=/tmp/wsfs-trial.out; SHOT=/tmp/wsfs-trial.png
+rm -f "$OUT" "$SHOT"
+ulimit -s 8192 2>/dev/null
+setsid wsquashfs-launcher "$IMG" > "$OUT" 2>&1 < /dev/null &
+L=$!
+RE=$(printf '%s' "$STEM" | sed 's/[][\.*^$(){}?+|/]/\\&/g')
+SYS='services|winedevice|plugplay|svchost|explorer|rpcss|tabtip|xalia|umu|conhost|start|wineboot|winemenubuilder'
+prefix_pids() {
+  for p in /proc/[0-9]*; do
+    tr '\0' '\n' < "$p/environ" 2>/dev/null \
+      | grep -qE "^WINEPREFIX=.*/wsquashfs/wine/${RE}(/.*)?$" && echo "${p#/proc/}"
+  done
+}
+game_pids() {
+  for p in $(prefix_pids); do
+    c=$(tr '\0' ' ' < "/proc/$p/cmdline" 2>/dev/null)
+    n=$(printf '%s' "$c" | grep -oiE '[^\\/ ]+\.exe' | head -1)
+    [ -n "$n" ] || continue
+    printf '%s' "$n" | grep -qixE "($SYS)\.exe" || echo "$p"
+  done
+}
+T0=$(date +%s); seen=0
+while [ $(( $(date +%s) - T0 )) -lt "$DUR" ]; do
+  sleep 3
+  kill -0 "$L" 2>/dev/null || break
+  [ -n "$(game_pids)" ] && seen=1
+done
+echo "@@ELAPSED $(( $(date +%s) - T0 ))"
+echo "@@LAUNCHER $(kill -0 "$L" 2>/dev/null && echo 1 || echo 0)"
+echo "@@GAMESEEN $seen"
+ALL=" $(prefix_pids | tr '\n' ' ') "
+for p in $(game_pids | head -3); do
+  echo "@@GAME $(tr '\0' ' ' < "/proc/$p/cmdline" 2>/dev/null | cut -c1-200)"
+done
+if command -v xprop >/dev/null 2>&1 && [ -n "${DISPLAY:-}" ]; then
+  for w in $(xprop -root _NET_CLIENT_LIST 2>/dev/null | grep -o '0x[0-9a-f]*'); do
+    pid=$(xprop -id "$w" _NET_WM_PID 2>/dev/null | grep -o '[0-9]*$')
+    case "$ALL" in *" $pid "*) ;; *) continue ;; esac
+    name=$(xprop -id "$w" WM_NAME 2>/dev/null | sed -n 's/^WM_NAME([^)]*) = "\(.*\)"$/\1/p')
+    st=$(xprop -id "$w" _NET_WM_STATE 2>/dev/null | sed 's/.*= //')
+    echo "@@WINDOW $w|$name|$st"
+  done
+fi
+command -v grim >/dev/null 2>&1 && [ -n "${WAYLAND_DISPLAY:-}" ] && grim "$SHOT" 2>/dev/null
+for p in $(prefix_pids); do kill -TERM "$p" 2>/dev/null; done
+sleep 5
+for p in $(prefix_pids); do kill -KILL "$p" 2>/dev/null; done
+for i in $(seq 1 30); do kill -0 "$L" 2>/dev/null || break; sleep 1; done
+kill -0 "$L" 2>/dev/null && kill -TERM "$L" 2>/dev/null
+echo "@@LEFT $(prefix_pids | wc -l) $(mount | grep -c "/wsquashfs/.*/${STEM}")"
+echo "@@LOG"
+tail -c 60000 "$OUT"
+'''
+
+
+def roms_roots(cfg: dict) -> list[Path]:
+    return [Path(r).expanduser().resolve() for r in cfg.get("roms", [])]
+
+
+def resolve_image(cfg: dict, rel: str) -> Path:
+    """Chemin relatif à un dossier roms/ configuré → fichier réel.
+    Refuse les chemins absolus, « .. » et tout ce qui sort des dossiers."""
+    if not isinstance(rel, str) or not rel or rel.startswith("/") or ".." in Path(rel).parts:
+        raise AgentError(400, "chemin invalide")
+    if not rel.endswith(".wsquashfs"):
+        raise AgentError(400, "pas une image .wsquashfs")
+    for root in roms_roots(cfg):
+        candidate = (root / rel).resolve()
+        if candidate.is_file() and candidate.is_relative_to(root):
+            return candidate
+    raise AgentError(404, f"image introuvable : {rel}")
+
+
+_doctor_cache: dict = {}
+_doctor_lock = threading.Lock()
+
+
+def run_doctor(refresh: bool = False) -> dict:
+    with _doctor_lock:
+        cached = _doctor_cache.get("value")
+        if cached and not refresh and time.monotonic() - cached[0] < DOCTOR_TTL:
+            return cached[1]
+        launcher = launcher_path()
+        if not launcher or not Path(launcher).exists():
+            raise AgentError(503, "wsquashfs-launcher introuvable sur cette machine")
+        done = subprocess.run([launcher, "--doctor"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                              stdin=subprocess.DEVNULL, timeout=120, check=False)
+        text = done.stdout.decode("utf-8", "replace")
+        runners = []
+        for line in text.splitlines():
+            if m := RUNNER_LINE.match(line):
+                runners.append({"name": m.group(1), "path": m.group(2).strip()})
+        result = {"code": done.returncode, "text": text, "runners": runners}
+        _doctor_cache["value"] = (time.monotonic(), result)
+        return result
+
+
+def run_trial(cfg: dict, image: Path, duration: int) -> dict:
+    session = cfg.get("session_process", "emulationstation")
+    shot = Path("/tmp/wsfs-trial.png")
+    try:
+        done = subprocess.run(["bash", "-c", SCRIPT, "wsfs-trial", str(image), str(duration), session],
+                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+                              timeout=duration + 180, check=False)
+    except subprocess.TimeoutExpired as exc:
+        raise AgentError(504, f"essai trop long ({duration} s)") from exc
+    png = shot.read_bytes() if shot.is_file() else b""
+    if shot.is_file():
+        shot.unlink()
+    return {"code": done.returncode, "output": done.stdout.decode("utf-8", "replace"),
+            "screenshot": base64.b64encode(png).decode() if png.startswith(b"\x89PNG") else None}
+
+
+_trial_lock = threading.Lock()
+
+
+def runner_dir(cfg: dict, path: str) -> Path:
+    """Dossier demandé, seulement s'il est un runner installé (--doctor)."""
+    if not path.startswith("/"):
+        raise AgentError(400, "chemin absolu requis")
+    real = Path(path).resolve()
+    for runner in run_doctor()["runners"]:
+        base = Path(runner["path"]).resolve()
+        if real == base or real.is_relative_to(base):
+            if not real.is_dir():
+                raise AgentError(404, "dossier introuvable")
+            return real
+    raise AgentError(403, "ce dossier n'est pas un runner installé sur cette machine")
+
+
+# ──────────────────────────────────────────────────────────── HTTP
+
+class Activity:
+    lock = threading.Lock()
+    last = time.monotonic()
+    busy = 0
+
+    @classmethod
+    def touch(cls) -> None:
+        with cls.lock:
+            cls.last = time.monotonic()
+
+
+class Handler(BaseHTTPRequestHandler):
+    server_version = f"wsquashfs-agent/{VERSION}"
+    protocol_version = "HTTP/1.0"
+    cfg: dict = {}
+
+    def setup(self) -> None:
+        self.request.settimeout(20)
+        self.request.do_handshake()          # poignée TLS ici, pas dans la boucle d'acceptation
+        super().setup()
+
+    def log_message(self, fmt, *args) -> None:       # journal : systemd (journalctl --user)
+        sys.stderr.write("%s %s\n" % (self.address_string(), fmt % args))
+
+    def _json(self, code: int, data) -> None:
+        body = json.dumps(data, ensure_ascii=False).encode()
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _authorized(self) -> bool:
+        header = self.headers.get("Authorization", "")
+        token = header[7:] if header.startswith("Bearer ") else ""
+        expected = load_config().get("token", "")
+        return bool(expected) and hmac.compare_digest(token.encode(), expected.encode())
+
+    def do_GET(self) -> None:
+        self._dispatch("GET")
+
+    def do_POST(self) -> None:
+        self._dispatch("POST")
+
+    def _dispatch(self, method: str) -> None:
+        Activity.touch()
+        url = urlparse(self.path)
+        query = {k: v[0] for k, v in parse_qs(url.query).items()}
+        routes = {("GET", "/v1/info"): self._info, ("GET", "/v1/doctor"): self._doctor,
+                  ("POST", "/v1/trial"): self._trial, ("GET", "/v1/runner/list"): self._runner_list,
+                  ("GET", "/v1/runner/tar"): self._runner_tar}
+        route = routes.get((method, url.path))
+        if route is None:
+            return self._json(404, {"detail": "route inconnue"})
+        if not self._authorized():
+            return self._json(401, {"detail": "jeton refusé"})
+        with Activity.lock:
+            Activity.busy += 1
+        try:
+            route(query)
+        except AgentError as exc:
+            self._json(exc.code, {"detail": str(exc)})
+        except Exception as exc:                      # pas de trace côté client
+            sys.stderr.write(f"erreur : {exc!r}\n")
+            self._json(500, {"detail": "erreur interne de l'agent"})
+        finally:
+            with Activity.lock:
+                Activity.busy -= 1
+            Activity.touch()
+
+    def _body(self) -> dict:
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            data = json.loads(self.rfile.read(min(length, 65536)) or b"{}")
+        except (ValueError, json.JSONDecodeError) as exc:
+            raise AgentError(400, "requête illisible") from exc
+        if not isinstance(data, dict):
+            raise AgentError(400, "requête illisible")
+        return data
+
+    def _info(self, query: dict) -> None:
+        cfg = load_config()
+        self._json(200, {"version": VERSION, "host": socket.gethostname(), "user": getpass.getuser(),
+                         "launcher": launcher_path(), "roms": cfg.get("roms", []),
+                         "session_process": cfg.get("session_process", "")})
+
+    def _doctor(self, query: dict) -> None:
+        self._json(200, run_doctor(refresh=query.get("refresh") == "1"))
+
+    def _trial(self, query: dict) -> None:
+        body = self._body()
+        try:
+            duration = int(body.get("duration", 60))
+        except (TypeError, ValueError) as exc:
+            raise AgentError(400, "durée invalide") from exc
+        if not 10 <= duration <= 600:
+            raise AgentError(400, "durée hors limites (10 à 600 s)")
+        image = resolve_image(load_config(), str(body.get("rel", "")))
+        if not _trial_lock.acquire(blocking=False):
+            raise AgentError(409, "un essai est déjà en cours sur cette machine")
+        try:
+            self._json(200, run_trial(load_config(), image, duration))
+        finally:
+            _trial_lock.release()
+
+    def _runner_list(self, query: dict) -> None:
+        cfg = load_config()
+        real = runner_dir(cfg, query.get("path", ""))
+        done = subprocess.run(["find", str(real), "-mindepth", "1", "-printf", "%y\t%s\t%P\n"],
+                              stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=False)
+        if done.returncode != 0:
+            raise AgentError(500, "dossier illisible")
+        listing = {}
+        for line in done.stdout.decode("utf-8", "replace").splitlines():
+            kind, size, rel = line.split("\t", 2)
+            listing[rel] = int(size) if kind == "f" else 0
+        self._json(200, {"path": str(real), "entries": listing})
+
+    def _runner_tar(self, query: dict) -> None:
+        real = runner_dir(load_config(), query.get("path", ""))
+        self.send_response(200)
+        self.send_header("Content-Type", "application/x-tar")
+        self.end_headers()                       # HTTP/1.0 : fin de flux à la fermeture
+        proc = subprocess.Popen(["tar", "-C", str(real.parent), "-cf", "-", real.name],
+                                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        try:
+            for chunk in iter(lambda: proc.stdout.read(1 << 16), b""):
+                self.wfile.write(chunk)
+        finally:
+            proc.wait()
+        self.close_connection = True
+
+
+class TLSServer(ThreadingHTTPServer):
+    daemon_threads = True
+    allow_reuse_address = True
+
+
+def serve_socket_activated(context: ssl.SSLContext) -> TLSServer | None:
+    """Socket fournie par systemd (LISTEN_FDS) : pas de liaison à faire."""
+    if os.environ.get("LISTEN_PID") != str(os.getpid()) or int(os.environ.get("LISTEN_FDS", "0")) < 1:
+        return None
+    raw = socket.socket(fileno=SD_LISTEN_FDS_START)
+    server = TLSServer(("127.0.0.1", 0), Handler, bind_and_activate=False)
+    server.socket.close()
+    server.socket = raw
+    server.server_address = raw.getsockname()
+    server.socket = context.wrap_socket(raw, server_side=True, do_handshake_on_connect=False)
+    return server
+
+
+def cmd_serve(args: argparse.Namespace) -> int:
+    cfg = load_config()
+    cert, key = cert_paths()
+    if not cfg.get("token") or not (cert.exists() and key.exists()):
+        print("Agent non initialisé : « wsquashfs-agent init » d'abord", file=sys.stderr)
+        return 1
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.load_cert_chain(str(cert), str(key))
+    server = None if args.standalone else serve_socket_activated(context)
+    socket_mode = server is not None
+    if server is None:
+        port = args.port or cfg.get("port", DEFAULT_PORT)
+        server = TLSServer(("0.0.0.0", port), Handler)
+        server.socket = context.wrap_socket(server.socket, server_side=True, do_handshake_on_connect=False)
+        print(f"wsquashfs-agent en écoute sur le port {port}", file=sys.stderr)
+    Handler.cfg = cfg
+
+    if socket_mode:
+        def watchdog() -> None:
+            while True:
+                time.sleep(5)
+                with Activity.lock:
+                    idle = time.monotonic() - Activity.last
+                    busy = Activity.busy
+                if busy == 0 and idle > IDLE_EXIT:
+                    server.shutdown()
+                    return
+        threading.Thread(target=watchdog, daemon=True).start()
+    try:
+        server.serve_forever()
+    finally:
+        server.server_close()
+    return 0
+
+
+def cmd_trial(args: argparse.Namespace) -> int:
+    cfg = load_config()
+    image = Path(args.image).expanduser().resolve()
+    if not image.is_file():
+        print(f"image introuvable : {image}", file=sys.stderr)
+        return 1
+    result = run_trial(cfg, image, args.duration)
+    sys.stdout.write(result["output"])
+    return result["code"]
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="wsquashfs-agent", description="Agent de machine de jeu pour wsquashfs-manager.")
+    sub = parser.add_subparsers(dest="command", required=True)
+    p = sub.add_parser("init", help="jeton, certificat et configuration")
+    p.add_argument("--roms", action="append", default=[], metavar="DIR",
+                   help="dossier roms/ de cette machine (répétable)")
+    p.set_defaults(func=cmd_init)
+    p = sub.add_parser("serve", help="serveur HTTPS")
+    p.add_argument("--standalone", action="store_true", help="écouter soi-même, sans systemd")
+    p.add_argument("--port", type=int, default=0)
+    p.set_defaults(func=cmd_serve)
+    sub.add_parser("pair", help="adresses, jeton et empreinte").set_defaults(func=cmd_pair)
+    sub.add_parser("reset-token", help="nouveau jeton").set_defaults(func=cmd_reset_token)
+    p = sub.add_parser("trial", help="essai en local")
+    p.add_argument("image")
+    p.add_argument("duration", nargs="?", type=int, default=60)
+    p.set_defaults(func=cmd_trial)
+    args = parser.parse_args(argv)
+    return args.func(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

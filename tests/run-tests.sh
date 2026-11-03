@@ -775,4 +775,7 @@ if [[ -z "$KERNEL_SKIP" ]]; then
 else
     echo "Overlay noyau indisponible (${KERNEL_SKIP}) : scénarios noyau ignorés" >&2
 fi
+# Agent pour wsquashfs-manager (sécurité des opérations, socket, inactivité)
+echo "── wsquashfs-agent"
+python3 "${TESTS_DIR}/test-agent.py" 2>&1 | tail -3 || rc=1
 exit "$rc"

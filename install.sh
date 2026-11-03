@@ -9,6 +9,7 @@
 #   --yes, -y        répond oui à toutes les questions (installation complète)
 #   --dry-run, -n    montre ce qui serait fait, sans rien installer ni modifier
 #   --uninstall, -u  désinstalle le lanceur (sauvegardes et runners gardés)
+#   --agent          installe l'agent pour wsquashfs-manager (sans question)
 #   --help, -h
 #
 # Distributions prises en charge pour les paquets système :
@@ -27,6 +28,7 @@
 #    6. Proton et umu
 #    7. Rendu : DXVK, VKD3D-Proton, d7vk
 #    8. Lanceur, pont DualSense, type MIME, PATH
+#    8b. Agent pour wsquashfs-manager (socket systemd utilisateur)
 #    9. Désinstallation
 #   10. Point d'entrée
 
@@ -57,6 +59,7 @@ fi
 # ── État (main, check_root, detect_distro) ─────────────────────────────
 DRY_RUN=false
 ASSUME_YES=false
+AGENT_WANTED=false      # --agent
 INSTALL_DIR=""          # /usr/local/bin en root, ~/.local/bin sinon
 SUDO=()                 # préfixe des commandes système (sudo hors root)
 DISTRO=""               # debian | arch | autre
@@ -850,6 +853,108 @@ show_usage() {
 }
 
 # ════════════════════════════════════════════════════════════════════════
+# 8b. AGENT POUR WSQUASHFS-MANAGER
+# ════════════════════════════════════════════════════════════════════════
+
+# L'agent (wsquashfs-agent) répond au gestionnaire : état du lanceur, essai,
+# runners. Au repos il ne tourne pas : systemd tient seulement la socket, et
+# la première connexion le lance (il s'arrête seul après 60 s sans requête).
+
+AGENT_PORT=8766
+AGENT_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/wsquashfs-agent"
+AGENT_UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+
+# ask_value <question> <défaut> : saisie sur le terminal ; le défaut avec
+# --yes ou sans terminal.
+ask_value() {
+    local question="$1" default="$2" answer=""
+    if [[ "$ASSUME_YES" == true ]] || ! has_tty; then
+        echo "$default"
+        return 0
+    fi
+    read -r -p "${question} [${default}] : " answer < /dev/tty || answer=""
+    echo "${answer:-$default}"
+}
+
+# Dossier roms/ proposé : le premier qui existe parmi les emplacements usuels.
+agent_default_roms() {
+    local d
+    for d in /userdata/roms "$HOME/roms" /config/userdata/roms "$HOME/games/Batocera/roms"; do
+        [[ -d "$d" ]] && { echo "$d"; return 0; }
+    done
+    echo "$HOME/roms"
+}
+
+install_agent() {
+    section "Agent pour wsquashfs-manager"
+    if [[ "$(id -u)" -eq 0 ]]; then
+        print_error "L'agent s'installe pour l'utilisateur de la session graphique, pas pour root :"
+        print_info "relancer l'installeur sans sudo avec --agent"
+        return 1
+    fi
+    if ! command -v python3 &>/dev/null; then
+        print_error "python3 requis pour l'agent"
+        return 1
+    fi
+    if ! command -v openssl &>/dev/null; then
+        print_error "openssl requis pour le certificat de l'agent (paquet openssl)"
+        return 1
+    fi
+    local roms linger="n"
+    roms=$(ask_value "Dossier roms/ de cette machine" "$(agent_default_roms)")
+    if [[ "$DRY_RUN" == true ]]; then
+        echo "    [simulation] agent → ${INSTALL_DIR}/wsquashfs-agent"
+        echo "    [simulation] wsquashfs-agent init --roms ${roms}  (jeton, certificat, ${AGENT_CONF})"
+        echo "    [simulation] socket ${AGENT_UNIT_DIR}/wsquashfs-agent.socket (port ${AGENT_PORT}) et service"
+        echo "    [simulation] systemctl --user enable --now wsquashfs-agent.socket"
+        return 0
+    fi
+    install_repo_file tools/wsquashfs-agent/wsquashfs-agent "${INSTALL_DIR}/wsquashfs-agent" || return 1
+    "${INSTALL_DIR}/wsquashfs-agent" init --roms "$roms" || {
+        print_error "Initialisation de l'agent en échec (voir ci-dessus)"
+        return 1
+    }
+    print_success "Agent : ${INSTALL_DIR}/wsquashfs-agent"
+
+    mkdir -p "$AGENT_UNIT_DIR"
+    cat > "${AGENT_UNIT_DIR}/wsquashfs-agent.socket" << EOF
+[Unit]
+Description=Socket de wsquashfs-agent (machine de jeu pour wsquashfs-manager)
+
+[Socket]
+ListenStream=${AGENT_PORT}
+
+[Install]
+WantedBy=sockets.target
+EOF
+    cat > "${AGENT_UNIT_DIR}/wsquashfs-agent.service" << EOF
+[Unit]
+Description=wsquashfs-agent (à la demande, lancé par sa socket)
+
+[Service]
+ExecStart=${INSTALL_DIR}/wsquashfs-agent serve
+EOF
+    print_success "Unités : ${AGENT_UNIT_DIR}/wsquashfs-agent.{socket,service}"
+
+    if systemctl --user daemon-reload 2>/dev/null \
+        && systemctl --user enable --now wsquashfs-agent.socket 2>/dev/null; then
+        print_success "Socket activée : l'agent démarre à la première connexion du gestionnaire"
+        if [[ "$ASSUME_YES" != true ]] && ask_yes_no "Répondre aussi sans session ouverte (loginctl enable-linger) ?" n; then
+            loginctl enable-linger "$(id -un)" 2>/dev/null \
+                && print_success "Linger activé" \
+                || print_error "loginctl enable-linger en échec : à faire à la main"
+        fi
+    else
+        print_info "systemd utilisateur indisponible : lancer « ${INSTALL_DIR}/wsquashfs-agent serve --standalone »"
+        print_info "à la main (cas d'un conteneur sans systemd)"
+    fi
+    echo ""
+    print_info "À reporter dans wsquashfs-manager (Réglages → Machine de jeu → Agent réseau) :"
+    "${INSTALL_DIR}/wsquashfs-agent" pair
+    return 0
+}
+
+# ════════════════════════════════════════════════════════════════════════
 # 9. DÉSINSTALLATION
 # ════════════════════════════════════════════════════════════════════════
 
@@ -873,6 +978,13 @@ uninstall() {
         print_info "Lanceur absent de ${INSTALL_DIR}"
     fi
     [[ -e "${INSTALL_DIR}/dualsense-usb-bridge" ]] && remove "${INSTALL_DIR}/dualsense-usb-bridge"
+    if [[ -f "${AGENT_UNIT_DIR}/wsquashfs-agent.socket" ]]; then
+        [[ "$DRY_RUN" == false ]] && systemctl --user disable --now wsquashfs-agent.socket 2>/dev/null
+        remove "${AGENT_UNIT_DIR}/wsquashfs-agent.socket" "${AGENT_UNIT_DIR}/wsquashfs-agent.service"
+        [[ "$DRY_RUN" == false ]] && systemctl --user daemon-reload 2>/dev/null
+        print_success "Unités de l'agent supprimées"
+    fi
+    [[ -e "${INSTALL_DIR}/wsquashfs-agent" ]] && remove "${INSTALL_DIR}/wsquashfs-agent"
     if [[ -L "${INSTALL_DIR}/umu-run" && "$(readlink "${INSTALL_DIR}/umu-run")" == "${UMU_INSTALL_DIR}/umu-run" ]]; then
         remove "${INSTALL_DIR}/umu-run" "$UMU_INSTALL_DIR" && print_success "umu-run supprimé"
     fi
@@ -886,6 +998,7 @@ uninstall() {
     print_info "Conservés (sauvegardes, cache, runners, DXVK/VKD3D/d7vk, archives) :"
     echo "  ${WSQ_DATA}/"
     echo "  ~/.cache/wsquashfs/"
+    [[ -d "$AGENT_CONF" ]] && echo "  ${AGENT_CONF}/ (jeton et certificat de l'agent)"
     echo "Conservé (partagé avec Steam et Heroic) : ${PROTON_INSTALL_DIR}/"
     echo "Paquets système conservés."
     echo ""
@@ -900,9 +1013,9 @@ uninstall() {
 
 usage() {
     if [[ -n "$SCRIPT_DIR" ]]; then
-        sed -n '3,19p' "${SCRIPT_DIR}/$(basename "${BASH_SOURCE[0]}")" | sed 's/^# \{0,1\}//'
+        sed -n '3,20p' "${SCRIPT_DIR}/$(basename "${BASH_SOURCE[0]}")" | sed 's/^# \{0,1\}//'
     else
-        echo "Usage : install.sh [--yes] [--dry-run] [--uninstall] [--help]"
+        echo "Usage : install.sh [--yes] [--dry-run] [--agent] [--uninstall] [--help]"
     fi
 }
 
@@ -923,6 +1036,12 @@ install_all() {
     check_rendering
     install_launcher || exit 1
     create_mime_type
+    if [[ "$AGENT_WANTED" == true ]]; then
+        install_agent || exit 1
+    elif [[ "$ASSUME_YES" != true ]] \
+        && ask_yes_no "Installer l'agent pour wsquashfs-manager (machine de jeu sur le réseau) ?" n; then
+        install_agent || print_error "Agent non installé"
+    fi
     check_path
     show_usage
     # Bilan réel de ce qui est en place
@@ -938,6 +1057,7 @@ main() {
         case "$arg" in
             --yes|-y)       ASSUME_YES=true ;;
             --dry-run|-n)   DRY_RUN=true ;;
+            --agent)        AGENT_WANTED=true ;;
             --uninstall|-u) action=uninstall ;;
             --help|-h)      action=help ;;
             *) print_error "Option inconnue : ${arg}"; usage; exit 1 ;;
