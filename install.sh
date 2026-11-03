@@ -937,6 +937,11 @@ install_agent() {
     }
     print_success "Agent : ${INSTALL_DIR}/wsquashfs-agent"
 
+    # Ancienne commande wsquashfs-agent (versions précédentes) : retirée
+    local stale="${INSTALL_DIR}/wsquashfs-agent"
+    if [[ -f "$stale" ]] && head -c 40 "$stale" | grep -q python3; then
+        rm -f "$stale" && print_success "Ancienne commande wsquashfs-agent retirée"
+    fi
     mkdir -p "$AGENT_UNIT_DIR"
     cat > "${AGENT_UNIT_DIR}/wsquashfs-agent.socket" << EOF
 [Unit]
@@ -1006,6 +1011,8 @@ uninstall() {
         print_success "Unités de l'agent supprimées"
     fi
     [[ -e "$AGENT_HELPER" ]] && remove "$AGENT_HELPER" "${WSQ_DATA}/agent"
+    [[ -f "${INSTALL_DIR}/wsquashfs-agent" ]] && head -c 40 "${INSTALL_DIR}/wsquashfs-agent" | grep -q python3 \
+        && remove "${INSTALL_DIR}/wsquashfs-agent"
     if [[ -L "${INSTALL_DIR}/umu-run" && "$(readlink "${INSTALL_DIR}/umu-run")" == "${UMU_INSTALL_DIR}/umu-run" ]]; then
         remove "${INSTALL_DIR}/umu-run" "$UMU_INSTALL_DIR" && print_success "umu-run supprimé"
     fi

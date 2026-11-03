@@ -1710,6 +1710,12 @@ cmd_update() {
             echo "✓ Agent : redémarré à la prochaine connexion du gestionnaire"
         fi
     fi
+    # Ancienne commande wsquashfs-agent (versions précédentes) : retirée, le
+    # seul point d'entrée est wsquashfs-launcher
+    local stale="$(dirname "$self")/wsquashfs-agent"
+    if [[ -f "$stale" ]] && head -c 40 "$stale" | grep -q python3; then
+        rm -f "$stale" && echo "✓ Ancienne commande wsquashfs-agent retirée"
+    fi
     echo "Vérification : $0 --help"
 }
 
