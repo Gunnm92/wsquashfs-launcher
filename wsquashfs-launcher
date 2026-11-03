@@ -2137,17 +2137,17 @@ game_state() {
 
 # --list (13/10) : jeux connus, état, version et taille des sauvegardes.
 cmd_list() {
-    local games=() g width=4 img image version size
+    local games=() g name state version size image img
+    local -a names states versions sizes images
+    # Largeurs minimales : celles de la sortie d'origine (les sorties normales ne changent pas)
+    local wn=4 ws=10 wv=10 wz=11
     mapfile -t games < <(known_games)
     if ((${#games[@]} == 0)); then
         echo "Aucun jeu connu (aucun lancement enregistré dans ${SAVES_DIR})"
         return 0
     fi
-    for g in "${games[@]}"; do
-        (($(text_width "$g") > width)) && width=$(text_width "$g")
-    done
-    width=$((width + 2))
-    echo "$(pad "Jeu" "$width")$(pad "État" 12)$(pad "Version" 12)$(pad "Sauvegardes" 13)Image"
+    # Une passe pour mesurer chaque colonne, une pour afficher : un nom trop long
+    # est tronqué, aucune colonne ne déborde sur la suivante
     for g in "${games[@]}"; do
         img="" version="-" size="aucune"
         [[ -f "${SAVES_DIR}/.images/${g}" ]] && img=$(< "${SAVES_DIR}/.images/${g}")
@@ -2161,7 +2161,19 @@ cmd_list() {
             image="introuvable : ${img}"
         fi
         [[ -d "${SAVES_DIR}/${g}" ]] && size=$(du -sh "${SAVES_DIR}/${g}" 2>/dev/null | cut -f1)
-        echo "$(pad "$g" "$width")$(pad "$(game_state "$g")" 12)$(pad "$version" 12)$(pad "$size" 13)${image}"
+        name="$g"
+        ((${#name} > 40)) && name="${name:0:39}…"
+        names+=("$name"); states+=("$(game_state "$g")")
+        versions+=("$version"); sizes+=("$size"); images+=("$image")
+        ((${#name} > wn)) && wn=${#name}
+        ((${#states[-1]} > ws)) && ws=${#states[-1]}
+        ((${#version} > wv)) && wv=${#version}
+        ((${#size} > wz)) && wz=${#size}
+    done
+    wn=$((wn + 2)); ws=$((ws + 2)); wv=$((wv + 2)); wz=$((wz + 2))
+    echo "$(pad "Jeu" "$wn")$(pad "État" "$ws")$(pad "Version" "$wv")$(pad "Sauvegardes" "$wz")Image"
+    for i in "${!names[@]}"; do
+        echo "$(pad "${names[i]}" "$wn")$(pad "${states[i]}" "$ws")$(pad "${versions[i]}" "$wv")$(pad "${sizes[i]}" "$wz")${images[i]}"
     done
     echo ""
     echo "Sauvegardes : ${SAVES_DIR} ($(du -sh "$SAVES_DIR" 2>/dev/null | cut -f1) au total)"
