@@ -860,7 +860,7 @@ show_usage() {
 # runners. Au repos il ne tourne pas : systemd tient seulement la socket, et
 # la première connexion le lance (il s'arrête seul après 60 s sans requête).
 
-AGENT_PORT=8766
+AGENT_PORT=8790
 AGENT_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/wsquashfs-agent"
 AGENT_UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 
@@ -902,6 +902,17 @@ install_agent() {
     fi
     local roms linger="n"
     roms=$(ask_value "Dossier roms/ de cette machine" "$(agent_default_roms)")
+    AGENT_PORT=$(ask_value "Port de l'agent (doit être libre sur cette machine)" "$AGENT_PORT")
+    if ! [[ "$AGENT_PORT" =~ ^[0-9]+$ ]] || (( AGENT_PORT < 1024 || AGENT_PORT > 65535 )); then
+        print_error "Port invalide : ${AGENT_PORT}"
+        return 1
+    fi
+    if python3 -c "import socket,sys; s=socket.socket(); s.bind(('0.0.0.0', int(sys.argv[1])))" "$AGENT_PORT" 2>/dev/null; then
+        :
+    else
+        print_error "Port ${AGENT_PORT} déjà utilisé sur cette machine : en choisir un autre (--agent, puis répondre au port)"
+        return 1
+    fi
     if [[ "$DRY_RUN" == true ]]; then
         echo "    [simulation] agent → ${INSTALL_DIR}/wsquashfs-agent"
         echo "    [simulation] wsquashfs-agent init --roms ${roms}  (jeton, certificat, ${AGENT_CONF})"
@@ -910,7 +921,7 @@ install_agent() {
         return 0
     fi
     install_repo_file tools/wsquashfs-agent/wsquashfs-agent "${INSTALL_DIR}/wsquashfs-agent" || return 1
-    "${INSTALL_DIR}/wsquashfs-agent" init --roms "$roms" || {
+    "${INSTALL_DIR}/wsquashfs-agent" init --roms "$roms" --port "$AGENT_PORT" || {
         print_error "Initialisation de l'agent en échec (voir ci-dessus)"
         return 1
     }

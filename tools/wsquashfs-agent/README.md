@@ -12,7 +12,7 @@ bash install.sh --agent          # ou répondre oui à la question
 
 L'installeur demande le dossier `roms/` de la machine, génère un jeton et un
 certificat HTTPS auto-signé (valable 10 ans), installe deux unités systemd
-utilisateur (`wsquashfs-agent.socket` sur le port 8766 et le service), puis
+utilisateur (`wsquashfs-agent.socket` sur le port 8790, à choisir à l'installation, et le service), puis
 affiche l'adresse, le jeton et l'empreinte du certificat à reporter dans
 wsquashfs-manager (Réglages → Machine de jeu → Agent réseau).
 

@@ -42,7 +42,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 VERSION = "1"
-DEFAULT_PORT = 8766
+DEFAULT_PORT = 8790
 IDLE_EXIT = int(os.environ.get("WSQUASHFS_AGENT_IDLE", "60"))   # s sans requête avant de quitter (socket activée)
 DOCTOR_TTL = 300                # s : --doctor prend quelques secondes
 SD_LISTEN_FDS_START = 3
@@ -111,6 +111,8 @@ def local_addresses() -> list[str]:
 def cmd_init(args: argparse.Namespace) -> int:
     cfg = load_config()
     cfg.setdefault("port", DEFAULT_PORT)
+    if args.port:
+        cfg["port"] = args.port
     cfg.setdefault("session_process", "emulationstation")
     cfg.setdefault("token", secrets.token_urlsafe(32))
     if args.roms:
@@ -511,6 +513,7 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("init", help="jeton, certificat et configuration")
     p.add_argument("--roms", action="append", default=[], metavar="DIR",
                    help="dossier roms/ de cette machine (répétable)")
+    p.add_argument("--port", type=int, default=0, help=f"port d'écoute (défaut {DEFAULT_PORT})")
     p.set_defaults(func=cmd_init)
     p = sub.add_parser("serve", help="serveur HTTPS")
     p.add_argument("--standalone", action="store_true", help="écouter soi-même, sans systemd")
