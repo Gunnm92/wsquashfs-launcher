@@ -2162,7 +2162,7 @@ cmd_list() {
         fi
         [[ -d "${SAVES_DIR}/${g}" ]] && size=$(du -sh "${SAVES_DIR}/${g}" 2>/dev/null | cut -f1)
         name="$g"
-        ((${#name} > 40)) && name="${name:0:39}…"
+        ((${#name} > 32)) && name="${name:0:31}…"
         names+=("$name"); states+=("$(game_state "$g")")
         versions+=("$version"); sizes+=("$size"); images+=("$image")
         ((${#name} > wn)) && wn=${#name}
