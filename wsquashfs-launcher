@@ -1669,6 +1669,50 @@ stop_dualsense_bridge() {
 # 8. COMMANDES DE MAINTENANCE
 # ════════════════════════════════════════════════════════════════════════
 
+# Mise à jour : télécharge le lanceur et le moteur de l'agent depuis GitHub,
+# vérifie qu'ils sont valides, puis les remplace. Rien n'est modifié si une
+# étape échoue. Le lanceur en cours d'exécution garde son fichier (remplacement
+# par renommage). Une option WSQUASHFS_UPDATE_URL permet de tester avec une
+# autre source.
+cmd_update() {
+    local base="${WSQUASHFS_UPDATE_URL:-https://raw.githubusercontent.com/Gunnm92/wsquashfs-launcher/main}"
+    local helper="${WSQ_AGENT_HELPER:-${WSQ_DATA_DIR:-$HOME/.local/share/wsquashfs}/agent/wsquashfs-agent.py}"
+    local self tmp
+    self=$(readlink -f "$0")
+    command -v curl &>/dev/null || die "curl requis pour la mise à jour"
+    [[ -w "$self" && -w "$(dirname "$self")" ]] \
+        || die "$self n'est pas modifiable par ${USER:-cet utilisateur} : mise à jour impossible"
+    tmp=$(mktemp -d) || die "dossier temporaire impossible"
+    trap 'rm -rf "$tmp"' RETURN
+    echo "Téléchargement depuis ${base} ..."
+    curl -fsSL "${base}/wsquashfs-launcher" -o "${tmp}/wsquashfs-launcher" || die "téléchargement du lanceur impossible"
+    bash -n "${tmp}/wsquashfs-launcher" || die "lanceur téléchargé invalide : rien n'a été modifié"
+    # Le moteur n'est mis à jour que s'il est déjà installé (--update n'installe rien de nouveau)
+    if [[ -f "$helper" ]]; then
+        curl -fsSL "${base}/tools/wsquashfs-agent/wsquashfs-agent" -o "${tmp}/wsquashfs-agent.py" \
+            || die "téléchargement du moteur de l'agent impossible"
+        python3 -m py_compile "${tmp}/wsquashfs-agent.py" 2>/dev/null \
+            || die "moteur de l'agent invalide : rien n'a été modifié"
+    fi
+    chmod 755 "${tmp}/wsquashfs-launcher"
+    mv -f "${tmp}/wsquashfs-launcher" "${self}.new" && mv -f "${self}.new" "$self" \
+        || die "remplacement du lanceur impossible"
+    echo "✓ Lanceur mis à jour : ${self}"
+    if [[ -f "${tmp}/wsquashfs-agent.py" ]]; then
+        mkdir -p "$(dirname "$helper")"
+        cp -f "${tmp}/wsquashfs-agent.py" "${helper}.new" && mv -f "${helper}.new" "$helper"
+        echo "✓ Moteur de l'agent mis à jour : ${helper}"
+        # Le service en cours garde l'ancien code : arrêt, la socket le relance
+        # à la prochaine connexion avec la nouvelle version
+        if command -v systemctl &>/dev/null \
+            && systemctl --user is-enabled wsquashfs-agent.socket &>/dev/null; then
+            systemctl --user stop wsquashfs-agent.service 2>/dev/null
+            echo "✓ Agent : redémarré à la prochaine connexion du gestionnaire"
+        fi
+    fi
+    echo "Vérification : $0 --help"
+}
+
 # Agent pour wsquashfs-manager : moteur installé à part, dans les données du
 # lanceur ; cette commande en est la seule porte d'entrée.
 cmd_agent() {
@@ -1730,6 +1774,8 @@ Usage :
         au gestionnaire, s'arrête seul sans requête (socket systemd).
   wsquashfs-launcher --pair
         Adresse, jeton et empreinte à reporter dans wsquashfs-manager.
+  wsquashfs-launcher --update
+        Met à jour le lanceur et le moteur de l'agent depuis GitHub.
         Vérifie l'installation (FUSE, Wine/Proton, umu, DXVK, VKD3D, d7vk,
         manettes, dossiers) et indique ce qui manque.
 
@@ -3422,6 +3468,10 @@ parse_args() {
                 ACTION="pair"
                 return 0
                 ;;
+            --update)
+                ACTION="update"
+                return 0
+                ;;
             --clean|--clear|--umount|--pack|--install|--info|--backup|--list|--doctor)
                 # Commandes autonomes : le reste de la ligne leur appartient.
                 ACTION="${1#--}"
@@ -3493,6 +3543,7 @@ main() {
         doctor)  cmd_doctor ;;
         agent)   cmd_agent "${CMD_ARGS[@]}" ;;
         pair)    cmd_agent pair ;;
+        update)  cmd_update ;;
         *)       launch_game ;;   # run, mount, exec : ne revient pas
     esac
 }
