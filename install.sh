@@ -821,12 +821,19 @@ check_path() {
     fi
     print_info "${INSTALL_DIR} n'est pas dans le PATH"
     rc=$(shell_rc_file)
+    # Shell non reconnu (SHELL vide en session non interactive) : ~/.profile
+    [[ -n "$rc" ]] || rc="$HOME/.profile"
     if [[ "$(basename "${SHELL:-}")" == fish ]]; then
         line="fish_add_path ${INSTALL_DIR}"
     else
         line="export PATH=\"\$PATH:${INSTALL_DIR}\""
     fi
-    if [[ -n "$rc" ]] && ask_yes_no "Ajouter à ${rc} ?" n; then
+    if grep -qsF "$line" "$rc"; then
+        print_success "PATH déjà configuré dans ${rc} (ouvrir un nouveau terminal)"
+        return 0
+    fi
+    # Par défaut oui : sans cela, le lanceur n'est pas trouvé par son nom
+    if ask_yes_no "Ajouter ${INSTALL_DIR} au PATH (dans ${rc}) ?" o; then
         if [[ "$DRY_RUN" == true ]]; then
             echo "    [simulation] ${line} >> ${rc}"
             return 0
