@@ -181,7 +181,7 @@ export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 OUT=/tmp/wsfs-trial.out; SHOT=/tmp/wsfs-trial.png
 rm -f "$OUT" "$SHOT"
 ulimit -s 8192 2>/dev/null
-setsid wsquashfs-launcher "$IMG" > "$OUT" 2>&1 < /dev/null &
+setsid "${LAUNCHER:-wsquashfs-launcher}" "$IMG" > "$OUT" 2>&1 < /dev/null &
 L=$!
 RE=$(printf '%s' "$STEM" | sed 's/[][\.*^$(){}?+|/]/\\&/g')
 SYS='services|winedevice|plugplay|svchost|explorer|rpcss|tabtip|xalia|umu|conhost|start|wineboot|winemenubuilder'
@@ -279,9 +279,12 @@ def run_trial(cfg: dict, image: Path, duration: int) -> dict:
     session = cfg.get("session_process", "emulationstation")
     shot = Path("/tmp/wsfs-trial.png")
     try:
+        # Chemin absolu du lanceur : le PATH de l'agent (service, SteamBox) ne
+        # contient pas forcément ~/.local/bin
+        env = dict(os.environ, LAUNCHER=launcher_path() or "wsquashfs-launcher")
         done = subprocess.run(["bash", "-c", SCRIPT, "wsfs-trial", str(image), str(duration), session],
                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
-                              timeout=duration + 180, check=False)
+                              timeout=duration + 180, check=False, env=env)
     except subprocess.TimeoutExpired as exc:
         raise AgentError(504, f"essai trop long ({duration} s)") from exc
     png = shot.read_bytes() if shot.is_file() else b""
