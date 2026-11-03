@@ -1710,6 +1710,24 @@ cmd_update() {
             echo "✓ Agent : redémarré à la prochaine connexion du gestionnaire"
         fi
     fi
+    # Entrée du bureau (double-clic sur .wsquashfs) : si elle existe, elle est
+    # réécrite avec le chemin réel du lanceur, comme l'installeur la crée
+    local desk="$HOME/.local/share/applications/wsquashfs-launcher.desktop"
+    if [[ -f "$desk" ]]; then
+        cat > "$desk" << EOF
+[Desktop Entry]
+Type=Application
+Name=WSquashFS Launcher
+Comment=Lance un jeu .wsquashfs
+Exec=${self} %f
+MimeType=application/x-wsquashfs;application/vnd.squashfs;
+NoDisplay=true
+Terminal=false
+EOF
+        command -v update-desktop-database &>/dev/null \
+            && update-desktop-database "$(dirname "$desk")" 2>/dev/null
+        echo "✓ Entrée du bureau mise à jour : ${desk}"
+    fi
     # Ancienne commande wsquashfs-agent (versions précédentes) : retirée, le
     # seul point d'entrée est wsquashfs-launcher
     local stale="$(dirname "$self")/wsquashfs-agent"
