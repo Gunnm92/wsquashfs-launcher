@@ -22,8 +22,8 @@ Usage :
         Lance le jeu (autorun.cmd).
   wsquashfs-launcher [--wine <version>] --exec <jeu.wsquashfs> <programme> [arguments...]
         Lance un autre programme dans le prefix du jeu : un exécutable du jeu
-        (chemin relatif au prefix ou au DIR de l'autorun.cmd, ex. JConfig.exe,
-        drive_c/teknoparrot/TeknoParrotUi.exe) ou un outil Wine (winecfg,
+        (chemin relatif au prefix ou au DIR de l'autorun.cmd, ex. Config.exe,
+        drive_c/dossier/Lanceur.exe) ou un outil Wine (winecfg,
         regedit, cmd, explorer, control joy.cpl...).
   wsquashfs-launcher --mount <jeu.wsquashfs>
         Monte le jeu et le laisse monté pour le modifier à la main ; les
@@ -58,6 +58,13 @@ Usage :
         Liste les jeux connus : état (en cours, monté), version, taille des
         sauvegardes et image.
   wsquashfs-launcher --doctor
+  wsquashfs-launcher --agent [--standalone]
+        Agent pour wsquashfs-manager (machine de jeu sur le réseau) : répond
+        au gestionnaire, s'arrête seul sans requête (socket systemd).
+  wsquashfs-launcher --pair
+        Adresse, jeton et empreinte à reporter dans wsquashfs-manager.
+  wsquashfs-launcher --update
+        Met à jour le lanceur et le moteur de l'agent depuis GitHub.
         Vérifie l'installation (FUSE, Wine/Proton, umu, DXVK, VKD3D, d7vk,
         manettes, dossiers) et indique ce qui manque.
 
@@ -5133,20 +5140,20 @@ Fichier       : ROOT/userdata/roms/windows/Old32.wsquashfs
 Erreur : Old32 est déjà lancé
 == rc=1
 ################ list-locked
-Jeu                   État        Version     Sauvegardes  Image
-Arcade Game           -           1.2.3       SIZE         ROOT/userdata/roms/windows/Arcade Game.wsquashfs
-Hook Game             -           -           SIZE         ROOT/userdata/roms/windows/Hook Game.wsquashfs
-Joint Game            -           -           aucune       ROOT/userdata/roms/windows/Joint Game.wsquashfs
-Loader Game           -           -           SIZE         ROOT/userdata/roms/windows/Loader Game.wsquashfs
-Missing Runner Game   -           -           SIZE         ROOT/userdata/roms/windows/Missing Runner Game.wsquashfs
-Named Game            -           -           SIZE         ROOT/userdata/roms/windows/Named Game.wsquashfs
-Old32                 verrouillé  -           SIZE         ROOT/userdata/roms/windows/Old32.wsquashfs
-Pre Fail Game         -           -           SIZE         ROOT/userdata/roms/windows/Pre Fail Game.wsquashfs
-Proton Game           -           -           aucune       ROOT/userdata/roms/windows/Proton Game.wsquashfs
-Relative Runner Game  -           -           SIZE         ROOT/userdata/roms/windows/Relative Runner Game.wsquashfs
-Solo Game             -           -           SIZE         ROOT/userdata/roms/windows/Solo Game.wsquashfs
-Two Runners Game      -           -           SIZE         ROOT/userdata/roms/windows/Two Runners Game.wsquashfs
-Wine Joint Game       -           -           SIZE         ROOT/userdata/roms/windows/Wine Joint Game.wsquashfs
+Jeu                   État         Version     Sauvegardes  Image
+Arcade Game           -            1.2.3       SIZE         ROOT/userdata/roms/windows/Arcade Game.wsquashfs
+Hook Game             -            -           SIZE         ROOT/userdata/roms/windows/Hook Game.wsquashfs
+Joint Game            -            -           aucune       ROOT/userdata/roms/windows/Joint Game.wsquashfs
+Loader Game           -            -           SIZE         ROOT/userdata/roms/windows/Loader Game.wsquashfs
+Missing Runner Game   -            -           SIZE         ROOT/userdata/roms/windows/Missing Runner Game.wsquashfs
+Named Game            -            -           SIZE         ROOT/userdata/roms/windows/Named Game.wsquashfs
+Old32                 verrouillé   -           SIZE         ROOT/userdata/roms/windows/Old32.wsquashfs
+Pre Fail Game         -            -           SIZE         ROOT/userdata/roms/windows/Pre Fail Game.wsquashfs
+Proton Game           -            -           aucune       ROOT/userdata/roms/windows/Proton Game.wsquashfs
+Relative Runner Game  -            -           SIZE         ROOT/userdata/roms/windows/Relative Runner Game.wsquashfs
+Solo Game             -            -           SIZE         ROOT/userdata/roms/windows/Solo Game.wsquashfs
+Two Runners Game      -            -           SIZE         ROOT/userdata/roms/windows/Two Runners Game.wsquashfs
+Wine Joint Game       -            -           SIZE         ROOT/userdata/roms/windows/Wine Joint Game.wsquashfs
 
 Sauvegardes : ROOT/saves (SIZE au total)
 == rc=0

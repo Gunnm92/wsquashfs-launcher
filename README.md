@@ -139,8 +139,8 @@ wsquashfs-launcher /path/to/game.wsquashfs
 # Lancer un autre programme dans le prefix du jeu : exécutable du jeu
 # (chemin relatif au prefix ou au DIR de l'autorun.cmd, casse ignorée)
 # ou outil Wine (winecfg, regedit, cmd, explorer, control joy.cpl...)
-wsquashfs-launcher --exec game.wsquashfs JConfig.exe
-wsquashfs-launcher --exec game.wsquashfs drive_c/teknoparrot/TeknoParrotUi.exe
+wsquashfs-launcher --exec game.wsquashfs Config.exe
+wsquashfs-launcher --exec game.wsquashfs drive_c/dossier/Lanceur.exe
 wsquashfs-launcher --exec game.wsquashfs winecfg
 
 # Forcer un runner Wine/Proton (nom ou partie du nom d'un runner installé
@@ -183,7 +183,7 @@ wsquashfs-launcher --pack MonJeu.wine          # → MonJeu.wsquashfs
 
 # Supprimer les copies de travail et les doublons des sauvegardes : fichiers
 # du jeu recopiés sans modification (jeu qui ouvre ses données en écriture :
-# 2,7 Go pour Streets of Rage 4), DLL que Proton recopie à chaque lancement.
+# plusieurs Go de copies possibles), DLL que Proton recopie à chaque lancement.
 # Tout ce que le jeu a écrit est gardé ; jeux en cours exceptés.
 wsquashfs-launcher --clean
 
@@ -241,8 +241,8 @@ shortname: wsquashfs
 extensions: wsquashfs
 launch: wsquashfs-launcher "{file.path}"
 
-game: My Game
-file: MyGame.wsquashfs
+game: Mon Jeu
+file: MonJeu.wsquashfs
 ```
 
 ### Intégration EmulationStation
@@ -267,12 +267,12 @@ Le fichier `autorun.cmd` à la racine du `.wsquashfs` configure l'exécution. Ut
 
 | Variable | Obligatoire | Description |
 |---|---|---|
-| `CMD` | ✅ | Exécutable et arguments (`game.exe -fullscreen` ou `"My Game.exe" -fullscreen`) |
+| `CMD` | ✅ | Exécutable et arguments (`jeu.exe -fullscreen` ou `"Mon Jeu.exe" -fullscreen`) |
 | `DIR` | — | Chemin vers le dossier de l'exécutable (relatif à la racine du wsquashfs) |
 | `GAME_VERSION` | — | Version du jeu packagé (`1.04`, `v2.1.0 GOG`…), affichée au lancement, par `--info`, `--pack` et `--install`. Ignorée par Batocera, qui ne lit que les clés qu'il connaît : l'image reste compatible |
 | `PRE` | — | Commande lancée une fois **avant** le jeu, dans son dossier (DIR), avec l'utilisateur et l'environnement du jeu (`WINEPREFIX`…). Un échec arrête le lancement. Sert à préparer des fichiers que l'image ne peut pas contenir tels quels. Ligne de commande comme `CMD` : ses guillemets sont gardés | `sh pre.sh` |
 | `ATTACH` | — | Commande lancée **pendant** le jeu, une fois son processus trouvé dans le prefix du jeu (sans délai maximal) ; `GAME_PID` contient son PID. Elle accompagne le jeu jusqu'à la fin de tous ses processus Wine (lanceur intermédiaire compris), a ensuite 5 s pour finir seule, puis est arrêtée avec tout ce qu'elle a lancé | `sh attach.sh` |
-| `ATTACH_PROCESS` | — | Nom du processus attendu par `ATTACH` (15 caractères au plus, comme le noyau). Défaut : l'exécutable de `CMD` ; à renseigner quand `CMD` est un lanceur qui démarre le vrai jeu | `DOA5A.exe` |
+| `ATTACH_PROCESS` | — | Nom du processus attendu par `ATTACH` (15 caractères au plus, comme le noyau). Défaut : l'exécutable de `CMD` ; à renseigner quand `CMD` est un lanceur qui démarre le vrai jeu | `Jeu.exe` |
 
 `PRE` et `ATTACH` exécutent des commandes Linux sur la machine, hors de Wine :
 n'utiliser que des images de confiance. Ni l'une ni l'autre n'est lancée par
@@ -284,25 +284,25 @@ fonctionnera pas tel quel.
 | Variable | Description | Exemples |
 |---|---|---|
 | `WINE` | Wine joint à l'image (`runners/<VERSION>/`), sinon version dans `/opt/wine-<VERSION>/bin/wine`, ou `system` pour le Wine du système. Introuvable : erreur | `9.0`, `tkg`, `system` |
-| `PROTON` | Proton joint à l'image (`runners/<nom>/`), sinon runner Proton de Heroic/Steam (nom du dossier ou version). Introuvable : erreur (plus de repli sur un autre Proton) | `DenuvOwO-cachyos-11.0`, `UMU-Proton-10.0-4`, `GE-Proton8-25` |
+| `PROTON` | Proton joint à l'image (`runners/<nom>/`), sinon runner Proton de Heroic/Steam (nom du dossier ou version). Introuvable : erreur (plus de repli sur un autre Proton) | `MonProton-11.0`, `UMU-Proton-10.0-4`, `GE-Proton8-25` |
 | `RUNNER` | Chemin **absolu** d'un binaire wine de la machine (un runner joint au jeu passe par `runners/` et `PROTON`/`WINE`) | `/opt/wine-custom/bin/wine` |
 | `ARCH` | Architecture Wine (défaut : `win64`) | `win32`, `win64` |
 | `LANG` | Langue (`LC_ALL`) | `fr_FR.UTF-8` |
 | `ENV` | Variables d'environnement additionnelles | `VAR1=val1 VAR2=val2` |
-| `HIDRAW` | `1` : manettes Sony par hidraw pour ce jeu s'il gère la DualSense **lui-même**, sans Steam Input (repli XInput si illisible) ; défaut XInput. Une DualSense Bluetooth (celle de Sunshine) est présentée au jeu en DualSense USB par [dualsense-usb-bridge](tools/dualsense-usb-bridge/README.md) : les `libScePad` de 2022 (F1 22) refusent la Bluetooth. `bt` : DualSense Bluetooth en direct, pour les jeux dont les haptiques passent en Bluetooth (Until Dawn) — en USB, elles partent en audio, non transmis. Sous GE-Proton, le mode XInput passe aussi par hidraw : GE confie toujours les manettes Sony à hidraw et les convertit en XInput (`PROTON_SONY_HIDRAW_XINPUT=1`, posé par le lanceur) | `1` |
+| `HIDRAW` | `1` : manettes Sony par hidraw pour ce jeu s'il gère la DualSense **lui-même**, sans Steam Input (repli XInput si illisible) ; défaut XInput. Une DualSense Bluetooth (par exemple celle d'un streaming à distance) est présentée au jeu en DualSense USB par [dualsense-usb-bridge](tools/dualsense-usb-bridge/README.md) : les `libScePad` de 2022 refusent la Bluetooth. `bt` : DualSense Bluetooth en direct, pour les jeux dont les haptiques passent en Bluetooth — en USB, elles partent en audio, non transmis. Sous GE-Proton, le mode XInput passe aussi par hidraw : GE confie toujours les manettes Sony à hidraw et les convertit en XInput (`PROTON_SONY_HIDRAW_XINPUT=1`, posé par le lanceur) | `1` |
 
 ### Runner joint au jeu
 
 Un jeu qui ne fonctionne qu'avec un runner précis (Proton modifié pour lui,
-comme DenuvOwO pour Anno 117, ou Wine particulier d'un jeu arcade) peut le
+comme `MonProton` ci-dessous, ou un Wine particulier à un jeu arcade) peut le
 porter dans son image : l'image reste autonome, rien à installer sur la
 machine.
 
 ```
-Anno 117 Pax Romana.wine/            → wsquashfs-launcher --pack, sans option
-├── autorun.cmd    PROTON=DenuvOwO-cachyos-11.0
+MonJeu.wine/                         → wsquashfs-launcher --pack, sans option
+├── autorun.cmd    PROTON=MonProton-11.0
 ├── runners/
-│   └── DenuvOwO-cachyos-11.0/       dossier du runner tel quel
+│   └── MonProton-11.0/              dossier du runner tel quel
 │       (Proton : proton + files/bin/wine ; Wine : bin/wine)
 └── drive_c/ …
 ```
@@ -354,7 +354,7 @@ Sans `WINE`, `PROTON`, `RUNNER`, runner joint ni `--wine` :
   wine-proton, puis le Wine du système — les chemins Batocera (`/usr/wine/...`)
   sont pris en charge. Certains jeux 32 bits échouent sous wine-tkg (non WoW64)
   mais passent avec le Wine WoW64 du système : `WINE=system` dans leur
-  autorun.cmd (GTI Club – Supermini Festa). Batocera ignore cette valeur.
+  autorun.cmd. Batocera ignore cette valeur.
 
 ### Sauvegardes (comme Batocera)
 
@@ -419,8 +419,8 @@ FSYNC=1
 
 ```cmd
 # Chemin avec espaces
-DIR=drive_c/Program Files/My Game
-CMD="My Game.exe" --lang fr
+DIR=drive_c/Program Files/Mon Jeu
+CMD="Mon Jeu.exe" --lang fr
 DXVK=1
 ```
 
@@ -456,8 +456,8 @@ Batocera ou à un autre UID), puis l'overlay du noyau par-dessus. Wine est
 lancé sans les capacités du namespace.
 
 - Une seule couche FUSE au lieu de deux. Lectures aléatoires en parallèle
-  (chargement d'un niveau) environ 5 fois plus rapides, mesuré sur Tempest
-  Rising. En revanche, la lecture séquentielle pure est plus lente
+  (chargement d'un niveau) environ 5 fois plus rapides, mesuré sur un jeu
+  récent à gros assets. En revanche, la lecture séquentielle pure est plus lente
   (1,5 Go/s contre 3,7 Go/s).
 - Les sauvegardes s'écrivent à la vitesse du disque.
 - Les montages sont invisibles hors du namespace et disparaissent avec lui :

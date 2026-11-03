@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-# dualsense-usb-bridge — présente une DualSense Bluetooth (celle de Sunshine)
-# comme une DualSense USB, via uhid.
+# dualsense-usb-bridge — présente une DualSense Bluetooth (par exemple celle
+# d'un streaming à distance) comme une DualSense USB, via uhid.
 #
-# Pourquoi (02/10/2026, F1 22) : la DualSense virtuelle de Sunshine est
-# toujours en Bluetooth (bus 0005). Les libScePad de 2022 (F1 22, The Devil in
-# Me, KOF XV) l'énumèrent sans jamais l'ouvrir : aucune écriture, aucun
+# Pourquoi (02/10/2026) : la DualSense virtuelle d'un streaming à distance est
+# toujours en Bluetooth (bus 0005). Les libScePad de 2022 (plusieurs jeux
+# concernés) l'énumèrent sans jamais l'ouvrir : aucune écriture, aucun
 # rapport feature lu, le jeu ne réagit à aucune touche. Une DualSense USB est
 # initialisée aussitôt (calibration, firmware, puis rapports de sortie 0x02).
 #
@@ -21,7 +21,7 @@
 #
 # --hide rend la DualSense Bluetooth illisible (chmod 600, sudo -n si besoin)
 # tant que le pont tourne : Wine ne voit que la manette USB, sans doublon. Les
-# accès déjà ouverts (Steam, Sunshine) ne sont pas touchés.
+# accès déjà ouverts (Steam, streaming à distance) ne sont pas touchés.
 import argparse, errno, fcntl, os, select, signal, struct, subprocess, sys, time, zlib
 
 HID_ID_BT = "HID_ID=0005:0000054C:00000CE6"
@@ -201,7 +201,7 @@ class Bridge:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Présente les DualSense Bluetooth (Sunshine) comme des DualSense USB (uhid).")
+        description="Présente les DualSense Bluetooth comme des DualSense USB (uhid).")
     parser.add_argument("--hide", action="store_true",
                         help="rendre les DualSense Bluetooth illisibles tant que le pont tourne")
     parser.add_argument("--ready-file", help="fichier créé une fois les manettes USB en place")

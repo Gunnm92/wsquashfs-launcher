@@ -6,11 +6,11 @@ les jeux en `HIDRAW=1` et l'arrête avec eux.
 
 ## Le problème
 
-La DualSense virtuelle de Sunshine est toujours en Bluetooth (bus `0005`). Les
-`libScePad.dll` de 2022 (F1 22 ; même version dans The Devil in Me et
-The King of Fighters XV) l'énumèrent sans jamais l'ouvrir : aucun rapport
-feature lu, aucune écriture, le jeu ne réagit à aucune touche. Une DualSense
-USB est initialisée tout de suite (constaté le 02/10/2026 sur F1 22).
+La DualSense virtuelle d'un streaming à distance est toujours en Bluetooth
+(bus `0005`). Les `libScePad.dll` de 2022 (plusieurs jeux concernés) l'énumèrent
+sans jamais l'ouvrir : aucun rapport feature lu, aucune écriture, le jeu ne
+réagit à aucune touche. Une DualSense USB est initialisée tout de suite
+(constaté le 02/10/2026 sur un jeu concerné).
 
 ## Fonctionnement
 
@@ -25,7 +25,7 @@ doublon de la Bluetooth (même manette branchée deux fois).
 
 Avec `--hide`, le nœud `/dev/hidrawN` de la manette Bluetooth passe en `600`
 (`sudo -n chmod` si besoin) jusqu'à l'arrêt du pont : Wine ne voit que la
-manette USB, pas un doublon. Les accès déjà ouverts (Steam, Sunshine) restent
+manette USB, pas un doublon. Les accès déjà ouverts (Steam, streaming à distance) restent
 valables. Si Moonlight se reconnecte, la nouvelle DualSense Bluetooth est
 reliée à la même manette USB : le jeu ne la perd pas.
 
@@ -33,7 +33,7 @@ reliée à la même manette USB : le jeu ne la perd pas.
 
 - **Pas d'haptiques** : en USB, les jeux les jouent en audio (4 canaux) sur la
   carte son de la manette, qui n'existe pas ici. Pour un jeu dont les
-  haptiques passent en rapports Bluetooth `0x32`–`0x39` (Until Dawn), utiliser
+  haptiques passent en rapports Bluetooth `0x32`–`0x39`, utiliser
   `HIDRAW=bt`.
 - Les écritures de rapports feature (`0x08`…) sont acquittées sans être
   transmises.

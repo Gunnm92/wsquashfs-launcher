@@ -773,7 +773,7 @@ install_launcher() {
     install_repo_file wsquashfs-launcher "${INSTALL_DIR}/wsquashfs-launcher" || return 1
     print_success "Lanceur : ${INSTALL_DIR}/wsquashfs-launcher"
     # Pont DualSense Bluetooth → USB, démarré par le lanceur en HIDRAW=1
-    # (F1 22 : les libScePad de 2022 refusent la DualSense Bluetooth).
+    # (les libScePad de 2022 refusent la DualSense Bluetooth).
     install_repo_file tools/dualsense-usb-bridge/dualsense-usb-bridge "${INSTALL_DIR}/dualsense-usb-bridge" \
         && print_success "Pont DualSense : ${INSTALL_DIR}/dualsense-usb-bridge"
     return 0

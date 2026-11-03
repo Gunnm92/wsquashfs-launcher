@@ -147,19 +147,19 @@ ajouter, ou un simple avertissement. Règles de départ, issues des cas réels :
 | Constat | Proposition | Origine |
 |---|---|---|
 | import `d3d9`, `d3d10*`, `d3d11`, `dxgi` | `DXVK=1` (défaut) | rendu Vulkan, wined3d = rendu logiciel sous NVIDIA |
-| import `d3d12` | `VKD3D=1` (défaut) | Pinball FX |
+| import `d3d12` | `VKD3D=1` (défaut) | jeu Direct3D 12 |
 | import `ddraw` | `D7VK=1` (défaut) | jeux DirectDraw |
 | import `opengl32` seul | rien (DXVK sans effet) | — |
 | import `xinput1_*` | mode XInput (pas de `HIDRAW`) | défaut |
-| import de `libScePad*.dll` (ou chaînes `scePadOpen`) | proposer `HIDRAW=1` (confiance haute), même avec `steam_api` : le jeu gère la DualSense lui-même (F1 22, 02/10) | F1 22, Until Dawn |
-| haptiques en rapports Bluetooth (jeu qui en a avec `HIDRAW=bt`) | proposer `HIDRAW=bt` : en USB, les haptiques partent en audio, non transmis | Until Dawn |
-| chaînes Sony/DualSense sans `libScePad` et `steam_api*.dll` présent | ne **pas** proposer `HIDRAW=1` : support DualSense probablement via Steam Input | Street Fighter V |
-| exécutable 32 bits sans « large address aware » | rien de spécial depuis la correction de la pile ; noter la limite de 2 Go | GTI Club |
-| `libavs-win32.dll` (Konami e-amusement) | ajouter le relais `fakeping` (`dinput8.dll` + `DllOverrides`) si l'exécutable importe `DINPUT8` ; sinon avertir | Yu-Gi-Oh! DT6, GTI Club |
-| TeknoParrot + `d3dx9_43` natif (Microsoft) dans le prefix | `"*d3dx9_43"="builtin"` dans le registre | Yu-Gi-Oh! DT6 |
-| TeknoParrot ancien (`TeknoParrot.dll` < version de référence) | avertir, proposer la mise à jour de TeknoParrot | anti-débogage (Yu-Gi-Oh!) |
-| `JVSEmu*.dll` / `JConfig*.exe` | avertir : manette obligatoire au lancement | GTI Club |
-| `DemulShooter.exe` | avertir : pistolet, vérifier `config.ini` (périphérique d'origine) | Castlevania |
+| import de `libScePad*.dll` (ou chaînes `scePadOpen`) | proposer `HIDRAW=1` (confiance haute), même avec `steam_api` : le jeu gère la DualSense lui-même (cas constaté le 02/10) | jeux à DualSense gérée par le jeu |
+| haptiques en rapports Bluetooth (jeu qui en a avec `HIDRAW=bt`) | proposer `HIDRAW=bt` : en USB, les haptiques partent en audio, non transmis | jeu à haptiques Bluetooth |
+| chaînes Sony/DualSense sans `libScePad` et `steam_api*.dll` présent | ne **pas** proposer `HIDRAW=1` : support DualSense probablement via Steam Input | jeu avec Steam Input |
+| exécutable 32 bits sans « large address aware » | rien de spécial depuis la correction de la pile ; noter la limite de 2 Go | jeu 32 bits |
+| `libavs-win32.dll` (Konami e-amusement) | ajouter le relais `fakeping` (`dinput8.dll` + `DllOverrides`) si l'exécutable importe `DINPUT8` ; sinon avertir | jeux arcade Konami |
+| TeknoParrot + `d3dx9_43` natif (Microsoft) dans le prefix | `"*d3dx9_43"="builtin"` dans le registre | jeu TeknoParrot |
+| TeknoParrot ancien (`TeknoParrot.dll` < version de référence) | avertir, proposer la mise à jour de TeknoParrot | anti-débogage (jeux arcade) |
+| `JVSEmu*.dll` / `JConfig*.exe` | avertir : manette obligatoire au lancement | jeu arcade |
+| `DemulShooter.exe` | avertir : pistolet, vérifier `config.ini` (périphérique d'origine) | jeu à pistolet |
 | prefix `config_info` | Proton de même version (défaut du lanceur) | — |
 | prefix Batocera (`system.reg`) | wine-tkg (défaut) ; `ARCH=win32` si `#arch=win32` | — |
 | jeu seul (pas de prefix) | Proton par défaut du lanceur (proton-cachyos) | — |

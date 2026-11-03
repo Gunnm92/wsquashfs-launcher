@@ -151,7 +151,7 @@ restore_sudo_user_session() {
 # (bibliothèques vers 0x14… au lieu de 0x7f…) : proton-cachyos ne démarrait
 # pas (son émulation seccomp tue les processus enfants chargés sous
 # 0x7001_0000_0000 : wineboot en SIGSYS), et les jeux 32 bits sous wine-tkg
-# n'obtenaient plus leurs grosses réservations (GTI Club, 450 Mo refusés).
+# n'obtenaient plus leurs grosses réservations (450 Mo refusés, jeu arcade).
 # Limite souple seulement : toujours permise, héritée par Wine et Proton.
 limit_stack_size() {
     if [[ "$(ulimit -s)" == "unlimited" ]]; then
@@ -181,9 +181,9 @@ init_config() {
 
     # Le contenu des .wsquashfs Batocera appartient à root:root (755/644) et
     # fuse-overlayfs applique ces droits (default_permissions) : Wine ne
-    # pouvait alors RIEN modifier dans le jeu — confirmé sur Initial D 8
-    # (segare) : "UnauthorizedAccessException: Access to the path
-    # C:\game\...\teknoparrot.ini is denied". squash_to_uid/gid fait
+    # pouvait alors RIEN modifier dans le jeu — confirmé sur un jeu arcade
+    # (TeknoParrot) : "UnauthorizedAccessException: Access to the path
+    # C:\game\...\config.ini is denied". squash_to_uid/gid fait
     # apparaître toute l'arborescence fusionnée comme appartenant à
     # l'utilisateur qui lance Wine.
     WINE_UID=$(id -u)
@@ -592,7 +592,7 @@ reload_overlay() {
 # ces capacités (as_wine_user).
 # Les montages sont invisibles hors du namespace et disparaissent avec lui :
 # rien d'orphelin après un plantage (squashfuse meurt avec le lanceur).
-# Mesuré (17/10, Tempest Rising, image en cache, 8 lectures aléatoires de
+# Mesuré (17/10, jeu récent, image en cache, 8 lectures aléatoires de
 # 64K en parallèle) : 0,55 s contre 2,8 s avec squashfuse + fuse-overlayfs.
 # En lecture séquentielle, squashfuse_ll multithread plafonne à 1,5 Go/s
 # (3,7 Go/s avant) ; -s (un seul thread) donne 4,4 Go/s mais perd tout le
@@ -1154,8 +1154,7 @@ proton_dir_of() {
 
 # ── Runner joint à l'image ─────────────────────────────────────────────
 #
-# Un jeu peut porter son runner (31/10, Anno 117 : Proton DenuvOwO, compilé
-# pour ce jeu) : dossier runners/<nom> à la racine de l'image, désigné par
+# Un jeu peut porter son runner (31/10 : un Proton modifié pour ce jeu) : dossier runners/<nom> à la racine de l'image, désigné par
 # PROTON=<nom> ou WINE=<nom>, ou seul dans runners/.
 # Il passe avant les runners de la machine. Pris dans l'image montée en
 # lecture seule, pas dans l'overlay : Proton n'écrit rien dans les
@@ -1413,8 +1412,8 @@ link_dll_set() {
 # des liens vers /userdata/system/wine/dxvk/{x64,x32}/*.dll, un chemin qui
 # n'existe que sous Batocera (247 jeux sur 247 dans une collection réelle).
 # Liens cassés → Wine retombe sur son d3d9/d3d11 intégré (OpenGL), soit
-# llvmpipe sous Xwayland+NVIDIA — Dead or Alive 5 Ultimate (segare) quittait
-# aussitôt sans erreur.
+# llvmpipe sous Xwayland+NVIDIA — un jeu de combat quittait aussitôt sans
+# erreur.
 find_dxvk_dir() {
     local d
     for d in "${WSQUASHFS_DXVK_DIR:-}" "${SYSROOT}/usr/share/dxvk" "$HOME/.local/share/wsquashfs/dxvk"; do
@@ -1633,7 +1632,7 @@ find_dualsense_bridge() {
     return 0
 }
 
-# DualSense Bluetooth (Sunshine) présentée en DualSense USB pendant le jeu,
+# DualSense Bluetooth (streaming à distance) présentée en DualSense USB pendant le jeu,
 # l'originale masquée à Wine (voir configure_controllers). Faux s'il n'y a
 # pas de DualSense Bluetooth (une DualSense USB passe en direct) ou pas de
 # pont.
@@ -1757,8 +1756,8 @@ Usage :
         Lance le jeu (autorun.cmd).
   wsquashfs-launcher [--wine <version>] --exec <jeu.wsquashfs> <programme> [arguments...]
         Lance un autre programme dans le prefix du jeu : un exécutable du jeu
-        (chemin relatif au prefix ou au DIR de l'autorun.cmd, ex. JConfig.exe,
-        drive_c/teknoparrot/TeknoParrotUi.exe) ou un outil Wine (winecfg,
+        (chemin relatif au prefix ou au DIR de l'autorun.cmd, ex. Config.exe,
+        drive_c/dossier/Lanceur.exe) ou un outil Wine (winecfg,
         regedit, cmd, explorer, control joy.cpl...).
   wsquashfs-launcher --mount <jeu.wsquashfs>
         Monte le jeu et le laisse monté pour le modifier à la main ; les
@@ -1867,8 +1866,8 @@ under_opaque() {
 # --clean (01/10) : retire des sauvegardes de chaque jeu les doublons
 # certains, régénérés ou relus ailleurs ; tout ce que le jeu a écrit reste.
 # 1. Fichiers identiques à ceux de l'image — copy-up d'un fichier que le
-#    jeu ouvre en écriture sans le modifier (Streets of Rage 4 : 2,7 Go de
-#    textures, Trouble Witches : 870 Mo de .PACK) ; ils redeviennent lus
+#    jeu ouvre en écriture sans le modifier (un jeu : 2,7 Go de textures,
+#    un autre : 870 Mo de .PACK) ; ils redeviennent lus
 #    depuis l'image. Image retrouvée par saves/.images/<jeu>, écrit à chaque
 #    lancement. Seuls les fichiers de même taille sont comparés (cmp).
 #    Gardés : ceux d'un dossier opaque (voir under_opaque) et ceux qui
@@ -1938,7 +1937,7 @@ clean_saves() {
 # supprimé : prefix créé dans les saves (recréé au lancement suivant —
 # par Proton pour un jeu seul, même s'il tournait sous Wine), registre, et
 # ce que le jeu a écrit dans son dossier : scores et réglages des jeux
-# arcade/TeknoParrot, sauvegardes à côté de l'exe. Dossiers opaques et
+# arcade, sauvegardes à côté de l'exe. Dossiers opaques et
 # fichiers supprimés (whiteouts) disparaissent aussi : l'image redevient
 # visible telle quelle, sauf sous users.
 clear_saves() {
@@ -2805,8 +2804,7 @@ choose_proton_default() {
     # prefix créé par Proton via umu — proton-cachyos, sinon UMU-Proton,
     # sinon GE-Proton —, les prefixes Batocera (jeux arcade) restant sous
     # wine-tkg. Un prefix Wine déjà créé dans les sauvegardes est gardé tel
-    # quel : Proton ne sait pas le convertir (DRAGON BALL Sparking! ZERO,
-    # 27/09 : copy_pfx en échec, puis manettes perdues sous Wine avec les DLL
+    # quel : Proton ne sait pas le convertir (27/09 : copy_pfx en échec, puis manettes perdues sous Wine avec les DLL
     # de Proton). WINE=tkg dans l'autorun.cmd pour garder wine-tkg.
     if [[ -z "$PREFIX_PROTON" && "$PACKAGED_PREFIX" == "0" && -z "$FORCED_WINE" ]]; then
         if [[ ! -f "${WINEPOINT}/system.reg" ]]; then
@@ -2836,7 +2834,7 @@ choose_proton_default() {
 # Runner imposé par l'autorun.cmd : RUNNER= (binaire), PROTON= ou WINE=,
 # joint à l'image d'abord (IMAGE_RUNNER), puis sur la machine. Introuvable :
 # erreur (31/10) — le repli sur un autre runner faisait tourner le jeu sous
-# un runner qu'il ne supporte pas (Anno 117 sans son Proton DenuvOwO).
+# un runner qu'il ne supporte pas (un jeu sans son Proton modifié).
 # Avec --wine, rien n'est cherché : l'erreur empêchait d'utiliser --wine,
 # la solution que propose son propre message.
 apply_autorun_runner() {
@@ -2862,8 +2860,8 @@ apply_autorun_runner() {
     elif [[ -n "$WINE_VERSION" ]]; then
         # WINE=system (30/09) : le Wine du système, comme --wine system. Jeux
         # 32 bits qui échouent sous wine-tkg (non WoW64) mais passent en
-        # WoW64 : GTI Club (réservation de 450 Mo refusée), Castlevania (mmap
-        # du son). Valeur ignorée par Batocera, qui choisit son runner dans ES.
+        # WoW64 : un jeu réclamant 450 Mo refusés, un autre en échec sur le mmap
+        # du son. Valeur ignorée par Batocera, qui choisit son runner dans ES.
         found="$IMAGE_RUNNER"
         if [[ -z "$found" && "${WINE_VERSION,,}" == "system" ]]; then
             found=$(command -v wine)
@@ -2987,7 +2985,7 @@ configure_dll_overrides() {
 
     # Borne arcade : Wine ne doit rien ouvrir côté Linux. winebrowser ouvrait
     # Chrome (profil réel de l'utilisateur) sur la session du stream quand
-    # TeknoParrot affichait une page (Initial D Zero) ; winemenubuilder crée
+    # un lanceur arcade (TeknoParrot) affichait une page ; winemenubuilder crée
     # des raccourcis de menu (batocera-wine le coupe aussi).
     add_dll_override "winemenubuilder.exe=d;winebrowser.exe=d"
 }
@@ -3125,17 +3123,16 @@ prepare_prefix() {
 # Manettes par hidraw dans Wine — option enable_hidraw de batocera-wine,
 # DÉSACTIVÉE par défaut comme chez Batocera : XInput (manette Xbox via SDL),
 # que tous les jeux comprennent. Essayée par défaut deux fois, deux fois
-# abandonnée avec la DualSense virtuelle de Sunshine (uhid, seule lisible
-# par hidraw) : touches décalées (24/09 : SNK Heroines, Sonic & All-Stars
-# Racing), puis aucune commande reçue par un jeu XInput seul (27/09 : DRAGON
-# BALL Sparking! ZERO). HIDRAW=1 dans l'autorun.cmd (par jeu) ou
+# abandonnée avec la DualSense virtuelle d'un streaming à distance (uhid,
+# seule lisible par hidraw) : touches décalées (24/09, deux jeux de combat
+# et de course), puis aucune commande reçue par un jeu XInput seul (27/09). HIDRAW=1 dans l'autorun.cmd (par jeu) ou
 # WSQUASHFS_HIDRAW=1 (prioritaire) pour un jeu qui gère la DualSense
 # lui-même — seulement si la manette Sony est lisible (hidraw_usable), sinon
 # repli XInput. La valeur est imposée dans les deux sens à chaque lancement.
-# HIDRAW=1 (02/10) : une DualSense Bluetooth (celle de Sunshine) est
-# présentée au jeu en DualSense USB par dualsense-usb-bridge — les libScePad
-# de 2022 (F1 22) refusent la Bluetooth. HIDRAW=bt garde la DualSense
-# Bluetooth en direct : ses haptiques passent en rapports HID (Until Dawn),
+# HIDRAW=1 (02/10) : une DualSense Bluetooth (celle d'un streaming à distance)
+# est présentée au jeu en DualSense USB par dualsense-usb-bridge — les libScePad
+# de 2022 refusent la Bluetooth. HIDRAW=bt garde la DualSense
+# Bluetooth en direct : ses haptiques passent en rapports HID (certains jeux),
 # alors qu'en USB les jeux les jouent en audio, non transmis.
 choose_hidraw_mode() {
     local mode
@@ -3157,7 +3154,7 @@ choose_hidraw_mode() {
 # GE-Proton (30/09) : sa SDL ignore TOUJOURS les manettes Sony ("ignoring SDL
 # DualSense device; hidraw handles native reports") et les laisse au backend
 # hidraw. Hidraw coupé (mode XInput par défaut), la DualSense n'était gérée
-# par personne : aucune manette dans Kena, The Devil in Me, Like a Dragon...
+# par personne : aucune manette dans plusieurs jeux récents.
 # En mode XInput, on garde donc hidraw et GE-Proton présente la manette Sony
 # en XInput (PROTON_SONY_HIDRAW_XINPUT). Les Proton de Valve (UMU-Proton,
 # proton-cachyos) n'ont pas ce correctif : leur SDL gère la DualSense.
@@ -3392,7 +3389,7 @@ stop_attach_command() {
     ATTACH_PID=""
 }
 
-# --exec (winecfg, JConfig.exe…) : ni PRE ni ATTACH, qui préparent et
+# --exec (winecfg, Config.exe…) : ni PRE ni ATTACH, qui préparent et
 # accompagnent le jeu lui-même.
 run_game() {
     local exit_code
@@ -3407,9 +3404,9 @@ run_game() {
     exit_code=$?
 
     # Beaucoup de jeux passent par un lanceur qui démarre le vrai exécutable
-    # puis quitte aussitôt (ring_loader.exe → DOA5A.exe, TeknoParrotUi →
-    # OpenParrot) : sans cette attente, cleanup() tuait le jeu à peine lancé
-    # (Dead or Alive 5 Ultimate). Comme Batocera : on attend que tous les
+    # puis quitte aussitôt (ex. launcher.exe → jeu.exe, ou un lanceur arcade
+    # qui démarre son propre runtime) : sans cette attente, cleanup() tuait
+    # le jeu à peine lancé. Comme Batocera : on attend que tous les
     # processus du prefix aient terminé.
     run_interruptible run_wineserver "$WINEPOINT" -w || true
     # Après l'attente : avec un lanceur qui quitte aussitôt, ATTACH
