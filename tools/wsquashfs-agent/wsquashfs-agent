@@ -140,7 +140,7 @@ def cmd_pair(args: argparse.Namespace) -> int:
     cfg = load_config()
     cert, _ = cert_paths()
     if not cfg.get("token") or not cert.exists():
-        print("Agent non initialisé : « wsquashfs-agent init » d'abord", file=sys.stderr)
+        print("Agent non initialisé : « wsquashfs-launcher --agent init » d'abord", file=sys.stderr)
         return 1
     port = cfg.get("port", DEFAULT_PORT)
     print(f"Adresse  : https://{socket.gethostname()}:{port}")
@@ -465,7 +465,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
     cfg = load_config()
     cert, key = cert_paths()
     if not cfg.get("token") or not (cert.exists() and key.exists()):
-        print("Agent non initialisé : « wsquashfs-agent init » d'abord", file=sys.stderr)
+        print("Agent non initialisé : « wsquashfs-launcher --agent init » d'abord", file=sys.stderr)
         return 1
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     context.load_cert_chain(str(cert), str(key))

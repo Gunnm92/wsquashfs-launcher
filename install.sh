@@ -861,6 +861,7 @@ show_usage() {
 # la première connexion le lance (il s'arrête seul après 60 s sans requête).
 
 AGENT_PORT=8790
+AGENT_HELPER="${WSQ_DATA}/agent/wsquashfs-agent.py"
 AGENT_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/wsquashfs-agent"
 AGENT_UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 
@@ -914,14 +915,16 @@ install_agent() {
         return 1
     fi
     if [[ "$DRY_RUN" == true ]]; then
-        echo "    [simulation] agent → ${INSTALL_DIR}/wsquashfs-agent"
-        echo "    [simulation] wsquashfs-agent init --roms ${roms}  (jeton, certificat, ${AGENT_CONF})"
+        echo "    [simulation] moteur de l'agent → ${AGENT_HELPER}"
+        echo "    [simulation] wsquashfs-launcher --agent init --roms ${roms}  (jeton, certificat, ${AGENT_CONF})"
         echo "    [simulation] socket ${AGENT_UNIT_DIR}/wsquashfs-agent.socket (port ${AGENT_PORT}) et service"
         echo "    [simulation] systemctl --user enable --now wsquashfs-agent.socket"
         return 0
     fi
-    install_repo_file tools/wsquashfs-agent/wsquashfs-agent "${INSTALL_DIR}/wsquashfs-agent" || return 1
-    "${INSTALL_DIR}/wsquashfs-agent" init --roms "$roms" --port "$AGENT_PORT" || {
+    # Le moteur de l'agent vit dans les données du lanceur : la seule commande
+    # visible reste wsquashfs-launcher (--agent, --pair)
+    install_repo_file tools/wsquashfs-agent/wsquashfs-agent "${AGENT_HELPER}" || return 1
+    "${INSTALL_DIR}/wsquashfs-launcher" --agent init --roms "$roms" --port "$AGENT_PORT" || {
         print_error "Initialisation de l'agent en échec (voir ci-dessus)"
         return 1
     }
@@ -943,7 +946,7 @@ EOF
 Description=wsquashfs-agent (à la demande, lancé par sa socket)
 
 [Service]
-ExecStart=${INSTALL_DIR}/wsquashfs-agent serve
+ExecStart=${INSTALL_DIR}/wsquashfs-launcher --agent
 EOF
     print_success "Unités : ${AGENT_UNIT_DIR}/wsquashfs-agent.{socket,service}"
 
@@ -956,12 +959,12 @@ EOF
                 || print_error "loginctl enable-linger en échec : à faire à la main"
         fi
     else
-        print_info "systemd utilisateur indisponible : lancer « ${INSTALL_DIR}/wsquashfs-agent serve --standalone »"
+        print_info "systemd utilisateur indisponible : lancer « wsquashfs-launcher --agent --standalone »"
         print_info "à la main (cas d'un conteneur sans systemd)"
     fi
     echo ""
     print_info "À reporter dans wsquashfs-manager (Réglages → Machine de jeu → Agent réseau) :"
-    "${INSTALL_DIR}/wsquashfs-agent" pair
+    "${INSTALL_DIR}/wsquashfs-launcher" --pair
     return 0
 }
 
@@ -995,7 +998,7 @@ uninstall() {
         [[ "$DRY_RUN" == false ]] && systemctl --user daemon-reload 2>/dev/null
         print_success "Unités de l'agent supprimées"
     fi
-    [[ -e "${INSTALL_DIR}/wsquashfs-agent" ]] && remove "${INSTALL_DIR}/wsquashfs-agent"
+    [[ -e "$AGENT_HELPER" ]] && remove "$AGENT_HELPER" "${WSQ_DATA}/agent"
     if [[ -L "${INSTALL_DIR}/umu-run" && "$(readlink "${INSTALL_DIR}/umu-run")" == "${UMU_INSTALL_DIR}/umu-run" ]]; then
         remove "${INSTALL_DIR}/umu-run" "$UMU_INSTALL_DIR" && print_success "umu-run supprimé"
     fi

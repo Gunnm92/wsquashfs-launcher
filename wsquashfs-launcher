@@ -1669,6 +1669,19 @@ stop_dualsense_bridge() {
 # 8. COMMANDES DE MAINTENANCE
 # ════════════════════════════════════════════════════════════════════════
 
+# Agent pour wsquashfs-manager : moteur installé à part, dans les données du
+# lanceur ; cette commande en est la seule porte d'entrée.
+cmd_agent() {
+    local helper="${WSQ_AGENT_HELPER:-${WSQ_DATA_DIR:-$HOME/.local/share/wsquashfs}/agent/wsquashfs-agent.py}"
+    [[ -f "$helper" ]] || die "agent non installé : bash install.sh --agent"
+    command -v python3 &>/dev/null || die "python3 requis pour l'agent"
+    # Sans sous-commande, ou avec une option seule : lancer le serveur
+    if [[ $# -eq 0 || "$1" == --* ]]; then
+        set -- serve "$@"
+    fi
+    exec python3 "$helper" "$@"
+}
+
 usage() {
     cat <<'HELP'
 Usage :
@@ -1712,6 +1725,11 @@ Usage :
         Liste les jeux connus : état (en cours, monté), version, taille des
         sauvegardes et image.
   wsquashfs-launcher --doctor
+  wsquashfs-launcher --agent [--standalone]
+        Agent pour wsquashfs-manager (machine de jeu sur le réseau) : répond
+        au gestionnaire, s'arrête seul sans requête (socket systemd).
+  wsquashfs-launcher --pair
+        Adresse, jeton et empreinte à reporter dans wsquashfs-manager.
         Vérifie l'installation (FUSE, Wine/Proton, umu, DXVK, VKD3D, d7vk,
         manettes, dossiers) et indique ce qui manque.
 
@@ -3394,6 +3412,16 @@ parse_args() {
                 ACTION="help"
                 return 0
                 ;;
+            --agent)
+                # Agent pour wsquashfs-manager : --agent [--standalone], ou --agent init|trial|reset-token
+                ACTION="agent"
+                CMD_ARGS=("${@:2}")
+                return 0
+                ;;
+            --pair)
+                ACTION="pair"
+                return 0
+                ;;
             --clean|--clear|--umount|--pack|--install|--info|--backup|--list|--doctor)
                 # Commandes autonomes : le reste de la ligne leur appartient.
                 ACTION="${1#--}"
@@ -3463,6 +3491,8 @@ main() {
         backup)  cmd_backup "${CMD_ARGS[@]}" ;;
         list)    cmd_list ;;
         doctor)  cmd_doctor ;;
+        agent)   cmd_agent "${CMD_ARGS[@]}" ;;
+        pair)    cmd_agent pair ;;
         *)       launch_game ;;   # run, mount, exec : ne revient pas
     esac
 }

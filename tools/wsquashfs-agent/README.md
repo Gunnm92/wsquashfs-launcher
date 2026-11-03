@@ -26,7 +26,7 @@ en permanence : `loginctl enable-linger $USER` (proposé par l'installeur).
 Sans systemd utilisateur (conteneur comme SteamBox) :
 
 ```bash
-wsquashfs-agent serve --standalone     # reste lancé, sur le port configuré
+wsquashfs-launcher --agent --standalone     # reste lancé, sur le port configuré
 ```
 
 ## Commandes
