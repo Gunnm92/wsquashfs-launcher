@@ -781,7 +781,7 @@ install_launcher() {
 
 create_mime_type() {
     local mime_dir="$HOME/.local/share/mime/packages"
-    ask_yes_no "Associer les fichiers .wsquashfs au lanceur (type MIME) ?" n || return 0
+    ask_yes_no "Associer les fichiers .wsquashfs au lanceur (double-clic) ?" o || return 0
     if [[ "$DRY_RUN" == true ]]; then
         echo "    [simulation] ${mime_dir}/wsquashfs.xml"
         return 0
@@ -802,6 +802,38 @@ EOF
     command -v update-mime-database &>/dev/null \
         && update-mime-database "$HOME/.local/share/mime" 2>/dev/null
     print_success "Type MIME créé"
+    create_desktop_entry
+}
+
+# Entrée du bureau : le double-clic sur un .wsquashfs lance le lanceur. Le
+# chemin est celui de l'installation en cours : une entrée qui pointe vers un
+# emplacement disparu ne fait plus rien.
+DESKTOP_FILE="$HOME/.local/share/applications/wsquashfs-launcher.desktop"
+
+create_desktop_entry() {
+    if [[ "$DRY_RUN" == true ]]; then
+        echo "    [simulation] ${DESKTOP_FILE} (Exec=${INSTALL_DIR}/wsquashfs-launcher %f)"
+        return 0
+    fi
+    mkdir -p "$(dirname "$DESKTOP_FILE")"
+    cat > "$DESKTOP_FILE" << EOF
+[Desktop Entry]
+Type=Application
+Name=WSquashFS Launcher
+Comment=Lance un jeu .wsquashfs
+Exec=${INSTALL_DIR}/wsquashfs-launcher %f
+MimeType=application/x-wsquashfs;application/vnd.squashfs;
+NoDisplay=true
+Terminal=false
+EOF
+    command -v update-desktop-database &>/dev/null \
+        && update-desktop-database "$(dirname "$DESKTOP_FILE")" 2>/dev/null
+    # Application par défaut pour ce type (sans quoi le bureau peut proposer un autre programme)
+    if command -v xdg-mime &>/dev/null; then
+        xdg-mime default wsquashfs-launcher.desktop application/x-wsquashfs 2>/dev/null
+        xdg-mime default wsquashfs-launcher.desktop application/vnd.squashfs 2>/dev/null
+    fi
+    print_success "Entrée du bureau : ${DESKTOP_FILE}"
 }
 
 # Fichier de configuration du shell de connexion de l'utilisateur.
@@ -1015,6 +1047,12 @@ uninstall() {
         && remove "${INSTALL_DIR}/wsquashfs-agent"
     if [[ -L "${INSTALL_DIR}/umu-run" && "$(readlink "${INSTALL_DIR}/umu-run")" == "${UMU_INSTALL_DIR}/umu-run" ]]; then
         remove "${INSTALL_DIR}/umu-run" "$UMU_INSTALL_DIR" && print_success "umu-run supprimé"
+    fi
+    if [[ -f "$DESKTOP_FILE" ]]; then
+        remove "$DESKTOP_FILE"
+        [[ "$DRY_RUN" == false ]] && command -v update-desktop-database &>/dev/null \
+            && update-desktop-database "$(dirname "$DESKTOP_FILE")" 2>/dev/null
+        print_success "Entrée du bureau supprimée"
     fi
     if [[ -f "$HOME/.local/share/mime/packages/wsquashfs.xml" ]]; then
         remove "$HOME/.local/share/mime/packages/wsquashfs.xml"
