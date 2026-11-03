@@ -99,6 +99,13 @@ class AgentTest(unittest.TestCase):
     def test_unknown_route(self):
         self.assertEqual(request(self.port, "GET", "/v1/shell", self.token)[0], 404)
 
+    # ── maintenance : liste fermée
+    def test_maintenance_only_listed_actions(self):
+        code, _ = request(self.port, "POST", "/v1/maintenance", self.token, {"action": "clear"})
+        self.assertEqual(code, 400)
+        code, _ = request(self.port, "POST", "/v1/maintenance", self.token, {"action": "pack"})
+        self.assertEqual(code, 400)
+
     # ── trial : chemins et durées
     def test_trial_refuses_escape_and_bad_input(self):
         for rel in ["../secret/x.wsquashfs", "/etc/passwd.wsquashfs", "win/../../x.wsquashfs", "win/Jeu.txt", ""]:
