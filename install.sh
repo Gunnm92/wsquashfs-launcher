@@ -45,6 +45,7 @@ UMU_INSTALL_DIR="${WSQ_DATA}/umu"
 DXVK_DIR="${WSQ_DATA}/dxvk"
 VKD3D_DIR="${WSQ_DATA}/vkd3d-proton"
 D7VK_DIR="${WSQ_DATA}/d7vk"
+NVAPI_DIR="${WSQ_DATA}/dxvk-nvapi"
 # Emplacement standard des Proton de Steam : le lanceur, Steam et Heroic
 # les y trouvent tous.
 PROTON_INSTALL_DIR="$HOME/.local/share/Steam/compatibilitytools.d"
@@ -685,8 +686,10 @@ install_dll_pack() {
         rm -rf "$tmp"
         return 0
     fi
+    # Archive sans dossier racine (dxvk-nvapi) : la sonde est à la racine.
     if [[ -f "${tmp}/${file}" ]] && mkdir -p "${tmp}/x" && extract "${tmp}/${file}" "${tmp}/x" \
-       && top=$(top_dir_of "${tmp}/x") && [[ -f "${top}/${probe}" ]]; then
+       && { top="${tmp}/x"; [[ -f "${top}/${probe}" ]] || top=$(top_dir_of "${tmp}/x"); } \
+       && [[ -f "${top}/${probe}" ]]; then
         install_tree "$top" "$dest"
         echo "$tag" > "${dest}/VERSION"
         rm -rf "$tmp"
@@ -706,6 +709,32 @@ installed_component() {
         [[ -f "${d}/${probe}" ]] && { echo "$d"; return 0; }
     done
     return 1
+}
+
+# DXVK-NVAPI : NVAPI, DLSS et couche Reflex (dossier layer/). Seulement si une
+# carte NVIDIA est présente. La couche n'est active que si le lanceur exporte
+# DXVK_NVAPI_VKREFLEX=1 : l'installer ne change rien au comportement des jeux.
+has_nvidia_gpu() {
+    grep -qs 0x10de /sys/class/drm/card*/device/vendor
+}
+
+check_nvapi() {
+    local nvapi
+    has_nvidia_gpu || return 0
+    section "NVIDIA : DXVK-NVAPI (NVAPI, DLSS, couche Reflex)"
+    nvapi=$(installed_component x64/nvapi64.dll "$NVAPI_DIR")
+    if [[ -n "$nvapi" ]]; then
+        print_success "DXVK-NVAPI : ${nvapi}"
+        return 0
+    fi
+    echo "    Carte NVIDIA détectée. NVAPI (DLSS) et la couche Reflex sont optionnelles :"
+    echo "    le lanceur ne les active que sur demande (NVAPI=1, VKREFLEX=1)."
+    if ! ask_yes_no "Installer DXVK-NVAPI (~5 Mo) ?" n; then
+        print_info "Ignoré : pas de NVAPI, DLSS ni couche Reflex"
+        return 0
+    fi
+    install_dll_pack "DXVK-NVAPI" jp7677/dxvk-nvapi v0.9.3 \
+        "dxvk-nvapi-{tag}.tar.gz" "$NVAPI_DIR" x64/nvapi64.dll
 }
 
 check_rendering() {
@@ -1100,6 +1129,7 @@ install_all() {
     check_wine_runners
     check_proton
     check_rendering
+    check_nvapi
     install_launcher || exit 1
     create_mime_type
     if [[ "$AGENT_WANTED" == true ]]; then

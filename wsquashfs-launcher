@@ -96,6 +96,11 @@ DIR="" CMD="" WINE_VERSION="" PROTON_VERSION="" RUNNER="" WINE_ARCH=""
 IMAGE_RUNNER=""          # binaire wine du runner joint à l'image (resolve_image_runner)
 DXVK="" DXVK_WANTED="" VKD3D="" D7VK="" SAVEDIR="" SAVEFILES=""
 ESYNC="" FSYNC="" WINE_LANG="" WINE_ENV="" VIRTUAL_DESKTOP=""
+NVAPI=""                # NVAPI=1 : DLSS / NVAPI (NVIDIA seulement, voir resolve_nvapi)
+NVAPI_ON=0              # 1 : NVAPI réellement posée (carte NVIDIA + dxvk-nvapi)
+VKREFLEX=""             # VKREFLEX=1 : couche Reflex de dxvk-nvapi (force NVAPI)
+VKREFLEX_ON=0           # 1 : couche chargée (dxvk-nvapi/layer présent)
+HAS_NVIDIA=0 HAS_AMD=0  # fournisseurs GPU présents (detect_gpus)
 PRE_CMD="" ATTACH_CMD="" ATTACH_PROCESS="" ATTACH_PID=""
 
 # ── Exécutable (resolve_executable) ────────────────────────────────────
@@ -156,6 +161,19 @@ restore_sudo_user_session() {
 limit_stack_size() {
     if [[ "$(ulimit -s)" == "unlimited" ]]; then
         ulimit -S -s 8192 2>/dev/null || true
+    fi
+}
+
+# Descripteurs de fichiers : Wine ouvre beaucoup de fichiers ; batocera-wine
+# monte la limite souple à 1 048 576 (ULIMIT_SIZE), plafonnée par la limite
+# dure du système.
+raise_nofile_limit() {
+    local hard
+    hard=$(ulimit -Hn)
+    if [[ "$hard" == "unlimited" || "$hard" -ge 1048576 ]]; then
+        ulimit -S -n 1048576 2>/dev/null || true
+    else
+        ulimit -S -n "$hard" 2>/dev/null || true
     fi
 }
 
@@ -1480,14 +1498,178 @@ install_d7vk() {
     fi
 }
 
-# DLL du runner + DXVK/VKD3D/d7vk selon les réglages, dans <racine cible>.
+# ── GPU : AMD et NVIDIA ────────────────────────────────────────────────
+
+# Fournisseurs GPU présents, d'après l'ID PCI de chaque carte DRM : 0x10de
+# NVIDIA, 0x1002 AMD. Une machine avec les deux reçoit les réglages de chacun ;
+# une machine AMD seule ne reçoit aucun réglage NVIDIA.
+detect_gpus() {
+    local v
+    HAS_NVIDIA=0 HAS_AMD=0
+    for v in "${WSQUASHFS_DRM_SYSFS:-/sys/class/drm}"/card*/device/vendor; do
+        [[ -r "$v" ]] || continue
+        case "$(cat "$v" 2>/dev/null)" in
+            0x10de) HAS_NVIDIA=1 ;;
+            0x1002) HAS_AMD=1 ;;
+        esac
+    done
+}
+
+# dxvk-nvapi : x64/nvapi64.dll et x32/nvapi.dll (même logique que find_dxvk_dir).
+find_nvapi_dir() {
+    local d
+    for d in "${WSQUASHFS_NVAPI_DIR:-}" "${SYSROOT}/usr/share/dxvk-nvapi" "$HOME/.local/share/wsquashfs/dxvk-nvapi"; do
+        [[ -n "$d" && -f "${d}/x64/nvapi64.dll" ]] && echo "$d" && return
+    done
+}
+
+# NVAPI n'est posée que si l'utilisateur la demande (NVAPI=1), qu'une carte
+# NVIDIA est présente et que dxvk-nvapi est installé. Sinon elle est coupée,
+# comme batocera-wine.
+# NVAPI : 0 (coupée), 1 (demandée) ou auto (défaut). autorun.cmd est écrit une
+# fois pour toutes les machines : « auto » laisse le lanceur décider sur la
+# machine qui lance le jeu. Actif si une carte NVIDIA et dxvk-nvapi sont là.
+# VKREFLEX=1 demande NVAPI (la couche Reflex passe par NVAPI).
+resolve_nvapi() {
+    NVAPI_ON=0
+    local want="$NVAPI"
+    [[ "$VKREFLEX" == "1" ]] && want=1
+    [[ "$want" == "0" ]] && return 0
+    if [[ "$HAS_NVIDIA" != "1" ]]; then
+        [[ "$want" == "1" ]] && warn "NVAPI=1 ignoré : aucune carte NVIDIA détectée"
+    elif [[ -z "$(find_nvapi_dir)" ]]; then
+        [[ "$want" == "1" ]] && warn "NVAPI=1 ignoré : dxvk-nvapi introuvable (/usr/share/dxvk-nvapi)"
+    else
+        NVAPI_ON=1
+    fi
+}
+
+# Couche Reflex (layer Vulkan implicite de dxvk-nvapi). Le manifeste n'est lu
+# que si DXVK_NVAPI_VKREFLEX=1 ; le lanceur la demande donc par cette variable
+# et ajoute le dossier layer/ au chemin des layers implicites.
+resolve_vkreflex() {
+    VKREFLEX_ON=0
+    [[ "$VKREFLEX" == "0" || "$NVAPI_ON" != "1" ]] && return 0
+    if [[ -f "$(find_nvapi_dir)/layer/VkLayer_DXVK_NVAPI_reflex.json" ]]; then
+        VKREFLEX_ON=1
+    elif [[ "$VKREFLEX" == "1" ]]; then
+        warn "VKREFLEX=1 ignoré : couche Reflex absente ($(find_nvapi_dir)/layer)"
+    fi
+}
+
+# Runners qui rangent vkd3d et icu hors de lib/wine (GE-Proton, wine-ge), là
+# où sync_wine_stubs ne regarde pas. Chemins de find_runner_dll_dir() de
+# batocera-wine (geproton_libs_install). icu est toujours relié ; vkd3d seulement
+# si VKD3D=1, sinon le d3d12 du runner activerait D3D12 malgré VKD3D=0.
+link_runner_components() {
+    local target_root="$1" wine_root comp arch sub d c f dst
+    local comps="icu"
+    wine_root=$(runner_root "$WINE_BINARY")
+    [[ "$VKD3D" == "1" ]] && comps="icu vkd3d"
+    for comp in $comps; do
+        for arch in x86_64-windows i386-windows; do
+            if [[ "$arch" == x86_64-windows ]]; then sub=system32; else sub=syswow64; fi
+            if [[ "$WINE_ARCH" == "win32" ]]; then
+                [[ "$arch" == x86_64-windows ]] && continue
+                sub=system32
+            fi
+            d=""
+            for c in "${wine_root}/lib/wine/${comp}/${arch}" "${wine_root}/lib64/wine/${comp}/${arch}" \
+                     "${wine_root}/lib/${comp}/${arch}" "${wine_root}/lib64/${comp}/${arch}"; do
+                [[ -d "$c" ]] && { d="$c"; break; }
+            done
+            [[ -n "$d" ]] || continue
+            mkdir -p "${target_root}/drive_c/windows/${sub}" 2>/dev/null || true
+            for f in "$d"/*.dll; do
+                [[ -f "$f" ]] || continue
+                dst="${target_root}/drive_c/windows/${sub}/$(basename "$f")"
+                # Une vraie DLL déjà présente (non liée) n'est jamais écrasée.
+                [[ -e "$dst" && ! -L "$dst" ]] && continue
+                ln -sfn "$f" "$dst" 2>/dev/null || true
+            done
+        done
+    done
+}
+
+# NVAPI (dxvk-nvapi) et DLSS (nvngx.dll du pilote NVIDIA), comme dxvk_install()
+# de batocera-wine. Appelé seulement si NVAPI_ON=1.
+install_nvapi() {
+    local target_root="$1" nvapi sub32=syswow64 ngx="${SYSROOT}/usr/lib/nvidia/wine" f
+    nvapi=$(find_nvapi_dir)
+    [[ -n "$nvapi" ]] || return 0
+    [[ "$WINE_ARCH" == "win32" ]] && sub32=system32
+    mkdir -p "${target_root}/drive_c/windows/system32" "${target_root}/drive_c/windows/${sub32}" 2>/dev/null || true
+    if [[ "$WINE_ARCH" != "win32" ]]; then
+        ln -sfn "${nvapi}/x64/nvapi64.dll" "${target_root}/drive_c/windows/system32/nvapi64.dll" 2>/dev/null || true
+        [[ -f "${nvapi}/x64/nvofapi64.dll" ]] && ln -sfn "${nvapi}/x64/nvofapi64.dll" \
+            "${target_root}/drive_c/windows/system32/nvofapi64.dll" 2>/dev/null || true
+    fi
+    [[ -f "${nvapi}/x32/nvapi.dll" ]] && ln -sfn "${nvapi}/x32/nvapi.dll" \
+        "${target_root}/drive_c/windows/${sub32}/nvapi.dll" 2>/dev/null || true
+    # DLSS : nvngx.dll, côté 64 bits seulement.
+    if [[ "$WINE_ARCH" != "win32" && -f "${ngx}/nvngx.dll" ]]; then
+        for f in _nvngx.dll nvngx.dll nvngx_dlssg.dll; do
+            [[ -f "${ngx}/${f}" ]] && ln -sfn "${ngx}/${f}" "${target_root}/drive_c/windows/system32/${f}" 2>/dev/null || true
+        done
+    fi
+}
+
+# DLL du runner + DXVK/VKD3D/d7vk/NVAPI selon les réglages, dans <racine cible>.
 link_runtime_dlls() {
     local target_root="$1"
     sync_wine_stubs "$WINE_BINARY" "$target_root"
+    link_runner_components "$target_root"
     [[ "$DXVK" == "1" ]] && install_dxvk "$target_root"
     [[ "$VKD3D" == "1" ]] && install_vkd3d "$target_root"
     [[ "$D7VK" == "1" ]] && install_d7vk "$target_root"
+    [[ "$NVAPI_ON" == "1" ]] && install_nvapi "$target_root"
     return 0
+}
+
+# Clé NGXCore : DLSS ne trouve nvngx.dll que si Wine la déclare (reg_install de
+# batocera-wine). Écrite une fois par prefix, seulement avec NVAPI_ON=1.
+write_nvidia_registry() {
+    [[ "$NVAPI_ON" == "1" && -f "${SYSROOT}/usr/lib/nvidia/wine/nvngx.dll" ]] || return 0
+    grep -qs 'NGXCore' "${WINEPOINT}/system.reg" && return 0
+    run_wine_tool reg add 'HKLM\Software\NVIDIA Corporation\Global\NGXCore' \
+        /v FullPath /t REG_SZ /d 'C:\Windows\System32' /f >/dev/null 2>&1 || true
+    run_wineserver "$WINEPOINT" -k || true
+    run_wineserver "$WINEPOINT" -w || true
+}
+
+# Caches shaders et journaux, réglés pour TOUS les GPU (DXVK, VKD3D, NVIDIA).
+# DXVK écrit sinon son cache à côté de l'exécutable : dans le dossier du jeu,
+# donc dans les sauvegardes (upperdir) en overlay. Les journaux DXVK/VKD3D sont
+# coupés comme chez Batocera, surchargeables par l'environnement ; WINE_MONO_OVERRIDES
+# évite Mono sur les jeux FNA/XNA.
+configure_gpu_env() {
+    local shader_dir="${CACHE_DIR}/shaders"
+    mkdir -p "${shader_dir}/dxvk" "${shader_dir}/vkd3d" 2>/dev/null || true
+    chown_to_target "$shader_dir"
+    export DXVK_STATE_CACHE_PATH="${shader_dir}/dxvk"
+    export VKD3D_SHADER_CACHE_PATH="${shader_dir}/vkd3d"
+    export DXVK_LOG_LEVEL="${DXVK_LOG_LEVEL:-none}"
+    export VKD3D_DEBUG="${VKD3D_DEBUG:-none}"
+    export WINE_MONO_OVERRIDES="Microsoft.Xna.Framework.*,Gac=n"
+    # Couche Reflex. Sous Proton (umu), Proton charge sa propre couche (testé sur
+    # proton-cachyos : seule DXVK_NVAPI_VKREFLEX=1 suffit). Wine direct : notre
+    # couche est ajoutée au chemin des layers ; DISABLE_ coupe un manifeste trouvé
+    # dans un dossier de layers par défaut.
+    if [[ "$VKREFLEX_ON" == "1" ]]; then
+        export DXVK_NVAPI_VKREFLEX=1
+        if [[ -z "$UMU_RUN" ]]; then
+            export VK_ADD_IMPLICIT_LAYER_PATH="${VK_ADD_IMPLICIT_LAYER_PATH:+${VK_ADD_IMPLICIT_LAYER_PATH}:}$(find_nvapi_dir)/layer"
+        fi
+    elif [[ -z "$UMU_RUN" ]]; then
+        export DISABLE_DXVK_NVAPI_VKREFLEX=1
+    fi
+    if [[ "$HAS_NVIDIA" == "1" ]]; then
+        mkdir -p "${shader_dir}/nvidia" 2>/dev/null || true
+        chown_to_target "${shader_dir}/nvidia"
+        export __GL_SHADER_DISK_CACHE_PATH="${shader_dir}/nvidia"
+        export __GL_SHADER_DISK_CACHE_SIZE=2147483648
+        export __GL_SHADER_DISK_CACHE_SKIP_CLEANUP=1
+    fi
 }
 
 # ── Mise à jour du prefix ──────────────────────────────────────────────
@@ -1837,6 +2019,11 @@ Variables d'environnement :
    leurs variables sont transmises au jeu, y compris lancé en root)
   WSQUASHFS_VIRTUAL_DESKTOP  Bureau virtuel Wine pour tous les jeux (ex: 1920x1080),
                              aussi par jeu via VIRTUAL_DESKTOP= dans autorun.cmd
+  WSQUASHFS_NVAPI=auto|0|1   NVAPI / DLSS. auto (défaut) : active si carte NVIDIA et dxvk-nvapi
+                             présents ; 0 coupe, 1 demande. Aussi par jeu : NVAPI= dans autorun.cmd
+  WSQUASHFS_VKREFLEX=auto|0|1  Couche Reflex de dxvk-nvapi. auto (défaut) : active si NVAPI
+                             est active et la couche installée ; 1 force NVAPI ; 0 coupe.
+                             Aussi par jeu : VKREFLEX= dans autorun.cmd
 HELP
 }
 
@@ -2261,6 +2448,25 @@ cmd_doctor() {
     if [[ -n "$dir" ]]; then doctor_ok "VKD3D-Proton (${dir})"; else doctor_fail "VKD3D-Proton absent : Direct3D 12 indisponible"; fi
     dir=$(find_d7vk)
     if [[ -n "$dir" ]]; then doctor_ok "d7vk (${dir})"; else doctor_note "d7vk absent : DirectDraw en OpenGL"; fi
+    detect_gpus
+    if [[ "$HAS_NVIDIA" == "1" && "$HAS_AMD" == "1" ]]; then
+        doctor_ok "GPU : NVIDIA et AMD détectés (réglages NVIDIA et AMD actifs)"
+    elif [[ "$HAS_NVIDIA" == "1" ]]; then
+        doctor_ok "GPU : NVIDIA détecté"
+    elif [[ "$HAS_AMD" == "1" ]]; then
+        doctor_ok "GPU : AMD détecté (aucun réglage NVIDIA)"
+    else
+        doctor_note "GPU : aucun fournisseur reconnu dans ${WSQUASHFS_DRM_SYSFS:-/sys/class/drm}"
+    fi
+    if [[ "$HAS_NVIDIA" == "1" ]]; then
+        dir=$(find_nvapi_dir)
+        if [[ -n "$dir" ]]; then doctor_ok "dxvk-nvapi (${dir}) : NVAPI active en auto"; else doctor_note "dxvk-nvapi absent : NVAPI sans effet (DLSS indisponible)"; fi
+        if [[ -n "$dir" && -f "${dir}/layer/VkLayer_DXVK_NVAPI_reflex.json" ]]; then
+            doctor_ok "couche Reflex présente : active en auto avec NVAPI"
+        else
+            doctor_note "couche Reflex absente : VKREFLEX sans effet"
+        fi
+    fi
 
     echo "Manettes"
     if hidraw_usable; then
@@ -2707,6 +2913,8 @@ read_autorun() {
     SAVEFILES=$(unquote "$(autorun_var SAVEFILES "")")
     ESYNC=$(autorun_var ESYNC "0")
     FSYNC=$(autorun_var FSYNC "0")
+    NVAPI=$(autorun_var NVAPI "${WSQUASHFS_NVAPI:-auto}")
+    VKREFLEX=$(autorun_var VKREFLEX "${WSQUASHFS_VKREFLEX:-auto}")
     WINE_LANG=$(autorun_var LANG "")
     WINE_ENV=$(autorun_var ENV "")
     # Commandes autour du jeu (run_game) : PRE avant, ATTACH pendant. Des
@@ -2981,6 +3189,15 @@ configure_dll_overrides() {
             add_dll_override "d3d8,d3d9,d3d10core,d3d11,dxgi=b"
         fi
         [[ "$VKD3D" == "1" ]] && add_dll_override "d3d12,d3d12core=n,b"
+        # NVAPI : posée seulement si NVAPI_ON (carte NVIDIA + dxvk-nvapi) ; sinon
+        # coupée, pour qu'un jeu ne la détecte pas à tort (AMD, ou NVAPI=0).
+        if [[ "$NVAPI_ON" == "1" ]]; then
+            export DXVK_ENABLE_NVAPI=1
+            add_dll_override "nvapi,nvapi64=n"
+        else
+            export DXVK_ENABLE_NVAPI=0
+            add_dll_override "nvapi64,nvapi="
+        fi
     fi
 
     # Borne arcade : Wine ne doit rien ouvrir côté Linux. winebrowser ouvrait
@@ -3006,6 +3223,10 @@ configure_wine() {
     # Architecture : autorun.cmd → system.reg → défaut win64
     [[ -n "$WINE_ARCH" ]] || WINE_ARCH=$(detect_prefix_arch)
     ensure_win32_runner
+    detect_gpus
+    resolve_nvapi
+    resolve_vkreflex
+    configure_gpu_env
 
     # Outils Wine lancés sur le prefix (regedit, reg) : par umu pour un prefix
     # Proton — lancés par un autre wine, ils mettraient le prefix à jour pour
@@ -3115,6 +3336,7 @@ prepare_prefix() {
     [[ -z "$UMU_RUN" ]] && update_prefix_if_needed
     fix_userdata_links
     install_prefix_dlls
+    [[ -z "$UMU_RUN" ]] && write_nvidia_registry
     import_registry_files
 }
 
@@ -3276,6 +3498,18 @@ run_as_target_user() {
         SDL_GAMECONTROLLERCONFIG="${SDL_GAMECONTROLLERCONFIG:-}" \
         SDL_JOYSTICK_DISABLE_UDEV="${SDL_JOYSTICK_DISABLE_UDEV:-}" \
         PROTON_SONY_HIDRAW_XINPUT="${PROTON_SONY_HIDRAW_XINPUT:-}" \
+        ${DXVK_ENABLE_NVAPI:+DXVK_ENABLE_NVAPI=$DXVK_ENABLE_NVAPI} \
+        ${DXVK_NVAPI_VKREFLEX:+DXVK_NVAPI_VKREFLEX=$DXVK_NVAPI_VKREFLEX} \
+        ${DISABLE_DXVK_NVAPI_VKREFLEX:+DISABLE_DXVK_NVAPI_VKREFLEX=$DISABLE_DXVK_NVAPI_VKREFLEX} \
+        ${VK_ADD_IMPLICIT_LAYER_PATH:+VK_ADD_IMPLICIT_LAYER_PATH=$VK_ADD_IMPLICIT_LAYER_PATH} \
+        ${DXVK_STATE_CACHE_PATH:+DXVK_STATE_CACHE_PATH=$DXVK_STATE_CACHE_PATH} \
+        ${DXVK_LOG_LEVEL:+DXVK_LOG_LEVEL=$DXVK_LOG_LEVEL} \
+        ${VKD3D_SHADER_CACHE_PATH:+VKD3D_SHADER_CACHE_PATH=$VKD3D_SHADER_CACHE_PATH} \
+        ${VKD3D_DEBUG:+VKD3D_DEBUG=$VKD3D_DEBUG} \
+        ${WINE_MONO_OVERRIDES:+WINE_MONO_OVERRIDES=$WINE_MONO_OVERRIDES} \
+        ${__GL_SHADER_DISK_CACHE_PATH:+__GL_SHADER_DISK_CACHE_PATH=$__GL_SHADER_DISK_CACHE_PATH} \
+        ${__GL_SHADER_DISK_CACHE_SIZE:+__GL_SHADER_DISK_CACHE_SIZE=$__GL_SHADER_DISK_CACHE_SIZE} \
+        ${__GL_SHADER_DISK_CACHE_SKIP_CLEANUP:+__GL_SHADER_DISK_CACHE_SKIP_CLEANUP=$__GL_SHADER_DISK_CACHE_SKIP_CLEANUP} \
         ${PROTON_USE_WINED3D:+PROTON_USE_WINED3D=$PROTON_USE_WINED3D} \
         PROTON_DLL_COPY="${PROTON_DLL_COPY-}" \
         ${PYTHONDONTWRITEBYTECODE:+PYTHONDONTWRITEBYTECODE=$PYTHONDONTWRITEBYTECODE} \
@@ -3545,6 +3779,7 @@ main() {
     ORIG_ARGS=("$@")
     restore_sudo_user_session
     limit_stack_size
+    raise_nofile_limit
     init_config
     # Relancé dans le namespace de l'overlay noyau (run_in_kernel_overlay) :
     # variables d'échange retirées de l'environnement du jeu.
