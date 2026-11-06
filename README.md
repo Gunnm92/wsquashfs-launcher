@@ -168,8 +168,15 @@ wsquashfs-launcher --umount game.wsquashfs     # ou --umount seul : tous les jeu
 wsquashfs-launcher --install MonJeu.wsquashfs [dossier]
 # Lancer le jeu installé, sur place (même choix de Wine/Proton, sans
 # montage : le jeu écrit directement dans son dossier) — hors
-# EmulationStation, qui n'affiche que les .wsquashfs
+# EmulationStation, qui n'affiche que les .wsquashfs. Même chose pour un
+# prefix .wine.
 wsquashfs-launcher /chemin/MonJeu
+
+# Essayer un jeu avant de l'empaqueter : un dossier .pc est monté en overlay
+# comme le serait son image (fuse-overlayfs requis). Le dossier n'est jamais
+# modifié ; prefix et sauvegardes vont dans saves/MonJeu, repris ensuite par
+# MonJeu.wsquashfs.
+wsquashfs-launcher /chemin/MonJeu.pc
 
 # Version du jeu (GAME_VERSION= de l'autorun.cmd), type de prefix, commande
 # et taille — lus dans l'image sans la monter (aussi sur un dossier installé)

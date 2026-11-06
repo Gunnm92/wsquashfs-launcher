@@ -471,6 +471,20 @@ step wine-proton   env WSQUASHFS_UMU=0 "$L" --wine GE-Proton9 "$ROMS/Arcade Game
 step solo-noumu    env WSQUASHFS_UMU=0 "$L" "$ROMS/Solo Game.wsquashfs"
 snapshot after-solo
 step solo-again    env WSQUASHFS_UMU=0 "$L" "$ROMS/Solo Game.wsquashfs"
+
+# Dossier .pc : essayé en overlay comme son image, jamais modifié ; ses
+# sauvegardes sont celles de « Folder Game » (nom de l'image à venir).
+cp -a "$S" "$ROMS/Folder Game.pc"
+before=$(cd "$ROMS/Folder Game.pc" && find . -printf '%p %s\n' | sort | md5sum)
+step folder-pc     env WSQUASHFS_UMU=0 "$L" "$ROMS/Folder Game.pc"
+note "dossier .pc après le lancement : $([[ "$(cd "$ROMS/Folder Game.pc" && find . -printf '%p %s\n' | sort | md5sum)" == "$before" ]] && echo inchangé || echo MODIFIÉ)"
+note "sauvegardes : $(ls -d "$ROOT/saves/Folder Game" 2>/dev/null | sed "s|$ROOT/||")"
+step folder-pc-mount "$L" --mount "$ROMS/Folder Game.pc"
+note "Folder Game pendant --mount : $(mounted "${ROOT}/cache/wine/Folder Game")"
+step folder-pc-umount "$L" --umount "$ROMS/Folder Game.pc"
+step folder-pc-show "$L" --show "$ROMS/Folder Game.pc"
+rm -rf "$ROMS/Folder Game.pc" "$ROOT/saves/Folder Game" "$ROOT/saves/.images/Folder Game" \
+       "$ROOT/cache/mnt/Folder Game" "$ROOT/cache/wine/Folder Game" "$ROOT/cache/locks/Folder Game.lock"
 step proton-umu    "$L" "$ROMS/Proton Game.wsquashfs"
 step proton-nodxvk env WSQUASHFS_DXVK_DIR=/nope "$L" "$ROMS/Proton Game.wsquashfs"
 step win32-hidraw  env WSQUASHFS_UMU=0 HIDRAW_SYSFS="$ROOT/sysfs" "$L" "$ROMS/Old32.wsquashfs"

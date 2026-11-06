@@ -76,6 +76,7 @@ ORIG_ARGS=()            # ligne de commande d'origine (relance dans le namespace
 # ── Jeu et montage ─────────────────────────────────────────────────────
 WSQUASHFS_FILE=""       # chemin absolu du .wsquashfs (ou du dossier installé)
 DIR_MODE=0              # 1 : jeu installé, lancé sur place
+FOLDER_OVERLAY=0        # 1 : dossier .pc essayé en overlay (lecture seule, comme son image)
 GAME_NAME=""
 AUTORUN_OVERRIDE=""     # <jeu>.wsquashfs.autorun s'il existe
 MOUNT_MODE=""           # overlay | copy | dir
@@ -745,9 +746,10 @@ mount_squashfs() {
 # Monte l'overlay du jeu : image (lowerdir) + sauvegardes (upperdir).
 # Note : redirect_dir=on cause des ESTALE sur les chemins imbriqués lors des
 # remontages successifs (bug fuse-overlayfs) : option jamais utilisée.
+# mount_overlay [couche basse] : défaut, l'image montée (SQUASHFSPOINT).
 mount_overlay() {
     without_lock fuse-overlayfs \
-        -o "lowerdir=${SQUASHFSPOINT},upperdir=${SAVEPOINT},workdir=${WORKPOINT},${OVERLAY_SQUASH_OPT}${ALLOW_OTHER_OPT:+,$ALLOW_OTHER_OPT}" \
+        -o "lowerdir=${1:-$SQUASHFSPOINT},upperdir=${SAVEPOINT},workdir=${WORKPOINT},${OVERLAY_SQUASH_OPT}${ALLOW_OTHER_OPT:+,$ALLOW_OTHER_OPT}" \
         "$WINEPOINT" 2>/dev/null
 }
 
@@ -915,8 +917,9 @@ saves_to_kernel_format() {
 # pas si le jeu y a été lancé ; revient pour le repli sur fuse-overlayfs.
 run_in_kernel_overlay() {
     local reason status rc
-    # --mount : le montage doit survivre au lanceur.
-    [[ "$ACTION" == "mount" ]] && return 0
+    # --mount : le montage doit survivre au lanceur. Dossier .pc : l'overlay
+    # noyau monte une image (squashfuse_ll), fuse-overlayfs prend le dossier.
+    [[ "$ACTION" == "mount" || "$FOLDER_OVERLAY" == "1" ]] && return 0
     if reason=$(kernel_overlay_unavailable); then
         [[ "$OVERLAY_PREF" == "kernel" ]] && die "overlay noyau impossible : ${reason}"
         [[ "$OVERLAY_PREF" == "fuse" ]] || echo "Overlay noyau : indisponible, ${reason}"
@@ -2191,8 +2194,11 @@ Usage :
         Sens unique, rien n'est supprimé ; jeux en cours exceptés. Inutile
         pour un jeu à SAVEDIR=/SAVEFILES= (sauvegardes déjà là).
   wsquashfs-launcher [--wine <version>] <dossier du jeu>
-        Lance un jeu installé (dossier contenant autorun.cmd) sur place, sans
-        montage : le jeu écrit directement dans son dossier.
+        Dossier contenant autorun.cmd. Jeu.pc (jeu à empaqueter) : essayé
+        comme son image, en overlay ; le dossier n'est jamais modifié, ce que
+        le jeu écrit va dans les sauvegardes de Jeu (reprises par
+        Jeu.wsquashfs). Autre dossier (prefix .wine, jeu installé par
+        --install) : lancé sur place, le jeu écrit directement dans son dossier.
   wsquashfs-launcher --clean
         Supprime les copies de travail (cache), les doublons des sauvegardes
         (fichiers identiques à l'image du jeu, DLL que Proton recopie à chaque
@@ -2318,13 +2324,13 @@ under_opaque() {
 # Manuel et jamais au démontage : le jeu recopierait ces fichiers à chaque
 # partie.
 clean_saves() {
-    local name="$1" saves="${SAVES_DIR}/${1}" img="" mnt f rel lower n=0 bytes=0 size lib b c
+    local name="$1" saves="${SAVES_DIR}/${1}" img="" mnt f rel lower n=0 bytes=0 size lib b c root
     if saves_busy "$name"; then
         echo "  ${name} : monté ou en cours, ignoré"
         return 0
     fi
     [[ -f "${SAVES_DIR}/.images/${name}" ]] && img=$(< "${SAVES_DIR}/.images/${name}")
-    if [[ -z "$img" || ! -f "$img" ]]; then
+    if [[ -z "$img" || ! -e "$img" ]]; then
         echo "  ${name} : image inconnue (lancer le jeu une fois), fichiers du jeu gardés"
     elif ! command -v getfattr &>/dev/null; then
         # Sans getfattr, les dossiers opaques ne seraient pas tous reconnus.
@@ -2332,12 +2338,15 @@ clean_saves() {
     else
         mkdir -p "$CACHE_DIR"
         mnt=$(mktemp -d "${CACHE_DIR}/purge.XXXXXX") || return 0
-        if squashfuse "$img" "$mnt" 2>/dev/null; then
+        # Dossier .pc essayé avant empaquetage : comparé tel quel.
+        root="$mnt"
+        [[ -d "$img" ]] && root="$img"
+        if [[ -d "$img" ]] || squashfuse "$img" "$mnt" 2>/dev/null; then
             OPAQUE_CACHE=()
             while IFS= read -r -d '' f; do
                 rel="${f#"$saves"/}"
                 [[ "${rel##*/}" == .wh.* ]] && continue
-                lower="${mnt}/${rel}"
+                lower="${root}/${rel}"
                 [[ -f "$lower" && ! -L "$lower" ]] || continue
                 size=$(stat -c %s "$f")
                 [[ "$size" == "$(stat -c %s "$lower")" ]] || continue
@@ -2346,7 +2355,7 @@ clean_saves() {
                 cmp -s "$f" "$lower" || continue
                 rm -f -- "$f" && { n=$((n + 1)); bytes=$((bytes + size)); }
             done < <(find "$saves" -xdev -type f -print0 2>/dev/null)
-            umount_retry "$mnt"
+            [[ -d "$img" ]] || umount_retry "$mnt"
         else
             echo "  ${name} : montage de l'image impossible, fichiers du jeu gardés"
         fi
@@ -2444,7 +2453,7 @@ saved_games() {
 select_save_targets() {
     SAVE_TARGETS=()
     if [[ -n "${1:-}" ]]; then
-        SAVE_TARGETS=("$(basename "$1" .wsquashfs)")
+        SAVE_TARGETS=("$(game_name_of "$1")")
         [[ -d "${SAVES_DIR}/${SAVE_TARGETS[0]}" ]] || die "aucune sauvegarde pour ${SAVE_TARGETS[0]}"
     else
         mapfile -t SAVE_TARGETS < <(saved_games)
@@ -2467,7 +2476,7 @@ cmd_clean() {
 cmd_clear() {
     local targets=() g
     if [[ -n "${1:-}" ]]; then
-        targets=("$(basename "$1" .wsquashfs)")
+        targets=("$(game_name_of "$1")")
         if [[ ! -d "${SAVES_DIR}/${targets[0]}" ]]; then
             echo "Aucune sauvegarde pour ${targets[0]}"
             return 0
@@ -2738,7 +2747,7 @@ cmd_doctor() {
 cmd_umount() {
     local g rc=0
     if [[ -n "${1:-}" ]]; then
-        umount_game "$(basename "$1" .wsquashfs)" || rc=1
+        umount_game "$(game_name_of "$1")" || rc=1
     else
         for g in "${CACHE_DIR}/wine"/*/; do
             [[ -d "$g" ]] && { umount_game "$(basename "$g")" || rc=1; }
@@ -2822,7 +2831,7 @@ show_info() {
     else
         type="jeu seul (prefix créé au premier lancement)"
     fi
-    echo "Jeu           : $(basename "$src" .wsquashfs)"
+    echo "Jeu           : $(game_name_of "$src")"
     [[ -n "$version" ]] || version="non renseignée (GAME_VERSION= dans l'autorun.cmd)"
     echo "Version       : ${version}"
     echo "Type          : ${type}"
@@ -2910,7 +2919,7 @@ cmd_show() {
     [[ -n "$src" && -e "$src" ]] || usage_error "$0 --show <jeu.wsquashfs | dossier> [--set CLÉ=valeur]..."
     src=$(realpath "$src")
     WSQUASHFS_FILE="$src"
-    GAME_NAME=$(basename "$src" .wsquashfs)
+    GAME_NAME=$(game_name_of "$src")
     AUTORUN_OVERRIDE="${src%/}.autorun"
     [[ -f "$AUTORUN_OVERRIDE" ]] || AUTORUN_OVERRIDE=""
     load_layers "$(image_autorun "$src")"
@@ -3099,19 +3108,43 @@ install_game() {
 
 # ── 9.1 Vérifications ──────────────────────────────────────────────────
 
-# Résout GAME_ARG en WSQUASHFS_FILE (image ou dossier installé).
+# game_name_of <image | dossier | nom> : nom du jeu, celui de ses sauvegardes.
+# Un dossier « Jeu.pc » a le nom de l'image qu'il donnera (Jeu.wsquashfs) :
+# l'essai et l'image partagent saves/Jeu.
+game_name_of() {
+    local n
+    n=$(basename "${1%/}")
+    if [[ "$n" == *.wsquashfs ]]; then
+        n="${n%.wsquashfs}"
+    elif [[ "${n,,}" == *.pc ]]; then
+        n="${n:0:${#n}-3}"
+    fi
+    printf '%s\n' "$n"
+}
+
+# Résout GAME_ARG en WSQUASHFS_FILE (image ou dossier).
+#   Jeu.pc   : jeu à empaqueter, essayé en overlay comme son image (dossier
+#              jamais modifié, écritures dans saves/Jeu) ;
+#   autres   : jeu installé (--install) ou prefix .wine, lancé sur place.
 resolve_game_path() {
     [[ -n "$GAME_ARG" ]] || die "fichier .wsquashfs ou dossier de jeu requis" \
         "Usage : $0 <fichier.wsquashfs | dossier du jeu>  |  $0 --help"
     WSQUASHFS_FILE=$(realpath "$GAME_ARG" 2>/dev/null) || die "chemin introuvable : $GAME_ARG"
 
     if [[ -d "$WSQUASHFS_FILE" ]]; then
-        # Jeu installé (--install) : dossier lancé sur place, sans montage.
         if [[ ! -f "${WSQUASHFS_FILE}/autorun.cmd" && "$ACTION" != "exec" ]]; then
             die "pas d'autorun.cmd dans ${WSQUASHFS_FILE}"
         fi
-        [[ "$ACTION" != "mount" ]] || die "--mount sert aux .wsquashfs ; un dossier installé se modifie directement"
-        DIR_MODE=1
+        if [[ "${WSQUASHFS_FILE,,}" == *.pc ]]; then
+            # Options de fuse-overlayfs séparées par des virgules, chemins des
+            # couches par des deux-points.
+            [[ "$WSQUASHFS_FILE" != *[,:]* ]] \
+                || die "virgule ou deux-points dans ${WSQUASHFS_FILE} : impossible en overlay"
+            FOLDER_OVERLAY=1
+        else
+            [[ "$ACTION" != "mount" ]] || die "--mount sert aux .wsquashfs et aux dossiers .pc ; un dossier installé se modifie directement"
+            DIR_MODE=1
+        fi
     elif [[ "${WSQUASHFS_FILE##*.}" != "wsquashfs" ]]; then
         die "extension .wsquashfs attendue (ou dossier de jeu installé)"
     elif [[ ! -f "$WSQUASHFS_FILE" ]]; then
@@ -3129,7 +3162,11 @@ check_dependencies() {
     if [[ "$HEADLESS" == "1" ]] && ! command -v gamescope &>/dev/null; then
         die "--headless demande gamescope (absent)"
     fi
-    if [[ "$DIR_MODE" == "0" ]] && ! command -v squashfuse &>/dev/null && ! command -v unsquashfs &>/dev/null; then
+    if [[ "$FOLDER_OVERLAY" == "1" ]]; then
+        command -v fuse-overlayfs &>/dev/null \
+            || die "fuse-overlayfs requis pour essayer un dossier .pc sans le modifier" \
+                   "  → renommer le dossier en .wine pour le lancer sur place (il sera modifié)"
+    elif [[ "$DIR_MODE" == "0" ]] && ! command -v squashfuse &>/dev/null && ! command -v unsquashfs &>/dev/null; then
         die "ni squashfuse ni unsquashfs ne sont disponibles" \
             "  → apt-get install squashfuse squashfs-tools"
     fi
@@ -3138,7 +3175,7 @@ check_dependencies() {
 # ── 9.2 En-tête ────────────────────────────────────────────────────────
 
 init_game_paths() {
-    GAME_NAME=$(basename "$WSQUASHFS_FILE" .wsquashfs)
+    GAME_NAME=$(game_name_of "$WSQUASHFS_FILE")
     AUTORUN_OVERRIDE="${WSQUASHFS_FILE%/}.autorun"
     [[ -f "$AUTORUN_OVERRIDE" ]] || AUTORUN_OVERRIDE=""
     SQUASHFSPOINT="${CACHE_DIR}/mnt/${GAME_NAME}"
@@ -3215,6 +3252,11 @@ prepare_mount_dirs() {
 # lancement) ? Lu directement dans l'image (< 0,1 s, même sur 38 Go).
 # Prefix créé par Proton (config_info) : ses DLL sont gérées par Proton.
 detect_image_prefix() {
+    if [[ "$FOLDER_OVERLAY" == "1" ]]; then
+        [[ -f "${WSQUASHFS_FILE}/system.reg" ]] && PACKAGED_PREFIX=1
+        [[ -f "${WSQUASHFS_FILE}/config_info" ]] && PROTON_PREFIX=1
+        return 0
+    fi
     unsquashfs -cat "$WSQUASHFS_FILE" system.reg >/dev/null 2>&1 && PACKAGED_PREFIX=1
     unsquashfs -cat "$WSQUASHFS_FILE" config_info >/dev/null 2>&1 && PROTON_PREFIX=1
     return 0
@@ -3240,7 +3282,16 @@ clear_generated_system_dlls() {
 }
 
 # Mode overlay : squashfuse + fuse-overlayfs. Faux si l'un manque ou échoue.
+# Dossier .pc : le dossier lui-même est la couche basse, sans squashfuse.
 try_overlay_mount() {
+    if [[ "$FOLDER_OVERLAY" == "1" ]]; then
+        mount_overlay "$WSQUASHFS_FILE" || return 1
+        MOUNT_MODE="overlay"
+        OVERLAY_KIND="fuse"
+        MOUNTED=true
+        echo "Mode          : overlay (dossier .pc + fuse-overlayfs, dossier non modifié)"
+        return 0
+    fi
     command -v squashfuse &>/dev/null || return 1
     mount_squashfs "$WSQUASHFS_FILE" "$SQUASHFSPOINT" || return 1
     if command -v fuse-overlayfs &>/dev/null && mount_overlay; then
@@ -3276,6 +3327,12 @@ mount_image() {
     detect_image_prefix
     clear_generated_system_dlls
     run_in_kernel_overlay
+    if [[ "$FOLDER_OVERLAY" == "1" ]]; then
+        # Jamais de copie : le dossier entier (dizaines de Go) serait recopié.
+        try_overlay_mount || die "montage fuse-overlayfs impossible pour ${WSQUASHFS_FILE}" \
+            "  → renommer le dossier en .wine pour le lancer sur place (il sera modifié)"
+        return 0
+    fi
     try_overlay_mount || use_copy_mode
 }
 
@@ -3285,7 +3342,7 @@ report_mount_and_exit() {
     MOUNTED=false
     echo "-----------------------------------------"
     echo "Monté dans    : $WINEPOINT"
-    [[ "$MOUNT_MODE" == "overlay" ]] && echo "Modifications : enregistrées dans $SAVEPOINT (le .wsquashfs n'est jamais modifié)"
+    [[ "$MOUNT_MODE" == "overlay" ]] && echo "Modifications : enregistrées dans $SAVEPOINT (le $([[ "$FOLDER_OVERLAY" == "1" ]] && echo "dossier" || echo ".wsquashfs") n'est jamais modifié)"
     echo "Démontage     : $0 --umount \"$WSQUASHFS_FILE\""
     echo "  (tout lancement d'un autre jeu démonte aussi les montages inutilisés)"
     exit 0

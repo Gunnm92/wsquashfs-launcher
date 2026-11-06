@@ -47,8 +47,11 @@ Usage :
         Sens unique, rien n'est supprimé ; jeux en cours exceptés. Inutile
         pour un jeu à SAVEDIR=/SAVEFILES= (sauvegardes déjà là).
   wsquashfs-launcher [--wine <version>] <dossier du jeu>
-        Lance un jeu installé (dossier contenant autorun.cmd) sur place, sans
-        montage : le jeu écrit directement dans son dossier.
+        Dossier contenant autorun.cmd. Jeu.pc (jeu à empaqueter) : essayé
+        comme son image, en overlay ; le dossier n'est jamais modifié, ce que
+        le jeu écrit va dans les sauvegardes de Jeu (reprises par
+        Jeu.wsquashfs). Autre dossier (prefix .wine, jeu installé par
+        --install) : lancé sur place, le jeu écrit directement dans son dossier.
   wsquashfs-launcher --clean
         Supprime les copies de travail (cache), les doublons des sauvegardes
         (fichiers identiques à l'image du jeu, DLL que Proton recopie à chaque
@@ -1734,6 +1737,141 @@ WINE wine-tkg-fake cwd=ROOT/cache/wine/Solo Game args: [explorer] [/desktop=Solo
 WINESERVER -w
 WINESERVER -k
 WINESERVER -w
+################ folder-pc
+=========================================
+WSquashFS Launcher
+=========================================
+Environnement : ENV
+Jeu           : Folder Game
+Fichier       : ROOT/userdata/roms/windows/Folder Game.pc
+Mode          : overlay (dossier .pc + fuse-overlayfs, dossier non modifié)
+Initialisation du préfixe Wine (win64)...
+Préfixe       : mise à jour pour wine-9.0 (fake)
+-----------------------------------------
+Exécutable    : ROOT/cache/wine/Folder Game/game/run me.exe
+Arguments     : --arg
+Wine          : ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/bin/wine (win64)
+Version Wine  : wine-9.0 (fake)
+Préfixe       : ROOT/cache/wine/Folder Game
+Sauvegardes   : ROOT/saves/Folder Game
+Manettes      : XInput, manette Xbox
+DXVK          : activé
+VKD3D         : activé
+D7VK          : activé (DirectDraw → Vulkan)
+Bureau virtuel: 1280x720
+=========================================
+
+
+=========================================
+Jeu terminé (code : 0)
+=========================================
+-- stderr
+Attention : umu-run absent, prefix créé par wine-tkg-fake au lieu de Proton
+== rc=0
+WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
+  WINEPREFIX=ROOT/cache/wine/Folder Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
+  WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Folder Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
+WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
+  WINEPREFIX=ROOT/cache/wine/Folder Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
+  WINEDEBUG=-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Services\winebus] [/v] [DisableHidraw] [/t] [REG_DWORD] [/d] [1] [/f]
+  WINEPREFIX=ROOT/cache/wine/Folder Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  GAMEID=
+  PROTONPATH=
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
+WINESERVER -k
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Folder Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
+WINE wine-tkg-fake cwd=ROOT/cache/wine/Folder Game args: [explorer] [/desktop=Folder_Game,1280x720] [ROOT/cache/wine/Folder Game/game/run me.exe] [--arg]
+  WINEPREFIX=ROOT/cache/wine/Folder Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
+WINESERVER -w
+WINESERVER -k
+WINESERVER -w
+## dossier .pc après le lancement : inchangé
+## sauvegardes : saves/Folder Game
+################ folder-pc-mount
+=========================================
+WSquashFS Launcher
+=========================================
+Environnement : ENV
+Jeu           : Folder Game
+Fichier       : ROOT/userdata/roms/windows/Folder Game.pc
+Action        : mount
+Mode          : overlay (dossier .pc + fuse-overlayfs, dossier non modifié)
+-----------------------------------------
+Monté dans    : ROOT/cache/wine/Folder Game
+Modifications : enregistrées dans ROOT/saves/Folder Game (le dossier n'est jamais modifié)
+Démontage     : LAUNCHER --umount "ROOT/userdata/roms/windows/Folder Game.pc"
+  (tout lancement d'un autre jeu démonte aussi les montages inutilisés)
+== rc=0
+## Folder Game pendant --mount : monté
+################ folder-pc-umount
+✓ Démonté : Folder Game
+== rc=0
+WINESERVER -k
+################ folder-pc-show
+Jeu           : Folder Game
+Couches (de la plus faible à la plus forte) :
+  machine     : ROOT/home/.config/wsquashfs/defaults.autorun (absent)
+  dossier     : ROOT/userdata/roms/windows/_defaults.autorun (absent)
+  image       : autorun.cmd
+  surcharge   : ROOT/userdata/roms/windows/Folder Game.pc.autorun (absent)
+
+Réglages :
+  CMD              = "game/run me.exe" --arg      (image)
+  DXVK             = 1                            (défaut)
+  VKD3D            = 1                            (défaut)
+  D7VK             = 1                            (défaut)
+  NVAPI            = auto                         (défaut)
+  VKREFLEX         = auto                         (défaut)
+  FSR              = 0                            (défaut)
+  FSR4             = 0                            (défaut)
+  ESYNC            = 0                            (défaut)
+  FSYNC            = 0                            (défaut)
+  HIDRAW           = 0                            (défaut)
+  VIRTUAL_DESKTOP  = 1280x720                     (image)
+
+Overlay       : ROOT/saves/Folder Game
+Sauvegardes   : dans l'overlay ; --saves les copie dans ROOT/userdata/saves/windows/Folder Game
+== rc=0
 ################ proton-umu
 =========================================
 WSquashFS Launcher
@@ -4614,7 +4752,7 @@ WINE wine-tkg-fake cwd=ROOT/installed/Arcade Game/drive_c/Game Dir/Bin args: [RO
 WINESERVER -w
 ################ mount-dir
 -- stderr
-Erreur : --mount sert aux .wsquashfs ; un dossier installé se modifie directement
+Erreur : --mount sert aux .wsquashfs et aux dossiers .pc ; un dossier installé se modifie directement
 == rc=1
 ################ TREE before-clean
 d cache -> 
