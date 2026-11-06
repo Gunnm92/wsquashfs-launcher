@@ -24,7 +24,7 @@ help:
 # versionné à la racine est régénéré par cette cible.
 build:
 	@command -v go >/dev/null || { echo "go absent (Go 1.22 ou plus récent)"; exit 1; }
-	@cd cmd/wsquashfs-launcher && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o ../../wsquashfs-launcher .
+	@cd cmd/wsquashfs-launcher && CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w" -o ../../wsquashfs-launcher .
 	@echo "✓ wsquashfs-launcher compilé"
 
 install:
