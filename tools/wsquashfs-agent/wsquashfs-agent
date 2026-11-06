@@ -297,8 +297,9 @@ def run_trial(cfg: dict, image: Path, duration: int) -> dict:
 _trial_lock = threading.Lock()
 
 # Maintenance exposée : une liste fermée d'actions du lanceur, sans option libre
-# (pas de --clear, ni --pack ou --install, longs et réservés à la file du gestionnaire)
-MAINTENANCE = ("list", "umount", "clean", "backup")
+# (pas de --clear, ni --pack ou --install, longs et réservés à la file du gestionnaire).
+# saves accepte en plus un jeu : une image des dossiers roms/ (resolve_image).
+MAINTENANCE = ("list", "umount", "clean", "saves")
 
 
 def runner_dir(cfg: dict, path: str) -> Path:
@@ -424,13 +425,19 @@ class Handler(BaseHTTPRequestHandler):
             _trial_lock.release()
 
     def _maintenance(self, query: dict) -> None:
-        action = str(self._body().get("action", ""))
+        body = self._body()
+        action = str(body.get("action", ""))
         if action not in MAINTENANCE:
             raise AgentError(400, "action de maintenance non autorisée")
+        args = [f"--{action}"]
+        if body.get("rel"):
+            if action != "saves":
+                raise AgentError(400, f"--{action} ne prend pas de jeu")
+            args.append(str(resolve_image(load_config(), str(body["rel"]))))
         launcher = launcher_path()
         if not launcher or not Path(launcher).exists():
             raise AgentError(503, "wsquashfs-launcher introuvable sur cette machine")
-        done = subprocess.run([launcher, f"--{action}"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        done = subprocess.run([launcher, *args], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                               stdin=subprocess.DEVNULL, timeout=900, check=False)
         self._json(200, {"action": action, "code": done.returncode,
                          "output": done.stdout.decode("utf-8", "replace")})

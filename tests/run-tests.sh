@@ -393,17 +393,6 @@ unit() {
     } >> "$OUT"
 }
 
-# Archives de sauvegarde d'un jeu, et contenu (trié) de la dernière.
-backups_of() {
-    local dir="$HOME/.local/share/wsquashfs/backups" last
-    {
-        echo "## archives de $1 : $(compgen -G "${dir}/${1}-*.tar.zst" | wc -l)"
-        # La plus récente : le suffixe -N dépend de l'heure (même seconde).
-        last=$(find "$dir" -maxdepth 1 -name "${1}-*.tar.zst" -printf '%T@ %p\n' | sort -n | tail -1 | cut -d' ' -f2-)
-        [[ -n "$last" ]] && tar -tf "$last" | sort | sed 's/^/##   /'
-    } >> "$OUT"
-}
-
 mounted() {
     if mountpoint -q "$1"; then echo "monté"; else echo "non monté"; fi
 }
@@ -435,8 +424,6 @@ L="$LAUNCHER"
 unit runner_name 'for b in "" /usr/local/bin/proton /usr/bin/wine64 /x/wine-tkg/bin/wine /x/GE-Proton9-1/files/bin/wine; do echo "[$b] → $(runner_name "$b")"; done'
 # shellcheck disable=SC2016
 unit split_command_line 'for l in "-a -b" "-path \"C:\\Mon Jeu\\x\" -n" "\"\" fin" "  x   y  " "a\"b c\"d"; do printf "%s →" "$l"; split_command_line "$l" | while IFS= read -r -d "" a; do printf " [%s]" "$a"; done; echo; done'
-# shellcheck disable=SC2016
-unit backup_suffix 'date() { echo fige; }; SAVES_DIR="$HOME/unit-saves"; WSQUASHFS_BACKUP_DIR="$HOME/unit-backups"; mkdir -p "$SAVES_DIR/g"; backup_saves g; backup_saves g; backup_saves absent && echo "absent : rien à archiver"; ls "$WSQUASHFS_BACKUP_DIR"; rm -rf "$SAVES_DIR" "$WSQUASHFS_BACKUP_DIR"'
 
 # Ligne de commande
 step help          "$L" --help
@@ -445,7 +432,7 @@ step doctor-amd    env WSQUASHFS_DRM_SYSFS="$ROOT/drm-amd" WSQUASHFS_VK_ICD_DIR=
 step doctor-nvidia env WSQUASHFS_DRM_SYSFS="$ROOT/drm-nvidia" "$L" --doctor
 step doctor-both   env WSQUASHFS_DRM_SYSFS="$ROOT/drm-both" "$L" --doctor
 step list-empty    "$L" --list
-step backup-empty  "$L" --backup
+step backup-removed "$L" --backup
 step noarg         "$L"
 step badopt        "$L" --nope
 step badext        "$L" "$ROOT/src/Solo Game/autorun.cmd"
@@ -550,7 +537,6 @@ step joint-copy    env FAIL_OVERLAY=1 "$L" "$ROMS/Joint Game.wsquashfs"
 step mount         "$L" --mount "$ROMS/Solo Game.wsquashfs"
 note "verrou Solo Game pendant --mount : $(lock_state "Solo Game")"
 step list-mounted  "$L" --list
-step backup-busy   "$L" --backup "Solo Game"
 step mount-run     env WSQUASHFS_UMU=0 "$L" "$ROMS/Solo Game.wsquashfs"
 step umount        "$L" --umount "$ROMS/Solo Game.wsquashfs"
 
@@ -560,29 +546,26 @@ step install-exist "$L" --install "$ROMS/Arcade Game.wsquashfs" "$ROOT/installed
 step run-dir       env WSQUASHFS_UMU=0 "$L" "$ROOT/installed/Arcade Game"
 step mount-dir     "$L" --mount "$ROOT/installed/Arcade Game"
 
-# --backup : attributs étendus (DOS de Wine, dossier opaque) conservés. Le
-# fichier est créé ici : system.reg, utilisé avant le 01/11, n'était dans
-# les sauvegardes que parce que le faux wineboot le réécrivait.
-printf 'save\n' > "$ROOT/saves/Arcade Game/xattr.sav"
-setfattr -n user.DOSATTRIB -v archive-ok "$ROOT/saves/Arcade Game/xattr.sav"
-step backup-one    "$L" --backup "Arcade Game.wsquashfs"
-backups_of "Arcade Game"
-mkdir -p "$ROOT/restore"
-tar -C "$ROOT/restore" --xattrs --xattrs-include='user.*' -xpf \
-    "$(compgen -G "$HOME/.local/share/wsquashfs/backups/Arcade Game-*.tar.zst" | head -1)"
-note "attribut après restauration : $(getfattr --only-values -n user.DOSATTRIB "$ROOT/restore/Arcade Game/xattr.sav" 2>/dev/null || echo absent)"
-rm -rf "$ROOT/restore"
-step backup-unknown "$L" --backup "Unknown"
+# --clean vide les archives de l'ancien --backup (.part compris) ; les autres
+# fichiers du dossier restent.
+BACKUPS="$HOME/.local/share/wsquashfs/backups"
+mkdir -p "$BACKUPS"
+for f in "Jeu-A-20261101-100000.tar.zst" "Jeu-A-20261101-100000-2.tar.zst" "Autre-20261001-090000.tar.gz" \
+         "Jeu-A-20261104-100000.tar.zst.part" "notes.txt"; do
+    printf 'x' > "${BACKUPS}/${f}"
+done
 
 # --clean / --clear
 snapshot before-clean
 step clean         "$L" --clean
 snapshot after-clean
+note "archives après --clean : $(ls "$BACKUPS" 2>/dev/null | paste -sd ' ')"
+rm -rf "$BACKUPS"
 step clear-one     "$L" --clear "Solo Game"
 step clear-none    "$L" --clear "Unknown"
 step clear-all     "$L" --clear
 snapshot after-clear
-backups_of "Solo Game"
+note "archives après --clear : $(ls "$HOME/.local/share/wsquashfs/backups" 2>/dev/null | wc -l)"
 step list-after-clear "$L" --list
 step umount-all    "$L" --umount
 

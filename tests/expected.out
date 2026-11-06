@@ -10,12 +10,6 @@
 "" fin → [] [fin]
   x   y   → [x] [y]
 a"b c"d → [ab cd]
-################ unit backup_suffix
-  g : archivé dans ROOT/home/unit-backups/g-fige.tar.zst (SIZE)
-  g : archivé dans ROOT/home/unit-backups/g-fige-2.tar.zst (SIZE)
-absent : rien à archiver
-g-fige-2.tar.zst
-g-fige.tar.zst
 ################ help
 Usage :
   wsquashfs-launcher [--wine <version>] <jeu.wsquashfs>
@@ -56,17 +50,14 @@ Usage :
         Lance un jeu installé (dossier contenant autorun.cmd) sur place, sans
         montage : le jeu écrit directement dans son dossier.
   wsquashfs-launcher --clean
-        Supprime les copies de travail (cache) et les doublons des sauvegardes :
-        fichiers identiques à l'image du jeu, DLL que Proton recopie à chaque
-        lancement. Tout ce que le jeu a écrit est gardé ; jeux en cours exceptés.
+        Supprime les copies de travail (cache), les doublons des sauvegardes
+        (fichiers identiques à l'image du jeu, DLL que Proton recopie à chaque
+        lancement) et les anciennes archives de ~/.local/share/wsquashfs/backups.
+        Tout ce que le jeu a écrit est gardé ; jeux en cours exceptés.
   wsquashfs-launcher --clear [jeu]
         Ne garde que drive_c/users des sauvegardes (de tous les jeux, ou d'un
         seul) : le reste (prefix, registre, scores et réglages écrits dans le
-        dossier du jeu) est supprimé, après archivage (--backup).
-        Confirmation au terminal.
-  wsquashfs-launcher --backup [jeu]
-        Archive les sauvegardes (de tous les jeux, ou d'un seul) dans
-        ~/.local/share/wsquashfs/backups ; jeux en cours exceptés.
+        dossier du jeu) est supprimé, sans archive. Confirmation au terminal.
   wsquashfs-launcher --list
         Liste les jeux connus : état (en cours, monté), version, taille des
         sauvegardes et image.
@@ -124,7 +115,7 @@ Variables d'environnement :
                              fuse : toujours fuse-overlayfs ; kernel : sans repli
   WSQUASHFS_SAVES_DIR        Sauvegardes overlay (défaut: ~/.local/share/wsquashfs/saves)
   WSQUASHFS_CACHE            Cache de travail   (défaut: ~/.cache/wsquashfs)
-  WSQUASHFS_BACKUP_DIR       Archives --backup  (défaut: ~/.local/share/wsquashfs/backups)
+  WSQUASHFS_BACKUP_DIR       Anciennes archives, vidées par --clean (défaut: ~/.local/share/wsquashfs/backups)
   WSQUASHFS_DXVK=0           Désactive DXVK (défaut : activé)
   WSQUASHFS_HIDRAW=1         Manettes Sony par hidraw si lisibles (défaut : XInput,
                              comme Batocera ; aussi par jeu via HIDRAW=1 dans autorun.cmd) ;
@@ -153,7 +144,6 @@ Montage des images
   ✓ mksquashfs (PATH) : --pack
   ✓ getfattr (PATH) : --clean (doublons des sauvegardes)
   ✓ flock (PATH) : verrou par jeu (double lancement)
-  ✓ zstd (PATH) : archives --backup compactes (sinon gzip)
 Wine / Proton
   ✓ Wine par défaut : wine-tkg-fake wine-9.0 (fake) (ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/bin/wine)
   ✓ prefixes 32 bits (win32) pris en charge
@@ -172,7 +162,6 @@ Manettes
 Dossiers
   – ROOT/saves : pas encore créé
   – ROOT/cache : pas encore créé
-  – ROOT/home/.local/share/wsquashfs/backups : pas encore créé
 
 ✓ Prêt à lancer des jeux
 == rc=0
@@ -187,7 +176,6 @@ Montage des images
   ✓ mksquashfs (PATH) : --pack
   ✓ getfattr (PATH) : --clean (doublons des sauvegardes)
   ✓ flock (PATH) : verrou par jeu (double lancement)
-  ✓ zstd (PATH) : archives --backup compactes (sinon gzip)
 Wine / Proton
   ✓ Wine par défaut : wine-tkg-fake wine-9.0 (fake) (ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/bin/wine)
   ✓ prefixes 32 bits (win32) pris en charge
@@ -208,7 +196,6 @@ Manettes
 Dossiers
   – ROOT/saves : pas encore créé
   – ROOT/cache : pas encore créé
-  – ROOT/home/.local/share/wsquashfs/backups : pas encore créé
 
 ✓ Prêt à lancer des jeux
 == rc=0
@@ -223,7 +210,6 @@ Montage des images
   ✓ mksquashfs (PATH) : --pack
   ✓ getfattr (PATH) : --clean (doublons des sauvegardes)
   ✓ flock (PATH) : verrou par jeu (double lancement)
-  ✓ zstd (PATH) : archives --backup compactes (sinon gzip)
 Wine / Proton
   ✓ Wine par défaut : wine-tkg-fake wine-9.0 (fake) (ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/bin/wine)
   ✓ prefixes 32 bits (win32) pris en charge
@@ -244,7 +230,6 @@ Manettes
 Dossiers
   – ROOT/saves : pas encore créé
   – ROOT/cache : pas encore créé
-  – ROOT/home/.local/share/wsquashfs/backups : pas encore créé
 
 ✓ Prêt à lancer des jeux
 == rc=0
@@ -259,7 +244,6 @@ Montage des images
   ✓ mksquashfs (PATH) : --pack
   ✓ getfattr (PATH) : --clean (doublons des sauvegardes)
   ✓ flock (PATH) : verrou par jeu (double lancement)
-  ✓ zstd (PATH) : archives --backup compactes (sinon gzip)
 Wine / Proton
   ✓ Wine par défaut : wine-tkg-fake wine-9.0 (fake) (ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/bin/wine)
   ✓ prefixes 32 bits (win32) pris en charge
@@ -282,7 +266,6 @@ Manettes
 Dossiers
   – ROOT/saves : pas encore créé
   – ROOT/cache : pas encore créé
-  – ROOT/home/.local/share/wsquashfs/backups : pas encore créé
 
 ✓ Prêt à lancer des jeux
 == rc=0
@@ -290,9 +273,10 @@ WINE wine-tkg-fake cwd=ROOT args: [--version]
 ################ list-empty
 Aucun jeu connu (aucun lancement enregistré dans ROOT/saves)
 == rc=0
-################ backup-empty
-Aucune sauvegarde à archiver (ROOT/saves)
-== rc=0
+################ backup-removed
+-- stderr
+Erreur : option inconnue : --backup  (voir LAUNCHER --help)
+== rc=1
 ################ noarg
 -- stderr
 Erreur : fichier .wsquashfs ou dossier de jeu requis
@@ -4407,12 +4391,6 @@ Wine Joint Game       -           -           SIZE         ROOT/userdata/roms/wi
 
 Sauvegardes : ROOT/saves (SIZE au total)
 == rc=0
-################ backup-busy
-Archivage des sauvegardes dans ROOT/home/.local/share/wsquashfs/backups...
-  Solo Game : monté ou en cours, ignoré
-Restauration (jeu arrêté) :
-  tar -C "ROOT/saves" --xattrs --xattrs-include='user.*' -xpf <archive>
-== rc=0
 ################ mount-run
 =========================================
 WSquashFS Launcher
@@ -4637,44 +4615,6 @@ WINESERVER -w
 ################ mount-dir
 -- stderr
 Erreur : --mount sert aux .wsquashfs ; un dossier installé se modifie directement
-== rc=1
-################ backup-one
-Archivage des sauvegardes dans ROOT/home/.local/share/wsquashfs/backups...
-  Arcade Game : archivé dans ROOT/home/.local/share/wsquashfs/backups/Arcade Game-DATE.tar.zst (SIZE)
-Restauration (jeu arrêté) :
-  tar -C "ROOT/saves" --xattrs --xattrs-include='user.*' -xpf <archive>
-== rc=0
-## archives de Arcade Game : 1
-##   Arcade Game/
-##   Arcade Game/drive_c/
-##   Arcade Game/drive_c/Game Dir/
-##   Arcade Game/drive_c/Game Dir/Saves
-##   Arcade Game/drive_c/users/
-##   Arcade Game/drive_c/users/steamuser/
-##   Arcade Game/drive_c/users/steamuser/Music/
-##   Arcade Game/drive_c/users/steamuser/Music/.wh..wh..opq
-##   Arcade Game/drive_c/users/wsqtest/
-##   Arcade Game/drive_c/users/wsqtest/.wh..wh..opq
-##   Arcade Game/drive_c/windows/
-##   Arcade Game/drive_c/windows/system32/
-##   Arcade Game/drive_c/windows/system32/d3d11.dll
-##   Arcade Game/drive_c/windows/system32/d3d12.dll
-##   Arcade Game/drive_c/windows/system32/d3d9.dll
-##   Arcade Game/drive_c/windows/system32/dxgi.dll
-##   Arcade Game/drive_c/windows/system32/kernel32.dll
-##   Arcade Game/drive_c/windows/syswow64/
-##   Arcade Game/drive_c/windows/syswow64/d3d11.dll
-##   Arcade Game/drive_c/windows/syswow64/d3d12.dll
-##   Arcade Game/drive_c/windows/syswow64/d3d9.dll
-##   Arcade Game/drive_c/windows/syswow64/ddraw.dll
-##   Arcade Game/drive_c/windows/syswow64/ddraw_.dll
-##   Arcade Game/drive_c/windows/syswow64/dxgi.dll
-##   Arcade Game/drive_c/windows/syswow64/kernel32.dll
-##   Arcade Game/xattr.sav
-## attribut après restauration : archive-ok
-################ backup-unknown
--- stderr
-Erreur : aucune sauvegarde pour Unknown
 == rc=1
 ################ TREE before-clean
 d cache -> 
@@ -4949,7 +4889,6 @@ f saves/.images/Two Runners Game ->
 f saves/.images/Wine Joint Game -> 
 f saves/Arcade Game/drive_c/users/steamuser/Music/.wh..wh..opq -> 
 f saves/Arcade Game/drive_c/users/wsqtest/.wh..wh..opq -> 
-f saves/Arcade Game/xattr.sav -> 
 f saves/Hook Game/drive_c/.wh..wh..opq -> 
 f saves/Hook Game/drive_c/users/.wh..wh..opq -> 
 f saves/Hook Game/drive_c/users/wsqtest/.wh..wh..opq -> 
@@ -5238,6 +5177,7 @@ l src/Arcade Game.wine/drive_c/windows/system32/dxgi.dll -> /userdata/system/win
 ################ clean
 Nettoyage des copies de travail et des doublons des sauvegardes...
 ✓ Copies de travail supprimées
+✓ 4 archive(s) supprimée(s) (4o, ROOT/home/.local/share/wsquashfs/backups)
 ✓ Sauvegardes gardées dans : ROOT/saves
 == rc=0
 ################ TREE after-clean
@@ -5464,7 +5404,6 @@ f saves/.images/Two Runners Game ->
 f saves/.images/Wine Joint Game -> 
 f saves/Arcade Game/drive_c/users/steamuser/Music/.wh..wh..opq -> 
 f saves/Arcade Game/drive_c/users/wsqtest/.wh..wh..opq -> 
-f saves/Arcade Game/xattr.sav -> 
 f saves/Hook Game/drive_c/.wh..wh..opq -> 
 f saves/Hook Game/drive_c/users/.wh..wh..opq -> 
 f saves/Hook Game/drive_c/users/wsqtest/.wh..wh..opq -> 
@@ -5750,12 +5689,12 @@ l saves/Wine Joint Game/drive_c/windows/syswow64/dxgi.dll -> ROOT/dxvk/x32/dxgi.
 l saves/Wine Joint Game/drive_c/windows/syswow64/kernel32.dll -> ROOT/cache/mnt/Wine Joint Game/runners/wine-mine/lib/wine/i386-windows/kernel32.dll
 l src/Arcade Game.wine/drive_c/users/steamuser/Music -> /userdata/system/Music
 l src/Arcade Game.wine/drive_c/windows/system32/dxgi.dll -> /userdata/system/wine/dxvk/x64/dxgi.dll
+## archives après --clean : notes.txt
 ################ clear-one
 --clear ne garde que drive_c/users de 1 jeu(x) : scores et réglages
   enregistrés ailleurs (jeux arcade, dossier du jeu, registre) seront perdus.
-  Chaque jeu est d'abord archivé dans ROOT/home/.local/share/wsquashfs/backups (voir --backup).
+  Aucune archive n'est faite (sauvegardes de partie : --saves).
 ✓ Copies de travail supprimées
-  Solo Game : archivé dans ROOT/home/.local/share/wsquashfs/backups/Solo Game-DATE.tar.zst (SIZE)
   Solo Game : gardé SIZE (drive_c/users)
 == rc=0
 ################ clear-none
@@ -5764,33 +5703,20 @@ Aucune sauvegarde pour Unknown
 ################ clear-all
 --clear ne garde que drive_c/users de 13 jeu(x) : scores et réglages
   enregistrés ailleurs (jeux arcade, dossier du jeu, registre) seront perdus.
-  Chaque jeu est d'abord archivé dans ROOT/home/.local/share/wsquashfs/backups (voir --backup).
+  Aucune archive n'est faite (sauvegardes de partie : --saves).
 ✓ Copies de travail supprimées
-  Arcade Game : archivé dans ROOT/home/.local/share/wsquashfs/backups/Arcade Game-DATE.tar.zst (SIZE)
   Arcade Game : gardé SIZE (drive_c/users)
-  Hook Game : archivé dans ROOT/home/.local/share/wsquashfs/backups/Hook Game-DATE.tar.zst (SIZE)
   Hook Game : gardé SIZE (drive_c/users)
-  Joint Game : archivé dans ROOT/home/.local/share/wsquashfs/backups/Joint Game-DATE.tar.zst (SIZE)
   Joint Game : rien à garder, supprimé
-  Loader Game : archivé dans ROOT/home/.local/share/wsquashfs/backups/Loader Game-DATE.tar.zst (SIZE)
   Loader Game : gardé SIZE (drive_c/users)
-  Missing Runner Game : archivé dans ROOT/home/.local/share/wsquashfs/backups/Missing Runner Game-DATE.tar.zst (SIZE)
   Missing Runner Game : gardé SIZE (drive_c/users)
-  Named Game : archivé dans ROOT/home/.local/share/wsquashfs/backups/Named Game-DATE.tar.zst (SIZE)
   Named Game : gardé SIZE (drive_c/users)
-  Old32 : archivé dans ROOT/home/.local/share/wsquashfs/backups/Old32-DATE.tar.zst (SIZE)
   Old32 : gardé SIZE (drive_c/users)
-  Pre Fail Game : archivé dans ROOT/home/.local/share/wsquashfs/backups/Pre Fail Game-DATE.tar.zst (SIZE)
   Pre Fail Game : gardé SIZE (drive_c/users)
-  Proton Game : archivé dans ROOT/home/.local/share/wsquashfs/backups/Proton Game-DATE.tar.zst (SIZE)
   Proton Game : rien à garder, supprimé
-  Relative Runner Game : archivé dans ROOT/home/.local/share/wsquashfs/backups/Relative Runner Game-DATE.tar.zst (SIZE)
   Relative Runner Game : gardé SIZE (drive_c/users)
-  Solo Game : archivé dans ROOT/home/.local/share/wsquashfs/backups/Solo Game-DATE.tar.zst (SIZE)
   Solo Game : gardé SIZE (drive_c/users)
-  Two Runners Game : archivé dans ROOT/home/.local/share/wsquashfs/backups/Two Runners Game-DATE.tar.zst (SIZE)
   Two Runners Game : gardé SIZE (drive_c/users)
-  Wine Joint Game : archivé dans ROOT/home/.local/share/wsquashfs/backups/Wine Joint Game-DATE.tar.zst (SIZE)
   Wine Joint Game : gardé SIZE (drive_c/users)
 == rc=0
 ################ TREE after-clear
@@ -6095,13 +6021,7 @@ f userdata/roms/windows/Wine Joint Game.wsquashfs ->
 f userdata/saves/windows/Arcade Game/slot1 -> 
 l src/Arcade Game.wine/drive_c/users/steamuser/Music -> /userdata/system/Music
 l src/Arcade Game.wine/drive_c/windows/system32/dxgi.dll -> /userdata/system/wine/dxvk/x64/dxgi.dll
-## archives de Solo Game : 2
-##   Solo Game/
-##   Solo Game/drive_c/
-##   Solo Game/drive_c/users/
-##   Solo Game/drive_c/users/.wh..wh..opq
-##   Solo Game/drive_c/users/wsqtest/
-##   Solo Game/drive_c/users/wsqtest/.wh..wh..opq
+## archives après --clear : 0
 ################ list-after-clear
 Jeu                   État        Version     Sauvegardes  Image
 Arcade Game           -           1.2.3       SIZE         ROOT/userdata/roms/windows/Arcade Game.wsquashfs

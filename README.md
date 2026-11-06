@@ -198,20 +198,15 @@ wsquashfs-launcher --pack MonJeu.wine          # → MonJeu.wsquashfs
 # Supprimer les copies de travail et les doublons des sauvegardes : fichiers
 # du jeu recopiés sans modification (jeu qui ouvre ses données en écriture :
 # plusieurs Go de copies possibles), DLL que Proton recopie à chaque lancement.
+# Vide aussi ~/.local/share/wsquashfs/backups (archives de l'ancien --backup).
 # Tout ce que le jeu a écrit est gardé ; jeux en cours exceptés.
 wsquashfs-launcher --clean
 
 # Radical : ne garder que drive_c/users (sauvegardes des jeux PC récents) de
 # tous les jeux, ou d'un seul. Prefix recréé au lancement suivant ; scores et
 # réglages écrits ailleurs (jeux arcade, dossier du jeu, registre) perdus.
-# Chaque jeu est archivé (--backup) avant ; sans archive, il n'est pas touché.
+# Aucune archive : copier d'abord avec --saves si besoin.
 wsquashfs-launcher --clear ["Nom du jeu"]
-
-# Archiver les sauvegardes (tous les jeux, ou un seul) dans
-# ~/.local/share/wsquashfs/backups/<jeu>-AAAAMMJJ-HHMMSS.tar.zst ; jeux en
-# cours exceptés. Restauration, jeu arrêté :
-#   tar -C ~/.local/share/wsquashfs/saves --xattrs --xattrs-include='user.*' -xpf <archive>
-wsquashfs-launcher --backup ["Nom du jeu"]
 
 # Copier les sauvegardes de partie (tous les jeux, ou un seul) dans la
 # ludothèque, <racine>/saves/<système>/<jeu>/drive_c/users/... : Documents,
@@ -239,7 +234,6 @@ wsquashfs-launcher --help
 ```bash
 export WSQUASHFS_SAVES_DIR="$HOME/mes-sauvegardes"   # sauvegardes overlay
 export WSQUASHFS_CACHE="$HOME/.cache/mes-jeux"        # cache de travail
-export WSQUASHFS_BACKUP_DIR="$HOME/archives-jeux"     # archives --backup / --clear
 export WSQUASHFS_DXVK=0        # désactive DXVK (activé par défaut)
 export WSQUASHFS_HIDRAW=1      # manettes Sony par hidraw ("DisableHidraw"=0)
                                # si lisibles ; défaut XInput (Xbox), comme

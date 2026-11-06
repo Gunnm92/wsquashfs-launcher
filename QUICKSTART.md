@@ -36,7 +36,7 @@ Commandes utiles :
 wsquashfs-launcher --list                  # jeux connus, état, sauvegardes
 wsquashfs-launcher --info MonJeu.wsquashfs # version, type, commande
 wsquashfs-launcher --exec MonJeu.wsquashfs winecfg
-wsquashfs-launcher --backup                # archiver les sauvegardes
+wsquashfs-launcher --saves                 # copier les sauvegardes dans la ludothèque
 wsquashfs-launcher --help
 ```
 
@@ -60,8 +60,8 @@ Ce que le jeu écrit (sauvegardes, réglages) va dans
 modifié.
 
 ```bash
-wsquashfs-launcher --backup                # archives dans ~/.local/share/wsquashfs/backups
-wsquashfs-launcher --backup "MonJeu"       # un seul jeu
+wsquashfs-launcher --saves                 # tous les jeux : copie dans <ludothèque>/saves/<système>/<jeu>
+wsquashfs-launcher --saves "MonJeu"        # un seul jeu
 ```
 
 Autre emplacement : `export WSQUASHFS_SAVES_DIR=/mnt/nas/saves`.

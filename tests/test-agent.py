@@ -105,6 +105,15 @@ class AgentTest(unittest.TestCase):
         self.assertEqual(code, 400)
         code, _ = request(self.port, "POST", "/v1/maintenance", self.token, {"action": "pack"})
         self.assertEqual(code, 400)
+        code, _ = request(self.port, "POST", "/v1/maintenance", self.token, {"action": "backup"})
+        self.assertEqual(code, 400)
+        # Un jeu : seulement pour saves, et seulement une image des dossiers roms/
+        code, _ = request(self.port, "POST", "/v1/maintenance", self.token,
+                          {"action": "clean", "rel": "win/Jeu.wsquashfs"})
+        self.assertEqual(code, 400)
+        code, _ = request(self.port, "POST", "/v1/maintenance", self.token,
+                          {"action": "saves", "rel": "../secret/x.wsquashfs"})
+        self.assertEqual(code, 400)
 
     # ── trial : chemins et durées
     def test_trial_refuses_escape_and_bad_input(self):

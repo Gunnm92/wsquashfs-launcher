@@ -326,8 +326,8 @@ deps_debian() {
     apt_ensure "Images squashfs" squashfuse squashfs-tools xz-utils || has_error=true
     apt_ensure "Mode overlay" fuse-overlayfs \
         || print_info "fuse-overlayfs indisponible — mode copy utilisé (fonctionnel)"
-    # getfattr : --clean ; zstd : --backup et VKD3D-Proton ; unzip : d7vk
-    apt_ensure "Outils (--clean, --backup, archives)" attr zstd unzip || true
+    # getfattr : --clean ; zstd : VKD3D-Proton ; unzip : d7vk
+    apt_ensure "Outils (--clean, archives)" attr zstd unzip || true
     # MangoHud (optionnel : mangohud wsquashfs-launcher jeu.wsquashfs)
     apt_ensure "MangoHud (facultatif)" mangohud mangohud:i386 \
         || apt_ensure "MangoHud (facultatif)" mangohud \
@@ -429,7 +429,7 @@ deps_arch() {
     pacman_ensure "Images squashfs" squashfuse squashfs-tools xz || has_error=true
     pacman_ensure "Mode overlay" fuse-overlayfs \
         || print_info "fuse-overlayfs indisponible — mode copy utilisé (fonctionnel)"
-    pacman_ensure "Outils (--clean, --backup, archives)" attr zstd unzip || true
+    pacman_ensure "Outils (--clean, archives)" attr zstd unzip || true
     if multilib_enabled; then
         mapfile -t lib32 < <(arch_lib32_packages)
         pacman_ensure "Bibliothèques 32 bits (wine-tkg, jeux 32 bits)" "${lib32[@]}" || has_error=true

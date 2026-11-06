@@ -64,7 +64,7 @@ SYSROOT="${WSQUASHFS_SYSROOT:-}"
 
 # ── Ligne de commande (parse_args) ─────────────────────────────────────
 ACTION="run"            # run | mount | exec | prepare | help, ou une commande de maintenance
-                        # (clean, clear, umount, pack, install, info, show, saves, backup, list, doctor)
+                        # (clean, clear, umount, pack, install, info, show, saves, list, doctor)
 GAME_ARG=""             # jeu demandé (.wsquashfs ou dossier installé)
 WINE_OVERRIDE=""        # --wine <version|chemin>
 SET_ARGS=()             # --set CLÉ=valeur (couche front-end, la plus forte)
@@ -125,7 +125,7 @@ ENV_RAW=""                  # ENV= tel qu'écrit, quand une seule couche en a un
 EXEC_PATH=""            # chemin Unix de l'exécutable, ou outil Wine (--exec)
 EXEC_ARGS=""            # arguments, pour l'affichage (CMD tel qu'écrit, ou --exec)
 EXEC_ARGS_ARR=()
-SAVE_TARGETS=()          # jeux visés par --saves / --backup (select_save_targets)
+SAVE_TARGETS=()          # jeux visés par --saves (select_save_targets)
 EXT=""                  # extension de l'exécutable, en minuscules
 RUN_CMD=()              # ligne de commande finale (build_run_command)
 
@@ -2194,17 +2194,14 @@ Usage :
         Lance un jeu installé (dossier contenant autorun.cmd) sur place, sans
         montage : le jeu écrit directement dans son dossier.
   wsquashfs-launcher --clean
-        Supprime les copies de travail (cache) et les doublons des sauvegardes :
-        fichiers identiques à l'image du jeu, DLL que Proton recopie à chaque
-        lancement. Tout ce que le jeu a écrit est gardé ; jeux en cours exceptés.
+        Supprime les copies de travail (cache), les doublons des sauvegardes
+        (fichiers identiques à l'image du jeu, DLL que Proton recopie à chaque
+        lancement) et les anciennes archives de ~/.local/share/wsquashfs/backups.
+        Tout ce que le jeu a écrit est gardé ; jeux en cours exceptés.
   wsquashfs-launcher --clear [jeu]
         Ne garde que drive_c/users des sauvegardes (de tous les jeux, ou d'un
         seul) : le reste (prefix, registre, scores et réglages écrits dans le
-        dossier du jeu) est supprimé, après archivage (--backup).
-        Confirmation au terminal.
-  wsquashfs-launcher --backup [jeu]
-        Archive les sauvegardes (de tous les jeux, ou d'un seul) dans
-        ~/.local/share/wsquashfs/backups ; jeux en cours exceptés.
+        dossier du jeu) est supprimé, sans archive. Confirmation au terminal.
   wsquashfs-launcher --list
         Liste les jeux connus : état (en cours, monté), version, taille des
         sauvegardes et image.
@@ -2262,7 +2259,7 @@ Variables d'environnement :
                              fuse : toujours fuse-overlayfs ; kernel : sans repli
   WSQUASHFS_SAVES_DIR        Sauvegardes overlay (défaut: ~/.local/share/wsquashfs/saves)
   WSQUASHFS_CACHE            Cache de travail   (défaut: ~/.cache/wsquashfs)
-  WSQUASHFS_BACKUP_DIR       Archives --backup  (défaut: ~/.local/share/wsquashfs/backups)
+  WSQUASHFS_BACKUP_DIR       Anciennes archives, vidées par --clean (défaut: ~/.local/share/wsquashfs/backups)
   WSQUASHFS_DXVK=0           Désactive DXVK (défaut : activé)
   WSQUASHFS_HIDRAW=1         Manettes Sony par hidraw si lisibles (défaut : XInput,
                              comme Batocera ; aussi par jeu via HIDRAW=1 dans autorun.cmd) ;
@@ -2458,6 +2455,7 @@ cmd_clean() {
     local games=() g
     echo "Nettoyage des copies de travail et des doublons des sauvegardes..."
     clean_cache
+    clean_backups
     mapfile -t games < <(saved_games)
     for g in "${games[@]}"; do
         clean_saves "$g"
@@ -2479,7 +2477,7 @@ cmd_clear() {
     fi
     echo "--clear ne garde que drive_c/users de ${#targets[@]} jeu(x) : scores et réglages"
     echo "  enregistrés ailleurs (jeux arcade, dossier du jeu, registre) seront perdus."
-    echo "  Chaque jeu est d'abord archivé dans $(backup_dir) (voir --backup)."
+    echo "  Aucune archive n'est faite (sauvegardes de partie : --saves)."
     if [[ -t 0 ]] && ! confirm "Continuer ?"; then
         echo "Abandon."
         return 1
@@ -2490,71 +2488,32 @@ cmd_clear() {
             echo "  ${g} : monté ou en cours, ignoré"
             continue
         fi
-        # Jamais de suppression sans archive (13/10) : --clear est irréversible.
-        backup_saves "$g" || continue
         clear_saves "$g"
     done
     return 0
 }
 
-# ── --backup ───────────────────────────────────────────────────────────
+# ── Anciennes archives (--backup, retiré) ──────────────────────────────
 
 backup_dir() {
     echo "${WSQUASHFS_BACKUP_DIR:-$HOME/.local/share/wsquashfs/backups}"
 }
 
-# backup_saves <jeu> : archive SAVES_DIR/<jeu> dans backup_dir
-# (<jeu>-AAAAMMJJ-HHMMSS.tar.zst, ou .tar.gz sans zstd). Les attributs
-# étendus sont gardés : fuse-overlayfs y marque les dossiers opaques, Wine
-# les attributs DOS. Faux si l'archive n'a pas pu être faite.
-backup_saves() {
-    local name="$1" dir archive comp=(--gzip) ext=tar.gz
-    [[ -d "${SAVES_DIR}/${name}" ]] || return 0
+# clean_backups : supprime les archives de backup_dir. --backup (retiré le
+# 06/11) archivait les sauvegardes ; --saves les copie désormais dans la
+# ludothèque, les archives n'ont plus d'usage.
+clean_backups() {
+    local dir f n=0 bytes=0
     dir=$(backup_dir)
-    if command -v zstd &>/dev/null; then
-        comp=(--zstd) ext=tar.zst
-    fi
-    archive="${dir}/${name}-$(date +%Y%m%d-%H%M%S)"
-    # Deux archives dans la même seconde (--clear juste après --backup) :
-    # suffixe, jamais d'écrasement.
-    local base="$archive" n=1
-    while [[ -e "${archive}.${ext}" ]]; do
-        archive="${base}-$((++n))"
+    [[ -d "$dir" ]] || return 0
+    for f in "$dir"/*.tar.zst "$dir"/*.tar.gz "$dir"/*.part; do
+        [[ -f "$f" ]] || continue
+        bytes=$((bytes + $(stat -c %s "$f")))
+        rm -f -- "$f" && n=$((n + 1))
     done
-    archive+=".${ext}"
-    if mkdir -p "$dir" 2>/dev/null \
-       && tar -C "$SAVES_DIR" --xattrs --xattrs-include='user.*' "${comp[@]}" \
-              -cf "${archive}.part" -- "$name" 2>/dev/null \
-       && mv -f "${archive}.part" "$archive"; then
-        chown_to_target "$dir"
-        echo "  ${name} : archivé dans ${archive} ($(du -h "$archive" | cut -f1))"
-        return 0
-    fi
-    rm -f "${archive}.part"
-    warn "${name} : échec de l'archive (${archive}), sauvegardes laissées intactes"
-    return 1
-}
-
-# cmd_backup [jeu] : un jeu, ou tous ceux qui ont des sauvegardes.
-cmd_backup() {
-    local g failed=0
-    select_save_targets "${1:-}"
-    if ((${#SAVE_TARGETS[@]} == 0)); then
-        echo "Aucune sauvegarde à archiver (${SAVES_DIR})"
-        return 0
-    fi
-    echo "Archivage des sauvegardes dans $(backup_dir)..."
-    for g in "${SAVE_TARGETS[@]}"; do
-        # Jeu en cours : ses sauvegardes changent sous tar, archive incohérente.
-        if saves_busy "$g"; then
-            echo "  ${g} : monté ou en cours, ignoré"
-            continue
-        fi
-        backup_saves "$g" || failed=1
-    done
-    echo "Restauration (jeu arrêté) :"
-    echo "  tar -C \"${SAVES_DIR}\" --xattrs --xattrs-include='user.*' -xpf <archive>"
-    return "$failed"
+    rmdir -- "$dir" 2>/dev/null || true
+    ((n)) && echo "✓ ${n} archive(s) supprimée(s) ($(numfmt --to=iec --suffix=o "$bytes"), ${dir})"
+    return 0
 }
 
 # ── --list ─────────────────────────────────────────────────────────────
@@ -2668,7 +2627,6 @@ cmd_doctor() {
     doctor_tool mksquashfs "--pack" note
     doctor_tool getfattr "--clean (doublons des sauvegardes)" note
     doctor_tool flock "verrou par jeu (double lancement)" note
-    doctor_tool zstd "archives --backup compactes (sinon gzip)" note
     if ! command -v squashfuse &>/dev/null && ! command -v unsquashfs &>/dev/null; then
         fatal=1
     fi
@@ -2755,7 +2713,7 @@ cmd_doctor() {
     fi
 
     echo "Dossiers"
-    for dir in "$SAVES_DIR" "$CACHE_DIR" "$(backup_dir)"; do
+    for dir in "$SAVES_DIR" "$CACHE_DIR"; do
         if [[ ! -e "$dir" ]]; then
             doctor_note "${dir} : pas encore créé"
         elif [[ -w "$dir" ]]; then
@@ -4234,7 +4192,7 @@ parse_args() {
                 ACTION="update"
                 return 0
                 ;;
-            --clean|--clear|--umount|--pack|--install|--info|--show|--saves|--backup|--list|--doctor)
+            --clean|--clear|--umount|--pack|--install|--info|--show|--saves|--list|--doctor)
                 # Commandes autonomes : le reste de la ligne leur appartient.
                 ACTION="${1#--}"
                 CMD_ARGS=("${@:2}")
@@ -4315,7 +4273,6 @@ main() {
         info)    show_info "${CMD_ARGS[@]}" ;;
         show)    cmd_show "${CMD_ARGS[@]}" ;;
         saves)   cmd_saves "${CMD_ARGS[@]}" ;;
-        backup)  cmd_backup "${CMD_ARGS[@]}" ;;
         list)    cmd_list ;;
         doctor)  cmd_doctor ;;
         agent)   cmd_agent "${CMD_ARGS[@]}" ;;
