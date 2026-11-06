@@ -30,12 +30,23 @@ Merci de votre intérêt pour contribuer à WSquashFS Launcher !
 
 ## 📝 Standards de code
 
-### Scripts Bash
+### Lanceur (Go)
+
+Le lanceur est un binaire Go **sans dépendance tierce** (bibliothèque standard
+seulement), dont les sources sont dans `cmd/wsquashfs-launcher/`.
+
+- `make build` régénère le binaire versionné `wsquashfs-launcher` ; à committer
+  avec les sources
+- `make lint` lance `gofmt` et `go vet` (et `shellcheck` sur les scripts)
+- Les fonctions gardent les noms de l'ancienne version bash quand c'est possible,
+  et les dates (JJ/MM) des commentaires renvoient aux constats qui ont motivé
+  un comportement : à relire avant de le modifier
+
+### Scripts (installeur, tests)
 
 - Utilisez `#!/bin/bash` en première ligne
 - Indentez avec 4 espaces
 - Ajoutez des commentaires pour les sections complexes
-- Vérifiez les erreurs avec `set -e` quand approprié
 - Utilisez des variables en majuscules pour les constantes
 
 ### Structure
@@ -60,13 +71,16 @@ MA_CONSTANTE="valeur"
 ## 🧪 Tests
 
 Le lanceur a une suite de tests de non-régression (`tests/run-tests.sh`) :
-elle lance le vrai script sur des dizaines de scénarios, avec de vrais
+elle lance le vrai binaire sur des dizaines de scénarios, avec de vrais
 montages FUSE mais un faux Wine/Proton/umu qui journalise ses appels, et
-compare la trace obtenue à `tests/expected.out`.
+compare la trace obtenue à `tests/expected.out`. Les tests unitaires Go
+(`go test ./...` dans `cmd/wsquashfs-launcher/`) complètent cette suite.
+Les scénarios se lancent dans un environnement avec `/dev/fuse` (le conteneur
+SteamBox, par exemple), pas dans un conteneur sans FUSE.
 
 ```bash
-make test          # doit afficher « ✓ N scénarios conformes »
-make lint          # shellcheck
+make test          # tests Go puis scénarios : « ✓ N scénarios conformes »
+make lint          # gofmt, go vet, shellcheck
 make test-update   # après un changement de comportement VOULU : relire
                    # le diff de tests/expected.out avant de commiter
 ```

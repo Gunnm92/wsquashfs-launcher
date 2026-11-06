@@ -335,7 +335,10 @@ echo "HID_ID=0005:0000054C:00000CE6" > "${ROOT}/sysfs/hidraw99/device/uevent"
 # horodatage des archives, environnement (Docker ou non), emplacement des
 # outils système (--doctor).
 normalize() {
-    sed -e "s#${ROOT}#ROOT#g" -e "s#${LAUNCHER}#LAUNCHER#g" \
+    # Barres de progression (mksquashfs, unsquashfs) : leur sortie dépend de la
+    # version des outils et du terminal (\r) ; elles ne sont pas comparées.
+    sed -e 's/\r//g' -e '/^\[=*|\] [0-9]*\/[0-9]* 100%$/d' \
+        -e "s#${ROOT}#ROOT#g" -e "s#${LAUNCHER}#LAUNCHER#g" \
         -e 's/-[0-9]\{8\}-[0-9]\{6\}\(-[0-9]*\)\{0,1\}\.tar\./-DATE.tar./g' \
         -e 's#^\(  ✓ [a-z0-9-]*\) (\(/\|ROOT/sysbin/\)[^)]*)#\1 (PATH)#' \
         -e 's#^\(  ✓ dualsense-usb-bridge\) (.*)#\1 (PATH)#' \
@@ -382,17 +385,6 @@ note() {
     echo "## $*" >> "$OUT"
 }
 
-# unit <titre> <code bash> : exécute du code avec le lanceur chargé par
-# « source » (fonctions seules, main n'est pas appelé).
-unit() {
-    local title="$1"
-    shift
-    {
-        echo "################ unit $title"
-        bash -c "source \"\$1\"; $*" _ "$LAUNCHER" 2>&1 | normalize
-    } >> "$OUT"
-}
-
 mounted() {
     if mountpoint -q "$1"; then echo "monté"; else echo "non monté"; fi
 }
@@ -419,11 +411,7 @@ stop_background() {
 L="$LAUNCHER"
 : > "$OUT"
 
-# Fonctions isolées
-# shellcheck disable=SC2016  # code exécuté par unit, développé là-bas
-unit runner_name 'for b in "" /usr/local/bin/proton /usr/bin/wine64 /x/wine-tkg/bin/wine /x/GE-Proton9-1/files/bin/wine; do echo "[$b] → $(runner_name "$b")"; done'
 # shellcheck disable=SC2016
-unit split_command_line 'for l in "-a -b" "-path \"C:\\Mon Jeu\\x\" -n" "\"\" fin" "  x   y  " "a\"b c\"d"; do printf "%s →" "$l"; split_command_line "$l" | while IFS= read -r -d "" a; do printf " [%s]" "$a"; done; echo; done'
 
 # Ligne de commande
 step help          "$L" --help
@@ -769,7 +757,6 @@ if [[ -z "$KERNEL_SKIP" ]]; then
     # .wh..wh..opq, attribut user.fuseoverlayfs.opaque, noms échappés par
     # getfattr) et fichiers supprimés (.wh.<nom>).
     # shellcheck disable=SC2016
-    unit saves_to_kernel_format 'u="$HOME/unit-upper"; mkdir -p "$u/opq" "$u/Développé\\x" "$u/wh"; : > "$u/opq/.wh..wh..opq"; setfattr -n user.fuseoverlayfs.opaque -v y "$u/Développé\\x"; : > "$u/wh/.wh.gone"; : > "$u/wh/.wh.kept"; echo k > "$u/wh/kept"; saves_to_kernel_format "$u" && echo "conversion : ok"; (cd "$u" && find . -mindepth 1 -printf "%y %p\n" | sort); for d in opq "Développé\\x" wh; do echo "$d opaque=$(getfattr --only-values -n user.overlay.opaque "$u/$d" 2>/dev/null)"; done; rm -rf "$u"'
 
     # Sauvegardes au format fuse-overlayfs, vues par le jeu : Bin opaque
     # (fichier .wh..wh..opq : Config.exe de l'image masqué), regs opaque

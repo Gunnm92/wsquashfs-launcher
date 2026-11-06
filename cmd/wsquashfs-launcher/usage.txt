@@ -1,0 +1,126 @@
+Usage :
+  wsquashfs-launcher [--wine <version>] <jeu.wsquashfs>
+        Lance le jeu (autorun.cmd).
+  wsquashfs-launcher [--wine <version>] --exec <jeu.wsquashfs> <programme> [arguments...]
+        Lance un autre programme dans le prefix du jeu : un exécutable du jeu
+        (chemin relatif au prefix ou au DIR de l'autorun.cmd, ex. Config.exe,
+        drive_c/dossier/Lanceur.exe) ou un outil Wine (winecfg,
+        regedit, cmd, explorer, control joy.cpl...).
+  wsquashfs-launcher --mount <jeu.wsquashfs>
+        Monte le jeu et le laisse monté pour le modifier à la main ; les
+        changements vont dans le dossier de sauvegardes du jeu.
+  wsquashfs-launcher --umount [<jeu.wsquashfs>]
+        Démonte un jeu (ou tous les jeux montés).
+  wsquashfs-launcher --pack <Jeu.wine | Jeu.pc> [sortie.wsquashfs]
+        Crée un .wsquashfs (zstd) à partir d'un prefix Wine ou d'un jeu seul ;
+        défaut : Jeu.wsquashfs à côté. Un runner propre au jeu se joint en le
+        copiant dans <dossier>/runners/<nom>/.
+  wsquashfs-launcher --install <jeu.wsquashfs> [dossier]
+        Extrait le jeu dans <dossier>/<Jeu> (défaut : à côté de l'image), pour
+        jouer sans FUSE ; l'image est conservée, ses sauvegardes non reprises.
+  wsquashfs-launcher --info <jeu.wsquashfs | dossier>
+        Affiche la version du jeu (GAME_VERSION= de l'autorun.cmd), son type
+        de prefix, sa commande et sa taille, sans monter l'image.
+  wsquashfs-launcher --show <jeu.wsquashfs | dossier> [--set CLÉ=valeur]...
+        Affiche les réglages finaux du jeu (voir « Réglages par couches ») et
+        la couche qui a fourni chacun, ENV= variable par variable, ainsi que
+        l'emplacement de ses sauvegardes ; sans monter l'image.
+  wsquashfs-launcher [--wine <version>] --prepare <jeu.wsquashfs>
+        Prépare le prefix du jeu (création ou mise à jour, DXVK, VKD3D,
+        NVAPI, registre) sans le lancer.
+  wsquashfs-launcher --saves [jeu]
+        Copie les sauvegardes de partie (de tous les jeux, ou d'un seul) dans
+        la ludothèque, <racine>/saves/<système>/<jeu>/, chemin gardé
+        (drive_c/users/...) : Documents, Saved Games, AppData (caches exclus).
+        Sens unique, rien n'est supprimé ; jeux en cours exceptés. Inutile
+        pour un jeu à SAVEDIR=/SAVEFILES= (sauvegardes déjà là).
+  wsquashfs-launcher [--wine <version>] <dossier du jeu>
+        Dossier contenant autorun.cmd. Jeu.pc (jeu à empaqueter) : essayé
+        comme son image, en overlay ; le dossier n'est jamais modifié, ce que
+        le jeu écrit va dans les sauvegardes de Jeu (reprises par
+        Jeu.wsquashfs). Autre dossier (prefix .wine, jeu installé par
+        --install) : lancé sur place, le jeu écrit directement dans son dossier.
+  wsquashfs-launcher --clean
+        Supprime les copies de travail (cache), les doublons des sauvegardes
+        (fichiers identiques à l'image du jeu, DLL que Proton recopie à chaque
+        lancement) et les anciennes archives de ~/.local/share/wsquashfs/backups.
+        Tout ce que le jeu a écrit est gardé ; jeux en cours exceptés.
+  wsquashfs-launcher --clear [jeu]
+        Ne garde que drive_c/users des sauvegardes (de tous les jeux, ou d'un
+        seul) : le reste (prefix, registre, scores et réglages écrits dans le
+        dossier du jeu) est supprimé, sans archive. Confirmation au terminal.
+  wsquashfs-launcher --list
+        Liste les jeux connus : état (en cours, monté), version, taille des
+        sauvegardes et image.
+  wsquashfs-launcher --doctor
+  wsquashfs-launcher --agent [--standalone]
+        Agent pour wsquashfs-manager (machine de jeu sur le réseau) : répond
+        au gestionnaire, s'arrête seul sans requête (socket systemd).
+  wsquashfs-launcher --pair
+        Adresse, jeton et empreinte à reporter dans wsquashfs-manager.
+  wsquashfs-launcher --update
+        Met à jour le lanceur et le moteur de l'agent depuis GitHub.
+        Vérifie l'installation (FUSE, Wine/Proton, umu, DXVK, VKD3D, d7vk,
+        manettes, dossiers) et indique ce qui manque.
+
+Options :
+  --wine <version>  Runner Wine/Proton à utiliser : nom (ou partie du nom) d'un
+                    runner installé dans /opt, /usr/wine ou
+                    ~/.local/share/wsquashfs/wine, chemin d'un binaire wine,
+                    ou "system". Un Proton (Heroic, Steam) est lancé via umu
+                    sur un jeu à prefix Proton ou sans prefix.
+  --set CLÉ=valeur  Réglage pour ce lancement seulement, plus fort que tous les
+                    fichiers (répétable) : --set NVAPI=0 --set ENV=DXVK_HUD=fps
+  --headless        Jeu dans gamescope sans écran (essai en arrière-plan) ;
+                    taille VIRTUAL_DESKTOP, sinon 1920x1080
+
+Réglages par couches (de la plus faible à la plus forte) :
+  1. défauts du lanceur
+  2. ~/.config/wsquashfs/defaults.autorun   machine (facultatif)
+  3. variables WSQUASHFS_* ci-dessous        machine
+  4. <dossier du jeu>/_defaults.autorun      tous les jeux du dossier (facultatif)
+  5. autorun.cmd de l'image
+  6. <jeu>.wsquashfs.autorun                 surcharge du jeu, à côté de l'image
+  7. --set CLÉ=valeur
+  Même format CLÉ=valeur partout (fichiers ignorés par Batocera). CLÉ= vide
+  dans les couches 4 à 7 : retour à la valeur des couches 1 à 3.
+  ENV= se fusionne variable par variable : NOM=valeur ajoute ou remplace,
+  -NOM retire la variable d'une couche plus faible, ENV= vide les retire
+  toutes. WSQUASHFS_HIDRAW reste prioritaire sur tout.
+
+Runner joint au jeu :
+  runners/<nom>/ à la racine de l'image (Proton : proton + files/bin/wine ;
+  Wine : bin/wine), désigné par PROTON=<nom> ou WINE=<nom>, ou seul dans
+  runners/. Il passe avant les runners de la machine (--wine excepté) et sert
+  en lecture seule. Runner nommé introuvable : erreur.
+
+Modes de montage (automatique) :
+  overlay   sauvegardes isolées, idéal : overlay du noyau dans un namespace
+            utilisateur si l'environnement le permet, sinon squashfuse +
+            fuse-overlayfs
+  copy      squashfuse ou unsquashfs + cache persistant
+  dossier   jeu installé (--install) lancé sur place, sans FUSE
+
+Variables d'environnement :
+  WSQUASHFS_OVERLAY          auto (défaut) : overlay noyau, repli sur fuse-overlayfs ;
+                             fuse : toujours fuse-overlayfs ; kernel : sans repli
+  WSQUASHFS_SAVES_DIR        Sauvegardes overlay (défaut: ~/.local/share/wsquashfs/saves)
+  WSQUASHFS_CACHE            Cache de travail   (défaut: ~/.cache/wsquashfs)
+  WSQUASHFS_BACKUP_DIR       Anciennes archives, vidées par --clean (défaut: ~/.local/share/wsquashfs/backups)
+  WSQUASHFS_DXVK=0           Désactive DXVK (défaut : activé)
+  WSQUASHFS_HIDRAW=1         Manettes Sony par hidraw si lisibles (défaut : XInput,
+                             comme Batocera ; aussi par jeu via HIDRAW=1 dans autorun.cmd) ;
+                             DualSense Bluetooth présentée en USB (dualsense-usb-bridge)
+  WSQUASHFS_HIDRAW=bt        Idem, DualSense Bluetooth en direct (haptiques Bluetooth)
+  (MangoHud, gamemode... : outils extérieurs, ex. "mangohud wsquashfs-launcher jeu.wsquashfs" —
+   leurs variables sont transmises au jeu, y compris lancé en root)
+  WSQUASHFS_VIRTUAL_DESKTOP  Bureau virtuel Wine pour tous les jeux (ex: 1920x1080),
+                             aussi par jeu via VIRTUAL_DESKTOP= dans autorun.cmd
+  WSQUASHFS_NVAPI=auto|0|1   NVAPI / DLSS. auto (défaut) : active si carte NVIDIA et dxvk-nvapi
+                             présents ; 0 coupe, 1 demande. Aussi par jeu : NVAPI= dans autorun.cmd
+  WSQUASHFS_VKREFLEX=auto|0|1  Couche Reflex de dxvk-nvapi. auto (défaut) : active si NVAPI
+                             est active et la couche installée ; 1 force NVAPI ; 0 coupe.
+                             Aussi par jeu : VKREFLEX= dans autorun.cmd
+  WSQUASHFS_FSR=0|1          FSR de Wine en plein écran (défaut 0). Aussi par jeu : FSR=1 dans autorun.cmd
+  WSQUASHFS_FSR4=0|1         FSR4 (amdxcffx64.dll, carte AMD, DLL d'install.sh) : la DLL est posée dans le
+                             prefix, le jeu décide de l'utiliser. Défaut 0. Aussi par jeu : FSR4=1

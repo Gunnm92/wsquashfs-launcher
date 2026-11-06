@@ -1,13 +1,3 @@
-################ unit saves_to_kernel_format
-conversion : ok
-c ./wh/gone
-d ./Développé\x
-d ./opq
-d ./wh
-f ./wh/kept
-opq opaque=y
-Développé\x opaque=y
-wh opaque=
 ################ kernel-arcade
 =========================================
 WSquashFS Launcher

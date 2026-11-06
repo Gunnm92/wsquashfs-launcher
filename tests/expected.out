@@ -1,15 +1,3 @@
-################ unit runner_name
-[] → aucun Wine
-[/usr/local/bin/proton] → proton (/usr/local/bin/proton)
-[/usr/bin/wine64] → wine64 (/usr/bin/wine64)
-[/x/wine-tkg/bin/wine] → wine-tkg
-[/x/GE-Proton9-1/files/bin/wine] → GE-Proton9-1
-################ unit split_command_line
--a -b → [-a] [-b]
--path "C:\Mon Jeu\x" -n → [-path] [C:\Mon Jeu\x] [-n]
-"" fin → [] [fin]
-  x   y   → [x] [y]
-a"b c"d → [ab cd]
 ################ help
 Usage :
   wsquashfs-launcher [--wine <version>] <jeu.wsquashfs>
@@ -308,7 +296,6 @@ Usage : LAUNCHER --exec <jeu.wsquashfs> <programme> [arguments...]
 == rc=1
 ################ pack1
 Création de ROOT/userdata/roms/windows/Arcade Game.wsquashfs depuis ROOT/src/Arcade Game.wine...
-[===================================================================|] 8/8 100%
 ✓ ROOT/userdata/roms/windows/Arcade Game.wsquashfs (SIZE)
   Version : 1.2.3
 == rc=0
@@ -318,19 +305,16 @@ Erreur : ROOT/userdata/roms/windows/Arcade Game.wsquashfs existe déjà (jamais 
 == rc=1
 ################ pack2
 Création de ROOT/userdata/roms/windows/Solo Game.wsquashfs depuis ROOT/src/Solo Game...
-[===================================================================|] 2/2 100%
 ✓ ROOT/userdata/roms/windows/Solo Game.wsquashfs (SIZE)
   Version non renseignée (GAME_VERSION=... dans l'autorun.cmd, voir --info)
 == rc=0
 ################ pack3
 Création de ROOT/src/Old32.wsquashfs depuis ROOT/src/Old32.wine...
-[===================================================================|] 3/3 100%
 ✓ ROOT/src/Old32.wsquashfs (SIZE)
   Version non renseignée (GAME_VERSION=... dans l'autorun.cmd, voir --info)
 == rc=0
 ################ pack4
 Création de ROOT/userdata/roms/windows/Proton Game.wsquashfs depuis ROOT/src/Proton Game.wine...
-[===================================================================|] 4/4 100%
 ✓ ROOT/userdata/roms/windows/Proton Game.wsquashfs (SIZE)
   Version non renseignée (GAME_VERSION=... dans l'autorun.cmd, voir --info)
 == rc=0
@@ -1875,7 +1859,6 @@ Sauvegardes   : dans l'overlay ; --saves les copie dans ROOT/userdata/saves/wind
 == rc=0
 ################ folder-pc-pack
 Création de ROOT/userdata/roms/windows/Folder Game.wsquashfs depuis ROOT/userdata/roms/windows/Folder Game.pc...
-[===================================================================|] 2/2 100%
 ✓ ROOT/userdata/roms/windows/Folder Game.wsquashfs (SIZE)
   Version non renseignée (GAME_VERSION=... dans l'autorun.cmd, voir --info)
 == rc=0
@@ -3146,13 +3129,11 @@ WINESERVER -w
 ## lien FSR4 -> ROOT/sysroot/usr/share/fsr4/amdxcffx64.dll
 ################ pack-hook
 Création de ROOT/userdata/roms/windows/Hook Game.wsquashfs depuis ROOT/src/Hook Game...
-[===================================================================|] 4/4 100%
 ✓ ROOT/userdata/roms/windows/Hook Game.wsquashfs (SIZE)
   Version non renseignée (GAME_VERSION=... dans l'autorun.cmd, voir --info)
 == rc=0
 ################ pack-prefail
 Création de ROOT/userdata/roms/windows/Pre Fail Game.wsquashfs depuis ROOT/src/Pre Fail Game...
-[===================================================================|] 2/2 100%
 ✓ ROOT/userdata/roms/windows/Pre Fail Game.wsquashfs (SIZE)
   Version non renseignée (GAME_VERSION=... dans l'autorun.cmd, voir --info)
 == rc=0
@@ -3794,7 +3775,6 @@ WINESERVER -k
 WINESERVER -w
 ################ pack-loader
 Création de ROOT/userdata/roms/windows/Loader Game.wsquashfs depuis ROOT/src/Loader Game...
-[===================================================================|] 3/3 100%
 ✓ ROOT/userdata/roms/windows/Loader Game.wsquashfs (SIZE)
   Version non renseignée (GAME_VERSION=... dans l'autorun.cmd, voir --info)
 == rc=0
@@ -3890,37 +3870,31 @@ WINESERVER -w
 ## processus laissés par ATTACH : 0
 ################ pack-Joint-Game
 Création de ROOT/userdata/roms/windows/Joint Game.wsquashfs depuis ROOT/src/Joint Game...
-[=================================================================|] 10/10 100%
 ✓ ROOT/userdata/roms/windows/Joint Game.wsquashfs (SIZE)
   Version non renseignée (GAME_VERSION=... dans l'autorun.cmd, voir --info)
 == rc=0
 ################ pack-Named-Game
 Création de ROOT/userdata/roms/windows/Named Game.wsquashfs depuis ROOT/src/Named Game...
-[=================================================================|] 10/10 100%
 ✓ ROOT/userdata/roms/windows/Named Game.wsquashfs (SIZE)
   Version non renseignée (GAME_VERSION=... dans l'autorun.cmd, voir --info)
 == rc=0
 ################ pack-Wine-Joint-Game
 Création de ROOT/userdata/roms/windows/Wine Joint Game.wsquashfs depuis ROOT/src/Wine Joint Game...
-[===================================================================|] 8/8 100%
 ✓ ROOT/userdata/roms/windows/Wine Joint Game.wsquashfs (SIZE)
   Version non renseignée (GAME_VERSION=... dans l'autorun.cmd, voir --info)
 == rc=0
 ################ pack-Missing-Runner-Game
 Création de ROOT/userdata/roms/windows/Missing Runner Game.wsquashfs depuis ROOT/src/Missing Runner Game...
-[===================================================================|] 2/2 100%
 ✓ ROOT/userdata/roms/windows/Missing Runner Game.wsquashfs (SIZE)
   Version non renseignée (GAME_VERSION=... dans l'autorun.cmd, voir --info)
 == rc=0
 ################ pack-Relative-Runner-Game
 Création de ROOT/userdata/roms/windows/Relative Runner Game.wsquashfs depuis ROOT/src/Relative Runner Game...
-[===================================================================|] 2/2 100%
 ✓ ROOT/userdata/roms/windows/Relative Runner Game.wsquashfs (SIZE)
   Version non renseignée (GAME_VERSION=... dans l'autorun.cmd, voir --info)
 == rc=0
 ################ pack-Two-Runners-Game
 Création de ROOT/userdata/roms/windows/Two Runners Game.wsquashfs depuis ROOT/src/Two Runners Game...
-[=================================================================|] 18/18 100%
 ✓ ROOT/userdata/roms/windows/Two Runners Game.wsquashfs (SIZE)
   Version non renseignée (GAME_VERSION=... dans l'autorun.cmd, voir --info)
 == rc=0
@@ -4625,7 +4599,6 @@ Installation de Arcade Game dans ROOT/installed/Arcade Game...
 Parallel unsquashfs: Using N processors
 11 inodes (8 blocks) to write
 
-[=================================================================|] 19/19 100%
 
 created 9 files
 created 12 directories
@@ -8498,7 +8471,6 @@ l src/Arcade Game.wine/drive_c/windows/system32/dxgi.dll -> /userdata/system/win
 ## montages restants : 0
 ################ layers-pack
 Création de ROOT/userdata/roms/layers/Layer Game.wsquashfs depuis ROOT/src/Layer Game...
-[===================================================================|] 2/2 100%
 ✓ ROOT/userdata/roms/layers/Layer Game.wsquashfs (SIZE)
   Version non renseignée (GAME_VERSION=... dans l'autorun.cmd, voir --info)
 == rc=0

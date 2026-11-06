@@ -28,7 +28,8 @@ En mode **copy**, le résultat de l'extraction est mis en cache — les relances
 - Support versions Wine multiples, Proton, runner personnalisé
 - Import automatique des fichiers `.reg`
 - Nettoyage automatique des montages (trap EXIT/INT/TERM)
-- Aucun `eval` — exécution sécurisée par tableaux bash
+- Aucun `eval` : les commandes sont passées en listes d'arguments (sans shell),
+  sauf `PRE=` et `ATTACH=` de l'autorun.cmd, qui sont des lignes de commande
 
 ## Installation
 
@@ -99,7 +100,10 @@ sudo pacman -S lib32-libxkbcommon
 sudo pacman -S mangohud lib32-mangohud
 ```
 
-### Installation du script
+### Installation manuelle du lanceur
+
+Le lanceur est un binaire versionné à la racine du dépôt (voir
+« Lanceur (Go) » dans CONTRIBUTING.md pour le recompiler).
 
 ```bash
 git clone https://github.com/Gunnm92/wsquashfs-launcher.git
@@ -550,7 +554,8 @@ chaque montage noyau.
 
 ```
 wsquashfs-launcher/
-├── wsquashfs-launcher          # Script principal
+├── wsquashfs-launcher          # Binaire principal (Go, versionné)
+├── cmd/wsquashfs-launcher/     # Sources Go (stdlib seulement) et tests unitaires
 ├── autorun.cmd.example         # Exemple de configuration
 ├── install.sh                  # Installation (Debian/Ubuntu, Arch/CachyOS)
 ├── Dockerfile                  # Image Docker (wine-tkg, DXVK, VKD3D, d7vk)

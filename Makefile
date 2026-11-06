@@ -1,6 +1,6 @@
 # Makefile pour WSquashFS Launcher
 
-.PHONY: help install uninstall test test-update lint deps clean build-docker run-docker
+.PHONY: help build install uninstall test test-update lint deps clean build-docker run-docker
 
 INSTALL_DIR ?= /usr/local/bin
 
@@ -8,19 +8,27 @@ help:
 	@echo "WSquashFS Launcher"
 	@echo "=================="
 	@echo ""
+	@echo "  make build          Compiler wsquashfs-launcher (binaire Go, sans dépendance)"
 	@echo "  make install        Installer wsquashfs-launcher (lance install.sh)"
 	@echo "  make uninstall      Désinstaller wsquashfs-launcher"
 	@echo "  make test           Lancer les tests de non-régression (tests/)"
 	@echo "  make test-update    Réécrire la trace attendue des tests"
-	@echo "  make lint           Analyser les scripts avec shellcheck"
+	@echo "  make lint           Analyser le code (go vet, gofmt, shellcheck)"
 	@echo "  make deps           Vérifier les dépendances"
 	@echo "  make clean          Supprimer les copies de travail"
 	@echo "  make build-docker   Construire l'image Docker"
 	@echo "  make run-docker     Aide pour lancer un jeu via Docker"
 	@echo ""
 
+# Binaire Go statique, sans dépendance (cmd/wsquashfs-launcher/). Le binaire
+# versionné à la racine est régénéré par cette cible.
+build:
+	@command -v go >/dev/null || { echo "go absent (Go 1.22 ou plus récent)"; exit 1; }
+	@cd cmd/wsquashfs-launcher && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o ../../wsquashfs-launcher .
+	@echo "✓ wsquashfs-launcher compilé"
+
 install:
-	@chmod +x install.sh wsquashfs-launcher
+	@chmod +x install.sh
 	@./install.sh
 
 uninstall:
@@ -28,14 +36,16 @@ uninstall:
 	@./install.sh --uninstall
 
 test:
+	@cd cmd/wsquashfs-launcher && go test ./...
 	@tests/run-tests.sh
 
 test-update:
 	@tests/run-tests.sh --update
 
 lint:
+	@cd cmd/wsquashfs-launcher && go vet ./... && test -z "`gofmt -l .`" && echo "✓ go vet, gofmt"
 	@command -v shellcheck >/dev/null || { echo "shellcheck absent"; exit 1; }
-	@shellcheck wsquashfs-launcher tests/run-tests.sh && echo "✓ shellcheck"
+	@shellcheck install.sh tests/run-tests.sh && echo "✓ shellcheck"
 
 deps:
 	@echo "Vérification des dépendances..."
