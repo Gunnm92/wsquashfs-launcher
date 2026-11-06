@@ -50,11 +50,13 @@ func maintenanceMain() int {
 	case "list":
 		cmdList()
 	case "doctor":
-		return cmdDoctor()
+		return cmdDoctorMain(cmdArgs)
 	case "agent":
-		return cmdAgent(cmdArgs)
+		return cmdAgentMain(cmdArgs)
 	case "pair":
-		return cmdAgent([]string{"pair"})
+		return cmdPair(cmdArgs)
+	case "trial":
+		return cmdTrialMain(cmdArgs)
 	case "update":
 		return cmdUpdate()
 	}
@@ -1052,37 +1054,6 @@ func cmdSaves(args []string) int {
 
 // ── --agent, --pair, --update ──────────────────────────────────────────
 
-// agentHelperPath : moteur de l'agent (données du lanceur).
-func agentHelperPath() string {
-	if v := os.Getenv("WSQ_AGENT_HELPER"); v != "" {
-		return v
-	}
-	return envOr("WSQ_DATA_DIR", filepath.Join(os.Getenv("HOME"), ".local/share/wsquashfs")) + "/agent/wsquashfs-agent.py"
-}
-
-// cmdAgent : agent pour wsquashfs-manager (moteur Python, remplacé par exec).
-func cmdAgent(args []string) int {
-	helper := agentHelperPath()
-	if !isFile(helper) {
-		die("agent non installé : " + os.Args[0] + " --setup --agent")
-	}
-	if _, err := exec.LookPath("python3"); err != nil {
-		die("python3 requis pour l'agent")
-	}
-	if len(args) == 0 || strings.HasPrefix(args[0], "--") {
-		args = append([]string{"serve"}, args...)
-	}
-	py, err := exec.LookPath("python3")
-	if err != nil {
-		return 1
-	}
-	argv := append([]string{"python3", helper}, args...)
-	if err := syscall.Exec(py, argv, os.Environ()); err != nil {
-		die("exécution de l'agent impossible : " + err.Error())
-	}
-	return 0
-}
-
 // cmdUpdate : met à jour le lanceur depuis GitHub. Le fichier téléchargé est
 // vérifié (script bash : bash -n ; binaire : en-tête ELF) avant remplacement.
 func cmdUpdate() int {
@@ -1114,11 +1085,15 @@ func cmdUpdate() int {
 	if err := os.Chmod(fresh, 0o755); err != nil {
 		die("droits du lanceur téléchargé impossibles")
 	}
-	if err := os.Rename(fresh, self+".new"); err != nil {
-		die("remplacement du lanceur impossible")
+	// /tmp peut être un autre système de fichiers : rename échouerait. Copie à
+	// côté du lanceur, puis renommage (le lanceur en cours garde son fichier).
+	if err := copyFile(fresh, self+".new", 0o755); err != nil {
+		os.Remove(self + ".new")
+		die("remplacement du lanceur impossible : " + err.Error())
 	}
 	if err := os.Rename(self+".new", self); err != nil {
-		die("remplacement du lanceur impossible")
+		os.Remove(self + ".new")
+		die("remplacement du lanceur impossible : " + err.Error())
 	}
 	fmt.Println("✓ Lanceur mis à jour : " + self)
 	fmt.Println("Vérification : " + os.Args[0] + " --help")

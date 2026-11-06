@@ -4,6 +4,7 @@ package main
 // (script bash, section 8).
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -11,9 +12,52 @@ import (
 	"syscall"
 )
 
-func doctorOK(msg string)   { fmt.Println("  ✓ " + msg) }
-func doctorFail(msg string) { fmt.Println("  ✗ " + msg) }
-func doctorNote(msg string) { fmt.Println("  – " + msg) }
+// Rapport de --doctor : construit une fois, rendu en texte ou en JSON (agent).
+type doctorItem struct {
+	Status  string   `json:"status"` // ok | missing | optional
+	Text    string   `json:"text"`
+	Details []string `json:"details,omitempty"`
+}
+
+type doctorSection struct {
+	Title string       `json:"title"`
+	Items []doctorItem `json:"items"`
+}
+
+type runnerEntry struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
+}
+
+var (
+	docSections []doctorSection
+	docRunners  []runnerEntry
+)
+
+// docSection : nouvelle section (titre affiché sans retrait).
+func docSection(title string) {
+	docSections = append(docSections, doctorSection{Title: title})
+}
+
+func docAdd(status, msg string) {
+	if len(docSections) == 0 {
+		docSection("")
+	}
+	last := &docSections[len(docSections)-1]
+	last.Items = append(last.Items, doctorItem{Status: status, Text: msg})
+}
+
+func doctorOK(msg string)   { docAdd("ok", msg) }
+func doctorFail(msg string) { docAdd("missing", msg) }
+func doctorNote(msg string) { docAdd("optional", msg) }
+
+// docRunner : runner installé, listé sous le dernier point (texte et JSON).
+func docRunner(name, path string) {
+	docRunners = append(docRunners, runnerEntry{Name: name, Path: path})
+	last := &docSections[len(docSections)-1]
+	item := &last.Items[len(last.Items)-1]
+	item.Details = append(item.Details, name+"  "+path)
+}
 
 // doctorTool : commande présente (ok) ou absente (fail ou note selon level).
 func doctorTool(name, role, level string) {
@@ -34,9 +78,9 @@ func writable(p string) bool {
 }
 
 // cmdDoctor : --doctor. Code 1 si aucun jeu ne peut être lancé.
-func cmdDoctor() int {
+func runDoctorChecks() bool {
 	fatal := false
-	fmt.Println("Montage des images")
+	docSection("Montage des images")
 	if st, err := os.Stat("/dev/fuse"); err == nil && st.Mode()&os.ModeCharDevice != 0 && writable("/dev/fuse") {
 		doctorOK("/dev/fuse accessible")
 	} else {
@@ -61,7 +105,7 @@ func cmdDoctor() int {
 		fatal = true
 	}
 
-	fmt.Println("Wine / Proton")
+	docSection("Wine / Proton")
 	bin := findWineBinary()
 	if bin != "" {
 		doctorOK("Wine par défaut : " + runnerName(bin) + " " + runnerVersion(bin) + " (" + bin + ")")
@@ -79,7 +123,7 @@ func cmdDoctor() int {
 	if len(runners) > 0 {
 		doctorOK("runners installés (--wine) :")
 		for _, r := range runners {
-			fmt.Println("      " + filepath.Base(r) + "  " + r)
+			docRunner(filepath.Base(r), r)
 		}
 	} else {
 		doctorNote("aucun runner installé dans /opt, /usr/wine, ~/.local/share/wsquashfs/wine ni Steam/Heroic")
@@ -94,7 +138,7 @@ func cmdDoctor() int {
 		fatal = true
 	}
 
-	fmt.Println("Rendu")
+	docSection("Rendu")
 	if d := findDxvkDir(); d != "" {
 		doctorOK("DXVK (" + d + ")")
 	} else {
@@ -148,7 +192,7 @@ func cmdDoctor() int {
 		}
 	}
 
-	fmt.Println("Manettes")
+	docSection("Manettes")
 	if hidrawUsable() {
 		doctorOK("manette Sony lisible par hidraw (HIDRAW=1 possible)")
 	} else {
@@ -160,7 +204,7 @@ func cmdDoctor() int {
 		doctorNote("dualsense-usb-bridge absent : DualSense Bluetooth en direct avec HIDRAW=1")
 	}
 
-	fmt.Println("Dossiers")
+	docSection("Dossiers")
 	for _, d := range []string{savesDir, cacheDir} {
 		if !pathExists(d) {
 			doctorNote(d + " : pas encore créé")
@@ -174,11 +218,71 @@ func cmdDoctor() int {
 		doctorOK("réglages machine : " + f + " (" + overrideKeys(f) + ")")
 	}
 
+	return fatal
+}
+
+// cmdDoctor : --doctor, texte. Code 1 si aucun jeu ne peut être lancé.
+func cmdDoctor() int {
+	fatal := runDoctorChecks()
+	printDoctorText(fatal)
+	if fatal {
+		return 1
+	}
+	return 0
+}
+
+// printDoctorText : rendu texte du rapport (sortie humaine).
+func printDoctorText(fatal bool) {
+	for _, sec := range docSections {
+		if sec.Title != "" {
+			fmt.Println(sec.Title)
+		}
+		for _, it := range sec.Items {
+			mark := map[string]string{"ok": "✓", "missing": "✗", "optional": "–"}[it.Status]
+			fmt.Println("  " + mark + " " + it.Text)
+			for _, d := range it.Details {
+				fmt.Println("      " + d)
+			}
+		}
+	}
 	fmt.Println()
 	if fatal {
 		fmt.Println("✗ Aucun jeu ne peut être lancé : voir les points ✗ ci-dessus")
-		return 1
+		return
 	}
 	fmt.Println("✓ Prêt à lancer des jeux")
-	return 0
+}
+
+// doctorJSON : rapport structuré (--doctor --json, route /v1/doctor de l'agent).
+type doctorJSON struct {
+	Code     int             `json:"code"`
+	Sections []doctorSection `json:"sections"`
+	Runners  []runnerEntry   `json:"runners"`
+	Verdict  string          `json:"verdict"`
+}
+
+func printDoctorJSON(fatal bool) {
+	out := doctorJSON{Sections: docSections, Runners: docRunners, Verdict: "✓ Prêt à lancer des jeux"}
+	if fatal {
+		out.Code = 1
+		out.Verdict = "✗ Aucun jeu ne peut être lancé : voir les points ✗ ci-dessus"
+	}
+	data, _ := json.MarshalIndent(out, "", "  ")
+	fmt.Println(string(data))
+}
+
+// cmdDoctorMain : --doctor [--json]. Le JSON est le rapport structuré, lu par
+// l'agent et par wsquashfs-manager ; le texte est la sortie humaine.
+func cmdDoctorMain(args []string) int {
+	for _, a := range args {
+		if a == "--json" {
+			fatal := runDoctorChecks()
+			printDoctorJSON(fatal)
+			if fatal {
+				return 1
+			}
+			return 0
+		}
+	}
+	return cmdDoctor()
 }

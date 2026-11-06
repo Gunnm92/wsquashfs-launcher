@@ -53,14 +53,20 @@ Usage :
   wsquashfs-launcher --list
         Liste les jeux connus : état (en cours, monté), version, taille des
         sauvegardes et image.
-  wsquashfs-launcher --doctor
-  wsquashfs-launcher --agent [--standalone]
-        Agent pour wsquashfs-manager (machine de jeu sur le réseau) : répond
-        au gestionnaire, s'arrête seul sans requête (socket systemd).
-  wsquashfs-launcher --pair
-        Adresse, jeton et empreinte à reporter dans wsquashfs-manager.
+  wsquashfs-launcher --doctor [--json]
+        Vérifie l'installation (texte ; --json : rapport structuré).
+  wsquashfs-launcher --trial <jeu.wsquashfs> [durée] [--session NOM] [--screenshot FICHIER]
+        Lance le jeu pendant la durée (60 s par défaut), observe ses processus
+        et fenêtres, l'arrête, et écrit le rapport en JSON.
+  wsquashfs-launcher --pair [--reset] [--roms DIR]... [--port N]
+        Prépare l'agent (jeton, certificat, dossiers roms/) et affiche le code
+        d'association à coller dans wsquashfs-manager. --reset : nouveau jeton.
+  wsquashfs-launcher --agent [log]
+        Agent pour wsquashfs-manager (machine de jeu sur le réseau). Sert en
+        HTTPS, sur le port configuré ; avec systemd (socket), s'arrête seul sans
+        requête. « log » : trace de chaque requête sur la sortie d'erreur.
   wsquashfs-launcher --update
-        Met à jour le lanceur et le moteur de l'agent depuis GitHub.
+        Met à jour le lanceur depuis GitHub.
         Vérifie l'installation (FUSE, Wine/Proton, umu, DXVK, VKD3D, d7vk,
         manettes, dossiers) et indique ce qui manque.
 

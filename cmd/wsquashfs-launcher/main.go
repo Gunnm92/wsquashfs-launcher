@@ -78,7 +78,7 @@ func launcherMain() int {
 
 	switch action {
 	case "clean", "clear", "umount", "pack", "install", "info", "show", "saves",
-		"list", "doctor", "agent", "pair", "update":
+		"list", "doctor", "agent", "pair", "trial", "update":
 		return maintenanceMain()
 	}
 	launchGame()

@@ -28,8 +28,6 @@ var (
 	protonInstallDir string
 	desktopFile      string
 	agentPort        = 8790
-	agentHelper      string
-	agentConf        string
 	agentUnitDir     string
 )
 
@@ -53,8 +51,6 @@ func setupInit() {
 	fsr4Dir = filepath.Join(wsqData, "fsr4")
 	protonInstallDir = filepath.Join(home, ".local/share/Steam/compatibilitytools.d")
 	desktopFile = filepath.Join(home, ".local/share/applications/wsquashfs-launcher.desktop")
-	agentHelper = filepath.Join(wsqData, "agent/wsquashfs-agent.py")
-	agentConf = filepath.Join(configHome, "wsquashfs-agent")
 	agentUnitDir = filepath.Join(configHome, "systemd/user")
 }
 
@@ -333,12 +329,6 @@ func installAgent() bool {
 		printInfo("relancer l'installeur sans sudo avec --agent")
 		return false
 	}
-	for _, tool := range []string{"python3", "openssl"} {
-		if _, err := exec.LookPath(tool); err != nil {
-			printError(tool + " requis pour l'agent")
-			return false
-		}
-	}
 	roms := askValue("Dossier roms/ de cette machine", agentDefaultRoms())
 	rawPort := askValue("Port de l'agent (doit être libre sur cette machine)", strconv.Itoa(agentPort))
 	port, err := strconv.Atoi(rawPort)
@@ -351,32 +341,22 @@ func installAgent() bool {
 		printError(fmt.Sprintf("Port %d déjà utilisé sur cette machine : en choisir un autre (--agent, puis répondre au port)", port))
 		return false
 	}
+	launcher := filepath.Join(installDir, "wsquashfs-launcher")
 	if dryRun {
-		fmt.Println("    [simulation] moteur de l'agent → " + agentHelper)
-		fmt.Println("    [simulation] wsquashfs-launcher --agent init --roms " + roms + "  (jeton, certificat, " + agentConf + ")")
+		fmt.Println("    [simulation] " + launcher + " --pair --roms " + roms + " --port " + strconv.Itoa(port) + "  (jeton, certificat, " + agentDir() + ")")
 		fmt.Println("    [simulation] socket " + agentUnitDir + fmt.Sprintf("/wsquashfs-agent.socket (port %d) et service", port))
 		fmt.Println("    [simulation] systemctl --user enable --now wsquashfs-agent.socket")
 		return true
 	}
-	// Le moteur vit dans les données du lanceur : la seule commande visible
-	// reste wsquashfs-launcher (--agent, --pair).
-	if err := installRepoFile("tools/wsquashfs-agent/wsquashfs-agent", agentHelper); err != nil {
-		return false
-	}
-	launcher := filepath.Join(installDir, "wsquashfs-launcher")
-	if err := runCmd(launcher, "--agent", "init", "--roms", roms, "--port", strconv.Itoa(port)); err != nil {
+	// Configuration, jeton et certificat : fait par le lanceur lui-même.
+	if err := runCmd(launcher, "--pair", "--roms", roms, "--port", strconv.Itoa(port)); err != nil {
 		printError("Initialisation de l'agent en échec (voir ci-dessus)")
 		return false
 	}
-	printSuccess("Agent : " + filepath.Join(installDir, "wsquashfs-agent"))
+	printSuccess("Agent : " + launcher + " --agent (configuration dans " + agentDir() + ")")
 
-	// Ancienne commande wsquashfs-agent (versions précédentes) : retirée
-	stale := filepath.Join(installDir, "wsquashfs-agent")
-	if head := readHead(stale, 40); strings.Contains(head, "python3") {
-		if os.Remove(stale) == nil {
-			printSuccess("Ancienne commande wsquashfs-agent retirée")
-		}
-	}
+	// Ancien agent (script Python) : son moteur et sa commande ne servent plus
+	removeLegacyAgent()
 	if err := writeAgentUnits(); err != nil {
 		printError("Unités de l'agent impossibles : " + err.Error())
 		return false
@@ -393,13 +373,26 @@ func installAgent() bool {
 			}
 		}
 	} else {
-		printInfo("systemd utilisateur indisponible : lancer « wsquashfs-launcher --agent --standalone »")
-		printInfo("à la main (cas d'un conteneur sans systemd)")
+		printInfo("systemd utilisateur indisponible : lancer « " + launcher + " --agent » à la main")
+		printInfo("(cas d'un conteneur sans systemd, comme SteamBox)")
 	}
 	fmt.Println()
-	printInfo("À reporter dans wsquashfs-manager (Réglages → Machine de jeu → Agent réseau) :")
+	printInfo("Code d'association à coller dans wsquashfs-manager (Réglages → Machine de jeu → Agent réseau) :")
 	_ = runCmd(launcher, "--pair")
 	return true
+}
+
+// removeLegacyAgent : retire le moteur Python de l'ancien agent (ses données
+// et sa commande). Les anciens fichiers de configuration sont laissés en place.
+func removeLegacyAgent() {
+	legacy := filepath.Join(wsqData, "agent")
+	if pathExists(legacy) && os.RemoveAll(legacy) == nil {
+		printSuccess("Ancien moteur Python de l'agent retiré : " + legacy)
+	}
+	stale := filepath.Join(installDir, "wsquashfs-agent")
+	if strings.Contains(readHead(stale, 40), "python3") && os.Remove(stale) == nil {
+		printSuccess("Ancienne commande wsquashfs-agent retirée")
+	}
 }
 
 // readHead : début (n octets) d'un fichier, "" si illisible.
@@ -468,9 +461,7 @@ func uninstall() {
 		}
 		printSuccess("Unités de l'agent supprimées")
 	}
-	if pathExists(agentHelper) {
-		_ = removePaths(agentHelper, filepath.Join(wsqData, "agent"))
-	}
+	removeLegacyAgent()
 	stale := filepath.Join(installDir, "wsquashfs-agent")
 	if strings.Contains(readHead(stale, 40), "python3") {
 		_ = removePaths(stale)
@@ -500,8 +491,8 @@ func uninstall() {
 	printInfo("Conservés (sauvegardes, cache, runners, DXVK/VKD3D/d7vk, archives) :")
 	fmt.Println("  " + wsqData + "/")
 	fmt.Println("  ~/.cache/wsquashfs/")
-	if pathExists(agentConf) {
-		fmt.Println("  " + agentConf + "/ (jeton et certificat de l'agent)")
+	if pathExists(agentDir()) {
+		fmt.Println("  " + agentDir() + "/ (jeton et certificat de l'agent)")
 	}
 	fmt.Println("Conservé (partagé avec Steam et Heroic) : " + protonInstallDir + "/")
 	fmt.Println("Paquets système conservés.")

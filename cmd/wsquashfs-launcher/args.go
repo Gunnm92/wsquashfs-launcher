@@ -47,6 +47,11 @@ func parseArgs(args []string) (*options, error) {
 			return o, nil
 		case "--pair":
 			o.action = "pair"
+			o.cmdArgs = args[i+1:]
+			return o, nil
+		case "--trial":
+			o.action = "trial"
+			o.cmdArgs = args[i+1:]
 			return o, nil
 		case "--update":
 			o.action = "update"
