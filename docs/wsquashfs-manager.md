@@ -301,3 +301,10 @@ l'étape 2, sur la fiche d'une image.
    l'image (`<jeu>.wsquashfs.autorun`) lu par le lanceur, pour tester un
    réglage instantanément avant de l'inscrire dans l'image — ignoré par
    Batocera.
+   **Fait** (04/10), puis étendu en réglages par couches (06/11, voir le
+   README) : machine, dossier (`_defaults.autorun`), image, surcharge,
+   `--set`. Depuis, `ENV=` se **fusionne** variable par variable (`-NOM`
+   retire une variable) : en inscrivant une surcharge dans l'image
+   (`drop_override`), le manager doit fusionner `ENV=` de la même façon au
+   lieu de remplacer la ligne. `--show` donne la valeur finale de chaque clé
+   et sa couche, réutilisable pour l'affichage.

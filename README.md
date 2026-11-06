@@ -175,6 +175,20 @@ wsquashfs-launcher /chemin/MonJeu
 # et taille — lus dans l'image sans la monter (aussi sur un dossier installé)
 wsquashfs-launcher --info MonJeu.wsquashfs
 
+# Réglages finaux du jeu et couche d'où vient chacun (voir « Réglages par
+# couches »), ENV= variable par variable, emplacement des sauvegardes
+wsquashfs-launcher --show MonJeu.wsquashfs [--set NVAPI=0]
+
+# Réglage pour ce lancement seulement (répétable), plus fort que tout fichier
+wsquashfs-launcher --set NVAPI=0 --set ENV=DXVK_HUD=fps MonJeu.wsquashfs
+
+# Préparer le prefix (création/mise à jour, DXVK, VKD3D, NVAPI, registre)
+# sans lancer le jeu
+wsquashfs-launcher --prepare MonJeu.wsquashfs
+
+# Essai sans écran : le jeu tourne dans gamescope en arrière-plan
+wsquashfs-launcher --headless MonJeu.wsquashfs
+
 # Créer un .wsquashfs (zstd) à partir d'un prefix Wine
 wsquashfs-launcher --pack MonJeu.wine          # → MonJeu.wsquashfs
 # Image existante : confirmation au terminal (et proposition de réinitialiser
@@ -198,6 +212,14 @@ wsquashfs-launcher --clear ["Nom du jeu"]
 # cours exceptés. Restauration, jeu arrêté :
 #   tar -C ~/.local/share/wsquashfs/saves --xattrs --xattrs-include='user.*' -xpf <archive>
 wsquashfs-launcher --backup ["Nom du jeu"]
+
+# Copier les sauvegardes de partie (tous les jeux, ou un seul) dans la
+# ludothèque, <racine>/saves/<système>/<jeu>/drive_c/users/... : Documents,
+# Saved Games, AppData (caches exclus). Sens unique, rien n'est supprimé ;
+# pour les retrouver ailleurs (Batocera, autre machine). Inutile pour un jeu
+# à SAVEDIR=/SAVEFILES=. Restauration, jeu arrêté :
+#   cp -a <racine>/saves/<système>/<jeu>/drive_c ~/.local/share/wsquashfs/saves/<jeu>/
+wsquashfs-launcher --saves ["Nom du jeu"]
 
 # Jeux connus : état (en cours, verrouillé, monté), version, taille des
 # sauvegardes et image d'origine
@@ -374,22 +396,46 @@ Sans `WINE`, `PROTON`, `RUNNER`, runner joint ni `--wine` :
 | `ESYNC` | Event synchronization | `0` / `1` |
 | `FSYNC` | Futex synchronization | `0` / `1` |
 
-### Surcharge sans reconstruction (`<jeu>.wsquashfs.autorun`)
+### Réglages par couches
 
-Un fichier `<jeu>.wsquashfs.autorun` posé **à côté de l'image** (même format
-que l'`autorun.cmd`) permet d'essayer un réglage tout de suite, sans
-reconstruire l'image : une clé qui y figure l'emporte sur celle de l'image,
-`CLÉ=` vide la ramène au défaut du lanceur, les autres clés viennent de
-l'image. Le lancement et `--info` l'annoncent (« Surcharge : … »).
+Chaque clé vient de la couche la plus forte qui la définit (même format
+`CLÉ=valeur` partout ; Batocera ne lit que l'`autorun.cmd`) :
+
+| # | Couche | Fichier | |
+|---|---|---|---|
+| 1 | défauts du lanceur | — | |
+| 2 | machine | `~/.config/wsquashfs/defaults.autorun` | facultatif |
+| 3 | machine | variables `WSQUASHFS_*` (DXVK, NVAPI, VKREFLEX, D7VK, VIRTUAL_DESKTOP) | |
+| 4 | dossier | `<dossier du jeu>/_defaults.autorun` : tous les jeux du dossier | facultatif |
+| 5 | image | `autorun.cmd` | |
+| 6 | surcharge | `<jeu>.wsquashfs.autorun`, à côté de l'image | facultatif |
+| 7 | ligne de commande | `--set CLÉ=valeur` | facultatif |
+
+- `CLÉ=` vide dans les couches 4 à 7 : retour à la valeur des couches 1 à 3.
+- `ENV=` se **fusionne** variable par variable : `NOM=valeur` ajoute ou
+  remplace, `-NOM` retire une variable d'une couche plus faible, `ENV=` vide
+  les retire toutes.
+- `WSQUASHFS_HIDRAW` reste prioritaire sur tout.
+- Le lancement annonce les couches présentes ; `--show` donne la valeur
+  finale de chaque clé et sa couche.
+
+Surcharge : essayer un réglage tout de suite, sans reconstruire l'image.
+Exemple : ajouter une variable aux `ENV=` de l'image sans les recopier :
 
 ```
-# Le Jeu.wsquashfs.autorun
-GAME_VERSION=1.2.0
-HIDRAW=1
+# MonJeu.wsquashfs.autorun
+ENV=PROTON_DISABLE_NVAPI=1
 ```
 
-Batocera ne lit pas ce fichier : une fois le réglage validé, l'inscrire dans
-l'image (wsquashfs-manager le fait en une action) et supprimer la surcharge.
+Réglage commun à un dossier, par exemple tous les jeux de `roms/arcade/` :
+
+```
+# roms/arcade/_defaults.autorun
+DXVK=0
+```
+
+Une fois un réglage de surcharge validé, l'inscrire dans l'image
+(wsquashfs-manager le fait en une action) et supprimer la surcharge.
 
 ### Exemples
 

@@ -63,10 +63,12 @@ SELF=""                 # chemin de ce script, relancé dans le namespace
 SYSROOT="${WSQUASHFS_SYSROOT:-}"
 
 # ── Ligne de commande (parse_args) ─────────────────────────────────────
-ACTION="run"            # run | mount | exec | help, ou une commande de maintenance
-                        # (clean, clear, umount, pack, install, info, backup, list, doctor)
+ACTION="run"            # run | mount | exec | prepare | help, ou une commande de maintenance
+                        # (clean, clear, umount, pack, install, info, show, saves, backup, list, doctor)
 GAME_ARG=""             # jeu demandé (.wsquashfs ou dossier installé)
 WINE_OVERRIDE=""        # --wine <version|chemin>
+SET_ARGS=()             # --set CLÉ=valeur (couche front-end, la plus forte)
+HEADLESS=0              # --headless : jeu dans gamescope sans écran
 EXEC_CMD=()             # --exec : programme et ses arguments
 CMD_ARGS=()             # arguments d'une commande de maintenance
 ORIG_ARGS=()            # ligne de commande d'origine (relance dans le namespace)
@@ -106,6 +108,19 @@ FSR4=""                 # FSR4=1 : amdxcffx64.dll dans le prefix (AMD seulement,
 FSR4_ON=0               # 1 : DLL FSR4 réellement posée (carte AMD + DLL trouvée)
 PRE_CMD="" ATTACH_CMD="" ATTACH_PROCESS="" ATTACH_PID=""
 
+# ── Couches de réglages (load_layers, 06/11) ───────────────────────────
+# Du plus faible au plus fort : défauts du lanceur, machine (fichier puis
+# WSQUASHFS_*), dossier, image, surcharge, --set. Voir la section 3.
+MACHINE_LAYER=""        # ~/.config/wsquashfs/defaults.autorun s'il existe
+FOLDER_LAYER=""         # <dossier du jeu>/_defaults.autorun s'il existe
+declare -A MACHINE_VAL=()   # clés de la couche machine (fichier)
+declare -A LAYER_VAL=()     # clés des couches dossier → --set (la plus forte gagne)
+declare -A LAYER_SRC=()     # couche qui a fourni LAYER_VAL[clé]
+declare -A ENV_VAL=()       # ENV= fusionné : variable → NOM=valeur
+declare -A ENV_SRC=()       # couche qui a fourni chaque variable
+ENV_ORDER=()                # ordre d'apparition des variables
+ENV_LAYERS=0                # nombre de couches qui ont un ENV=
+ENV_RAW=""                  # ENV= tel qu'écrit, quand une seule couche en a un
 # ── Exécutable (resolve_executable) ────────────────────────────────────
 EXEC_PATH=""            # chemin Unix de l'exécutable, ou outil Wine (--exec)
 EXEC_ARGS=""            # arguments, pour l'affichage (CMD tel qu'écrit, ou --exec)
@@ -496,20 +511,181 @@ override_keys() {
     grep -o '^[A-Za-z_][A-Za-z0-9_]*=' "$1" | tr -d '=' | paste -sd ' '
 }
 
-# autorun_var <clé> <défaut> : valeur d'une clé de l'autorun.cmd du prefix
-# monté, surcharge comprise ; le défaut si elle est absente ou vide.
-autorun_var() {
-    local key="$1" default="$2" val
-    if val=$(override_var "${AUTORUN_OVERRIDE:-}" "$key"); then
-        echo "${val:-$default}"
+# ── Réglages par couches (06/11) ───────────────────────────────────────
+#
+# Comme les profils du loader d'arcade de RGS (système → machine → jeu →
+# front-end), chaque clé vient de la couche la plus forte qui la définit :
+#   1. défauts du lanceur (KEY_DEFAULT) ;
+#   2. machine, fichier : ~/.config/wsquashfs/defaults.autorun ;
+#   3. machine, environnement : WSQUASHFS_DXVK, _NVAPI... (KEY_ENVVAR) ;
+#   4. dossier : <dossier du jeu>/_defaults.autorun ;
+#   5. image : autorun.cmd du prefix ;
+#   6. surcharge : <jeu>.wsquashfs.autorun ;
+#   7. --set CLÉ=valeur (front-end, essai ponctuel).
+# Les couches 2, 4 et 7 sont facultatives : sans elles, rien ne change. Même
+# format partout (CLÉ=valeur de l'autorun.cmd), fichiers que Batocera ignore.
+# CLÉ= vide dans une couche 4 à 7 : retour à la valeur des couches 1 à 3.
+# WSQUASHFS_HIDRAW reste prioritaire sur tout (choose_hidraw_mode).
+#
+# ENV= se fusionne variable par variable au lieu d'être remplacé : une
+# surcharge ENV=PROTON_DISABLE_NVAPI=1 s'ajoute aux variables de l'image
+# (Anno 117, 01/11 : il fallait recopier tout l'ENV). -NOM retire une
+# variable d'une couche plus faible, ENV= vide les retire toutes.
+
+declare -A KEY_DEFAULT=(
+    [DXVK]=1 [VKD3D]=1 [D7VK]=1 [ESYNC]=0 [FSYNC]=0
+    [NVAPI]=auto [VKREFLEX]=auto [HIDRAW]=0 [FSR]=0 [FSR4]=0
+)
+declare -A KEY_ENVVAR=(
+    [DXVK]=WSQUASHFS_DXVK [D7VK]=WSQUASHFS_D7VK [NVAPI]=WSQUASHFS_NVAPI
+    [VKREFLEX]=WSQUASHFS_VKREFLEX [VIRTUAL_DESKTOP]=WSQUASHFS_VIRTUAL_DESKTOP
+    [HIDRAW]=WSQUASHFS_HIDRAW [FSR]=WSQUASHFS_FSR [FSR4]=WSQUASHFS_FSR4
+)
+
+machine_layer_file() {
+    echo "${XDG_CONFIG_HOME:-$HOME/.config}/wsquashfs/defaults.autorun"
+}
+
+# merge_env_layer <couche> <ENV tel qu'écrit> : fusionne dans ENV_VAL.
+merge_env_layer() {
+    local src="$1" raw="$2" tok name toks=()
+    ENV_LAYERS=$((ENV_LAYERS + 1))
+    ENV_RAW="$raw"
+    if [[ -z "$raw" ]]; then
+        ENV_VAL=() ENV_SRC=() ENV_ORDER=()
         return
     fi
-    if [[ -e "${WINEPOINT}/autorun.cmd" ]]; then
-        val=$(grep "^${key}=" "${WINEPOINT}/autorun.cmd" | sed "s/^${key}=//" | head -1 | tr -d '\r')
-        echo "${val:-$default}"
-    else
-        echo "$default"
+    read -r -a toks <<< "$raw"
+    for tok in "${toks[@]}"; do
+        if [[ "$tok" == -* && "$tok" != *=* ]]; then
+            name="${tok#-}"
+            [[ -n "$name" ]] || continue
+            unset "ENV_VAL[$name]" "ENV_SRC[$name]"
+            continue
+        fi
+        name="${tok%%=*}"
+        [[ -n "$name" ]] || continue
+        [[ -n "${ENV_VAL[$name]+x}" ]] || ENV_ORDER+=("$name")
+        ENV_VAL[$name]="$tok"
+        ENV_SRC[$name]="$src"
+    done
+}
+
+# ENV= final. Une seule couche avec un ENV= : la ligne telle qu'écrite (les
+# lancements sans couches en plus ne changent pas d'un octet).
+merged_env() {
+    local n out=()
+    local -A seen=()
+    if ((ENV_LAYERS <= 1)); then
+        printf '%s' "$ENV_RAW"
+        return
     fi
+    for n in "${ENV_ORDER[@]}"; do
+        [[ -n "${ENV_VAL[$n]+x}" && -z "${seen[$n]:-}" ]] || continue
+        seen[$n]=1
+        out+=("${ENV_VAL[$n]}")
+    done
+    local IFS=' '
+    printf '%s' "${out[*]}"
+}
+
+# read_layer <couche> <contenu> : première occurrence de chaque clé, comme
+# l'ancien grep | head -1 ; fins de ligne DOS tolérées.
+read_layer() {
+    local src="$1" line key val
+    local -A seen=()
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        line="${line//$'\r'/}"
+        [[ "$line" =~ ^([A-Za-z_][A-Za-z0-9_]*)=(.*)$ ]] || continue
+        key="${BASH_REMATCH[1]}" val="${BASH_REMATCH[2]}"
+        [[ -z "${seen[$key]:-}" ]] || continue
+        seen[$key]=1
+        if [[ "$key" == ENV ]]; then
+            merge_env_layer "$src" "$val"
+        elif [[ "$src" == machine ]]; then
+            MACHINE_VAL[$key]="$val"
+        else
+            LAYER_VAL[$key]="$val"
+            LAYER_SRC[$key]="$src"
+        fi
+    done <<< "$2"
+}
+
+# load_layers <contenu de l'autorun.cmd de l'image> : lit toutes les couches
+# présentes. WSQUASHFS_FILE et AUTORUN_OVERRIDE doivent être posés.
+load_layers() {
+    local f
+    MACHINE_VAL=() LAYER_VAL=() LAYER_SRC=()
+    ENV_VAL=() ENV_SRC=() ENV_ORDER=() ENV_LAYERS=0 ENV_RAW=""
+    MACHINE_LAYER="" FOLDER_LAYER=""
+    f=$(machine_layer_file)
+    if [[ -f "$f" ]]; then
+        MACHINE_LAYER="$f"
+        read_layer machine "$(< "$f")"
+    fi
+    if [[ -n "$WSQUASHFS_FILE" ]]; then
+        f="$(dirname "${WSQUASHFS_FILE%/}")/_defaults.autorun"
+        if [[ -f "$f" ]]; then
+            FOLDER_LAYER="$f"
+            read_layer dossier "$(< "$f")"
+        fi
+    fi
+    read_layer image "$1"
+    if [[ -n "$AUTORUN_OVERRIDE" && -f "$AUTORUN_OVERRIDE" ]]; then
+        read_layer surcharge "$(< "$AUTORUN_OVERRIDE")"
+    fi
+    if ((${#SET_ARGS[@]})); then
+        read_layer --set "$(printf '%s\n' "${SET_ARGS[@]}")"
+    fi
+    return 0
+}
+
+# layer_lookup <clé> [défaut] : valeur finale dans LOOKUP_VAL, couche dans
+# LOOKUP_SRC (sans sous-shell, pour --show). Le défaut sert aux clés absentes
+# de KEY_DEFAULT.
+LOOKUP_VAL="" LOOKUP_SRC=""
+layer_lookup() {
+    local key="$1" envvar="${KEY_ENVVAR[$1]:-}"
+    if [[ -n "${KEY_DEFAULT[$key]+x}" ]]; then
+        LOOKUP_VAL="${KEY_DEFAULT[$key]}"
+    else
+        LOOKUP_VAL="${2:-}"
+    fi
+    LOOKUP_SRC="défaut"
+    if [[ -n "${MACHINE_VAL[$key]:-}" ]]; then
+        LOOKUP_VAL="${MACHINE_VAL[$key]}"
+        LOOKUP_SRC="machine"
+    fi
+    if [[ -n "$envvar" && -n "${!envvar:-}" ]]; then
+        LOOKUP_VAL="${!envvar}"
+        LOOKUP_SRC="machine (${envvar})"
+    fi
+    if [[ -n "${LAYER_SRC[$key]:-}" ]]; then
+        if [[ -n "${LAYER_VAL[$key]}" ]]; then
+            LOOKUP_VAL="${LAYER_VAL[$key]}"
+            LOOKUP_SRC="${LAYER_SRC[$key]}"
+        else
+            LOOKUP_SRC+=" (${LAYER_SRC[$key]} : vide)"
+        fi
+    fi
+    # WSQUASHFS_HIDRAW passe avant tout (choose_hidraw_mode)
+    if [[ "$key" == HIDRAW && -n "${WSQUASHFS_HIDRAW:-}" ]]; then
+        LOOKUP_VAL="$WSQUASHFS_HIDRAW"
+        LOOKUP_SRC="machine (WSQUASHFS_HIDRAW, prioritaire)"
+    fi
+    return 0
+}
+
+# autorun_var <clé> [défaut] : valeur finale d'une clé, toutes couches
+# confondues (load_layers fait par read_autorun).
+autorun_var() {
+    if [[ "$1" == ENV ]]; then
+        merged_env
+        echo
+        return
+    fi
+    layer_lookup "$@"
+    echo "$LOOKUP_VAL"
 }
 
 # Version du jeu packagé : GAME_VERSION= de l'autorun.cmd (29/09). Batocera
@@ -1999,6 +2175,19 @@ Usage :
   wsquashfs-launcher --info <jeu.wsquashfs | dossier>
         Affiche la version du jeu (GAME_VERSION= de l'autorun.cmd), son type
         de prefix, sa commande et sa taille, sans monter l'image.
+  wsquashfs-launcher --show <jeu.wsquashfs | dossier> [--set CLÉ=valeur]...
+        Affiche les réglages finaux du jeu (voir « Réglages par couches ») et
+        la couche qui a fourni chacun, ENV= variable par variable, ainsi que
+        l'emplacement de ses sauvegardes ; sans monter l'image.
+  wsquashfs-launcher [--wine <version>] --prepare <jeu.wsquashfs>
+        Prépare le prefix du jeu (création ou mise à jour, DXVK, VKD3D,
+        NVAPI, registre) sans le lancer.
+  wsquashfs-launcher --saves [jeu]
+        Copie les sauvegardes de partie (de tous les jeux, ou d'un seul) dans
+        la ludothèque, <racine>/saves/<système>/<jeu>/, chemin gardé
+        (drive_c/users/...) : Documents, Saved Games, AppData (caches exclus).
+        Sens unique, rien n'est supprimé ; jeux en cours exceptés. Inutile
+        pour un jeu à SAVEDIR=/SAVEFILES= (sauvegardes déjà là).
   wsquashfs-launcher [--wine <version>] <dossier du jeu>
         Lance un jeu installé (dossier contenant autorun.cmd) sur place, sans
         montage : le jeu écrit directement dans son dossier.
@@ -2034,6 +2223,24 @@ Options :
                     ~/.local/share/wsquashfs/wine, chemin d'un binaire wine,
                     ou "system". Un Proton (Heroic, Steam) est lancé via umu
                     sur un jeu à prefix Proton ou sans prefix.
+  --set CLÉ=valeur  Réglage pour ce lancement seulement, plus fort que tous les
+                    fichiers (répétable) : --set NVAPI=0 --set ENV=DXVK_HUD=fps
+  --headless        Jeu dans gamescope sans écran (essai en arrière-plan) ;
+                    taille VIRTUAL_DESKTOP, sinon 1920x1080
+
+Réglages par couches (de la plus faible à la plus forte) :
+  1. défauts du lanceur
+  2. ~/.config/wsquashfs/defaults.autorun   machine (facultatif)
+  3. variables WSQUASHFS_* ci-dessous        machine
+  4. <dossier du jeu>/_defaults.autorun      tous les jeux du dossier (facultatif)
+  5. autorun.cmd de l'image
+  6. <jeu>.wsquashfs.autorun                 surcharge du jeu, à côté de l'image
+  7. --set CLÉ=valeur
+  Même format CLÉ=valeur partout (fichiers ignorés par Batocera). CLÉ= vide
+  dans les couches 4 à 7 : retour à la valeur des couches 1 à 3.
+  ENV= se fusionne variable par variable : NOM=valeur ajoute ou remplace,
+  -NOM retire la variable d'une couche plus faible, ENV= vide les retire
+  toutes. WSQUASHFS_HIDRAW reste prioritaire sur tout.
 
 Runner joint au jeu :
   runners/<nom>/ à la racine de l'image (Proton : proton + files/bin/wine ;
@@ -2547,6 +2754,9 @@ cmd_doctor() {
             doctor_fail "${dir} : pas d'accès en écriture"
         fi
     done
+    # Couche machine (06/11) : signalée seulement si présente
+    dir=$(machine_layer_file)
+    [[ -f "$dir" ]] && doctor_ok "réglages machine : ${dir} ($(override_keys "$dir"))"
 
     echo ""
     if ((fatal)); then
@@ -2696,6 +2906,193 @@ info_runner() {
     fi
 }
 
+# autorun.cmd d'une image (lu sans la monter) ou d'un dossier installé.
+image_autorun() {
+    if [[ -d "$1" ]]; then
+        cat "${1%/}/autorun.cmd" 2>/dev/null
+    elif command -v unsquashfs &>/dev/null; then
+        unsquashfs -cat "$1" autorun.cmd 2>/dev/null
+    fi
+    return 0
+}
+
+# ── --show (06/11) ─────────────────────────────────────────────────────
+
+# Clés affichées par --show, dans cet ordre ; les autres clés présentes dans
+# une couche suivent.
+SHOW_KEYS=(CMD DIR GAME_VERSION PROTON WINE RUNNER ARCH DXVK VKD3D D7VK NVAPI VKREFLEX
+           ESYNC FSYNC HIDRAW LANG VIRTUAL_DESKTOP SAVEDIR SAVEFILES PRE ATTACH ATTACH_PROCESS)
+
+# --show <jeu> [--set CLÉ=valeur]... : valeur finale de chaque réglage et la
+# couche qui l'a fournie, sans monter l'image (autorun.cmd lu dans l'image
+# d'origine : une modification faite par --mount n'y figure pas).
+cmd_show() {
+    local src="" key extra=() n sysdir
+    local -A shown=() seen=()
+    while (($#)); do
+        case "$1" in
+            --set) parse_set_arg "${2:-}"; shift 2 ;;
+            *)
+                [[ -z "$src" ]] || usage_error "$0 --show <jeu.wsquashfs | dossier> [--set CLÉ=valeur]..."
+                src="$1"
+                shift
+                ;;
+        esac
+    done
+    [[ -n "$src" && -e "$src" ]] || usage_error "$0 --show <jeu.wsquashfs | dossier> [--set CLÉ=valeur]..."
+    src=$(realpath "$src")
+    WSQUASHFS_FILE="$src"
+    GAME_NAME=$(basename "$src" .wsquashfs)
+    AUTORUN_OVERRIDE="${src%/}.autorun"
+    [[ -f "$AUTORUN_OVERRIDE" ]] || AUTORUN_OVERRIDE=""
+    load_layers "$(image_autorun "$src")"
+
+    echo "Jeu           : ${GAME_NAME}"
+    echo "Couches (de la plus faible à la plus forte) :"
+    echo "  machine     : ${MACHINE_LAYER:-$(machine_layer_file) (absent)}"
+    echo "  dossier     : ${FOLDER_LAYER:-$(dirname "$src")/_defaults.autorun (absent)}"
+    echo "  image       : autorun.cmd"
+    echo "  surcharge   : ${src%/}.autorun$([[ -n "$AUTORUN_OVERRIDE" ]] || echo " (absent)")"
+    ((${#SET_ARGS[@]})) && echo "  --set       : ${SET_ARGS[*]}"
+    echo ""
+    echo "Réglages :"
+    for key in "${SHOW_KEYS[@]}"; do shown[$key]=1; done
+    for key in "${!MACHINE_VAL[@]}" "${!LAYER_VAL[@]}"; do
+        [[ -n "${shown[$key]:-}" ]] || extra+=("$key")
+    done
+    mapfile -t extra < <(printf '%s\n' "${extra[@]}" | sort -u | grep .)
+    for key in "${SHOW_KEYS[@]}" "${extra[@]}"; do
+        layer_lookup "$key"
+        [[ -z "$LOOKUP_VAL" && "$LOOKUP_SRC" == "défaut" ]] && continue
+        printf '  %-16s = %-28s (%s)\n' "$key" "$LOOKUP_VAL" "$LOOKUP_SRC"
+    done
+    if ((ENV_LAYERS)); then
+        echo "  ENV :"
+        [[ -n "$(merged_env)" ]] || echo "    (aucune variable : ENV= vide)"
+        for n in "${ENV_ORDER[@]}"; do
+            [[ -n "${ENV_VAL[$n]+x}" && -z "${seen[$n]:-}" ]] || continue
+            seen[$n]=1
+            printf '    %-42s (%s)\n' "${ENV_VAL[$n]}" "${ENV_SRC[$n]}"
+        done
+    fi
+    echo ""
+    echo "Overlay       : ${SAVES_DIR}/${GAME_NAME}"
+    layer_lookup SAVEDIR
+    key="$LOOKUP_VAL"
+    layer_lookup SAVEFILES
+    if ! sysdir=$(batocera_saves_dir); then
+        echo "Sauvegardes   : hors d'un dossier roms/<système>/ (WSQUASHFS_BATOCERA_SAVES)"
+    elif [[ -n "${key}${LOOKUP_VAL}" ]]; then
+        echo "Sauvegardes   : ${sysdir} (SAVEDIR/SAVEFILES)"
+    else
+        echo "Sauvegardes   : dans l'overlay ; --saves les copie dans ${sysdir}"
+    fi
+}
+
+# ── --saves (06/11) ────────────────────────────────────────────────────
+
+# Dossiers du profil Windows où les jeux écrivent leurs sauvegardes (noms
+# récents, puis ceux des anciens prefixes).
+SAVES_PROFILE_DIRS=("Documents" "Saved Games" "AppData/Roaming" "AppData/LocalLow" "AppData/Local"
+                    "My Documents" "Application Data" "Local Settings/Application Data")
+
+# copy_game_saves <jeu> : copie les sauvegardes de partie de l'overlay dans
+# saves/<système>/<jeu>/ de la ludothèque, chemin gardé
+# (drive_c/users/<utilisateur>/...). Fichiers ordinaires seulement : ni
+# liens (Documents relié au home par Wine), ni fichiers marqués supprimés
+# par l'overlay, ni caches (Temp, shaders, INetCache, CrashDumps). Sens
+# unique : un fichier n'est recopié que s'il est absent ou plus récent, rien
+# n'est supprimé dans la ludothèque.
+copy_game_saves() {
+    local name="$1" saves="${SAVES_DIR}/${1}" img="" dest udir u sub f rel n=0 m=0 bytes=0 savedir
+    [[ -f "${SAVES_DIR}/.images/${name}" ]] && img=$(< "${SAVES_DIR}/.images/${name}")
+    if [[ -z "$img" ]]; then
+        echo "  ${name} : image inconnue (aucun lancement enregistré), ignoré"
+        return 0
+    fi
+    WSQUASHFS_FILE="$img"
+    GAME_NAME="$name"
+    if ! dest=$(batocera_saves_dir); then
+        echo "  ${name} : hors d'un dossier roms/<système>/ (définir WSQUASHFS_BATOCERA_SAVES), ignoré"
+        return 0
+    fi
+    AUTORUN_OVERRIDE="${img%/}.autorun"
+    [[ -f "$AUTORUN_OVERRIDE" ]] || AUTORUN_OVERRIDE=""
+    if [[ -e "$img" ]]; then
+        load_layers "$(image_autorun "$img")"
+    else
+        load_layers ""
+    fi
+    layer_lookup SAVEDIR
+    savedir="$LOOKUP_VAL"
+    layer_lookup SAVEFILES
+    if [[ -n "${savedir}${LOOKUP_VAL}" ]]; then
+        echo "  ${name} : déjà dans ${dest} (SAVEDIR/SAVEFILES)"
+        return 0
+    fi
+    if [[ ! -d "${saves}/drive_c/users" ]]; then
+        echo "  ${name} : aucune sauvegarde de partie dans l'overlay"
+        return 0
+    fi
+    for udir in "${saves}/drive_c/users"/*/; do
+        u=$(basename "$udir")
+        case "$u" in
+            Public|"All Users"|"Default User"|LocalService|NetworkService) continue ;;
+        esac
+        for sub in "${SAVES_PROFILE_DIRS[@]}"; do
+            [[ -d "${udir}${sub}" && ! -L "${udir}${sub}" ]] || continue
+            while IFS= read -r -d '' f; do
+                rel="${f#"${saves}"/}"
+                m=$((m + 1))
+                [[ -e "${dest}/${rel}" && ! "$f" -nt "${dest}/${rel}" ]] && continue
+                if mkdir -p "$(dirname "${dest}/${rel}")" && cp -p -- "$f" "${dest}/${rel}"; then
+                    n=$((n + 1))
+                    bytes=$((bytes + $(stat -c %s "$f")))
+                else
+                    warn "${name} : copie impossible de ${rel}"
+                fi
+            done < <(find "${udir}${sub}" \
+                        \( -type d \( -name Temp -o -name NVIDIA -o -name D3DSCache -o -name DXCache \
+                                      -o -iname '*shadercache*' -o -name INetCache -o -name CrashDumps \) -prune \) \
+                        -o \( -type f ! -name '.wh.*' -print0 \))
+        done
+    done
+    if ((m == 0)); then
+        echo "  ${name} : aucune sauvegarde de partie dans l'overlay"
+    elif ((n)); then
+        chown_to_target "$dest"
+        echo "  ${name} : ${n} fichier(s) copié(s) ($(numfmt --to=iec --suffix=o "$bytes")) dans ${dest}"
+    else
+        echo "  ${name} : à jour (${dest})"
+    fi
+}
+
+# cmd_saves [jeu] : un jeu, ou tous ceux qui ont un overlay ; jeux en cours
+# exceptés (leurs fichiers changent pendant la copie).
+cmd_saves() {
+    local targets=() g
+    if [[ -n "${1:-}" ]]; then
+        targets=("$(basename "$1" .wsquashfs)")
+        [[ -d "${SAVES_DIR}/${targets[0]}" ]] || die "aucune sauvegarde pour ${targets[0]}"
+    else
+        mapfile -t targets < <(saved_games)
+    fi
+    if ((${#targets[@]} == 0)); then
+        echo "Aucune sauvegarde (${SAVES_DIR})"
+        return 0
+    fi
+    echo "Copie des sauvegardes de partie dans la ludothèque..."
+    for g in "${targets[@]}"; do
+        if game_running "$g"; then
+            echo "  ${g} : en cours, ignoré"
+            continue
+        fi
+        copy_game_saves "$g"
+    done
+    echo "Restauration (jeu arrêté) : recopier <ludothèque>/saves/<système>/<jeu>/drive_c"
+    echo "  dans ${SAVES_DIR}/<jeu>/ (cp -a)"
+}
+
 # --install <jeu.wsquashfs> [dossier] (29/09) : l'inverse de --pack —
 # extrait l'image dans <dossier>/<Jeu> (défaut : à côté de l'image), pour
 # jouer sans FUSE ; le dossier se lance ensuite directement
@@ -2766,6 +3163,9 @@ check_dependencies() {
        && ! { find_umu_run >/dev/null && [[ -n "$(find_proton_runner "")" ]]; }; then
         die "aucun binaire Wine ni Proton (avec umu-run) trouvé"
     fi
+    if [[ "$HEADLESS" == "1" ]] && ! command -v gamescope &>/dev/null; then
+        die "--headless demande gamescope (absent)"
+    fi
     if [[ "$DIR_MODE" == "0" ]] && ! command -v squashfuse &>/dev/null && ! command -v unsquashfs &>/dev/null; then
         die "ni squashfuse ni unsquashfs ne sont disponibles" \
             "  → apt-get install squashfuse squashfs-tools"
@@ -2800,9 +3200,16 @@ print_header() {
     version=$(game_version "$WSQUASHFS_FILE")
     [[ -n "$version" ]] && echo "Version       : $version"
     echo "Fichier       : $WSQUASHFS_FILE"
+    # Couches facultatives (06/11) : annoncées seulement si présentes.
+    local layer
+    layer=$(machine_layer_file)
+    [[ -f "$layer" ]] && echo "Réglages mach.: ${layer} ($(override_keys "$layer"))"
+    layer="$(dirname "${WSQUASHFS_FILE%/}")/_defaults.autorun"
+    [[ -f "$layer" ]] && echo "Réglages dos. : ${layer} ($(override_keys "$layer"))"
     if [[ -n "$AUTORUN_OVERRIDE" ]]; then
         echo "Surcharge     : $(basename "$AUTORUN_OVERRIDE") ($(override_keys "$AUTORUN_OVERRIDE"))"
     fi
+    ((${#SET_ARGS[@]})) && echo "Options --set : ${SET_ARGS[*]}"
     [[ "$ACTION" != "run" ]] && echo "Action        : ${ACTION}${EXEC_CMD[0]:+ (${EXEC_CMD[0]})}"
     return 0
 }
@@ -2927,6 +3334,7 @@ read_autorun() {
     if [[ ! -f "${WINEPOINT}/autorun.cmd" && "$ACTION" != "exec" ]]; then
         die "autorun.cmd introuvable dans le wsquashfs"
     fi
+    load_layers "$(cat "${WINEPOINT}/autorun.cmd" 2>/dev/null)"
 
     DIR=$(unquote "$(autorun_var DIR "")")
     CMD=$(autorun_var CMD "")
@@ -2939,7 +3347,7 @@ read_autorun() {
     # NVIDIA, l'OpenGL de wined3d tombe sur llvmpipe (rendu logiciel) alors
     # que Vulkan voit bien le GPU. DXVK=0 dans autorun.cmd (par jeu) ou
     # WSQUASHFS_DXVK=0 (global) pour revenir aux DLL intégrées de Wine.
-    DXVK=$(autorun_var DXVK "${WSQUASHFS_DXVK:-1}")
+    DXVK=$(autorun_var DXVK)
     # Choix demandé, avant le repli faute de DXVK local : sous Proton, qui a
     # son propre DXVK, seul un DXVK=0 voulu passe en wined3d.
     DXVK_WANTED="$DXVK"
@@ -2953,7 +3361,7 @@ read_autorun() {
     # tout jeu D3D12 terminait en page fault. vkd3d-proton traduit
     # directement vers Vulkan. Sans effet sur un jeu qui ne charge pas
     # d3d12.dll ; VKD3D=0 dans l'autorun.cmd garde la priorité.
-    VKD3D=$(autorun_var VKD3D "1")
+    VKD3D=$(autorun_var VKD3D)
     if [[ "$VKD3D" == "1" && -z "$(find_vkd3d_dir)" ]]; then
         warn "VKD3D-Proton introuvable (/usr/share/vkd3d-proton), Direct3D 12 indisponible"
         VKD3D=0
@@ -2962,19 +3370,19 @@ read_autorun() {
     # d7vk activé par défaut, pour la même raison que DXVK (OpenGL = llvmpipe
     # ici) ; sans effet sur un jeu qui ne charge pas ddraw.dll. D7VK=0 dans
     # l'autorun.cmd ou WSQUASHFS_D7VK=0 pour l'écarter.
-    D7VK=$(autorun_var D7VK "${WSQUASHFS_D7VK:-1}")
+    D7VK=$(autorun_var D7VK)
     [[ "$D7VK" == "1" && -z "$(find_d7vk)" ]] && D7VK=0
 
     SAVEDIR=$(unquote "$(autorun_var SAVEDIR "")")
     SAVEFILES=$(unquote "$(autorun_var SAVEFILES "")")
-    ESYNC=$(autorun_var ESYNC "0")
-    FSYNC=$(autorun_var FSYNC "0")
-    NVAPI=$(autorun_var NVAPI "${WSQUASHFS_NVAPI:-auto}")
-    VKREFLEX=$(autorun_var VKREFLEX "${WSQUASHFS_VKREFLEX:-auto}")
-    FSR=$(autorun_var FSR "${WSQUASHFS_FSR:-0}")
-    FSR4=$(autorun_var FSR4 "${WSQUASHFS_FSR4:-0}")
+    ESYNC=$(autorun_var ESYNC)
+    FSYNC=$(autorun_var FSYNC)
+    NVAPI=$(autorun_var NVAPI)
+    VKREFLEX=$(autorun_var VKREFLEX)
+    FSR=$(autorun_var FSR)
+    FSR4=$(autorun_var FSR4)
     WINE_LANG=$(autorun_var LANG "")
-    WINE_ENV=$(autorun_var ENV "")
+    WINE_ENV=$(autorun_var ENV)
     # Commandes autour du jeu (run_game) : PRE avant, ATTACH pendant. Des
     # lignes de commande, comme CMD : guillemets laissés à bash.
     PRE_CMD=$(autorun_var PRE "")
@@ -2983,7 +3391,7 @@ read_autorun() {
     # Bureau virtuel Wine — évite les crashs KDE/WM quand le jeu change la
     # résolution. autorun.cmd (VIRTUAL_DESKTOP=1920x1080) prioritaire sur
     # WSQUASHFS_VIRTUAL_DESKTOP.
-    VIRTUAL_DESKTOP=$(autorun_var VIRTUAL_DESKTOP "${WSQUASHFS_VIRTUAL_DESKTOP:-}")
+    VIRTUAL_DESKTOP=$(autorun_var VIRTUAL_DESKTOP)
 
     if [[ -z "$CMD" && "$ACTION" != "exec" ]]; then
         die "CMD non défini dans autorun.cmd"
@@ -3419,7 +3827,7 @@ choose_hidraw_mode() {
     local mode
     HIDRAW_DISABLE=1
     HIDRAW_MSG="XInput, manette Xbox"
-    mode="${WSQUASHFS_HIDRAW:-$(autorun_var HIDRAW "0")}"
+    mode=$(autorun_var HIDRAW)
     [[ "$mode" == "1" || "$mode" == "bt" ]] || return 0
     if ! hidraw_usable; then
         HIDRAW_MSG="XInput, manette Xbox (hidraw demandé : ${HIDRAW_REASON})"
@@ -3530,6 +3938,16 @@ build_run_command() {
     [[ "$EXT" == "bat" ]] && RUN_CMD+=(cmd /c)
     RUN_CMD+=("$EXEC_PATH" "${EXEC_ARGS_ARR[@]}")
     [[ -n "$UMU_RUN" ]] && RUN_CMD[0]="$UMU_RUN"
+    # --headless (06/11) : jeu dans gamescope sans écran, pour un essai en
+    # arrière-plan qui n'occupe pas l'affichage. Taille : VIRTUAL_DESKTOP
+    # (LxH), sinon 1920x1080.
+    if [[ "$HEADLESS" == "1" ]]; then
+        local w=1920 h=1080
+        if [[ "$VIRTUAL_DESKTOP" =~ ^([0-9]+)x([0-9]+)$ ]]; then
+            w="${BASH_REMATCH[1]}" h="${BASH_REMATCH[2]}"
+        fi
+        RUN_CMD=(gamescope --backend headless -w "$w" -h "$h" -W "$w" -H "$h" -- "${RUN_CMD[@]}")
+    fi
     return 0
 }
 
@@ -3737,6 +4155,13 @@ launch_game() {
     select_runner
     configure_wine
     prepare_prefix
+    if [[ "$ACTION" == "prepare" ]]; then
+        # --prepare (06/11, le « prepare » du loader de RGS) : prefix prêt
+        # (DLL, registre, mise à jour), jeu non lancé ; cleanup démonte.
+        apply_savedir "$SAVEDIR" "$SAVEFILES"
+        echo "✓ Prefix préparé : ${GAME_NAME} (jeu non lancé)"
+        exit 0
+    fi
     configure_controllers
     apply_savedir "$SAVEDIR" "$SAVEFILES"
     print_summary
@@ -3777,6 +4202,12 @@ cleanup() {
     exit "$exit_code"
 }
 
+# --set CLÉ=valeur : couche front-end (la plus forte), répétable.
+parse_set_arg() {
+    [[ "$1" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]] || die "--set attend CLÉ=valeur (ex. --set NVAPI=0)"
+    SET_ARGS+=("$1")
+}
+
 parse_args() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -3798,7 +4229,7 @@ parse_args() {
                 ACTION="update"
                 return 0
                 ;;
-            --clean|--clear|--umount|--pack|--install|--info|--backup|--list|--doctor)
+            --clean|--clear|--umount|--pack|--install|--info|--show|--saves|--backup|--list|--doctor)
                 # Commandes autonomes : le reste de la ligne leur appartient.
                 ACTION="${1#--}"
                 CMD_ARGS=("${@:2}")
@@ -3809,8 +4240,20 @@ parse_args() {
                 WINE_OVERRIDE="$2"
                 shift 2
                 ;;
+            --set)
+                parse_set_arg "${2:-}"
+                shift 2
+                ;;
             --mount)
                 ACTION="mount"
+                shift
+                ;;
+            --prepare)
+                ACTION="prepare"
+                shift
+                ;;
+            --headless)
+                HEADLESS=1
                 shift
                 ;;
             --exec)
@@ -3865,6 +4308,8 @@ main() {
         pack)    pack_prefix "${CMD_ARGS[@]}" ;;
         install) install_game "${CMD_ARGS[@]}" ;;
         info)    show_info "${CMD_ARGS[@]}" ;;
+        show)    cmd_show "${CMD_ARGS[@]}" ;;
+        saves)   cmd_saves "${CMD_ARGS[@]}" ;;
         backup)  cmd_backup "${CMD_ARGS[@]}" ;;
         list)    cmd_list ;;
         doctor)  cmd_doctor ;;

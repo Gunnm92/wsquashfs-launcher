@@ -120,7 +120,7 @@ mkwine() {
 {
   echo "WINE $(basename "$(dirname "$(dirname "$0")")") cwd=${PWD} args:$(printf ' [%s]' "$@")"
   for v in WINEPREFIX WINEARCH WINEDLLOVERRIDES WINEDEBUG WINEUSERNAME WINEESYNC WINEFSYNC LC_ALL \
-           PROTON_USE_WINED3D PROTON_DLL_COPY PROTON_SONY_HIDRAW_XINPUT GAMEID PROTONPATH FOO \
+           PROTON_USE_WINED3D PROTON_DLL_COPY PROTON_SONY_HIDRAW_XINPUT GAMEID PROTONPATH FOO BAR ZED \
            WINE_FULLSCREEN_FSR DXVK_ENABLE_NVAPI DXVK_NVAPI_VKREFLEX DXVK_STATE_CACHE_PATH \
            __GL_SHADER_DISK_CACHE_PATH; do
     [[ -n "${!v+x}" ]] && echo "  $v=${!v}"
@@ -656,6 +656,68 @@ step clean-dup     "$L" --clean
 snapshot after-clean-dup
 step umount-final  "$L" --umount
 note "montages restants : $(mount | grep -cF "$ROOT")"
+
+# ── Réglages par couches (06/11) ───────────────────────────────────────
+# machine (fichier, puis WSQUASHFS_*) → dossier → image → surcharge → --set,
+# ENV= fusionné variable par variable. Jeu à part, dans son propre dossier
+# de roms : le _defaults.autorun du dossier ne touche aucun autre jeu.
+LR="${ROOT}/userdata/roms/layers"
+mkdir -p "$LR"
+mkjoint "Layer Game" 'DXVK=1\nENV=FOO=img BAR=img\n'
+step layers-pack   "$L" --pack "${ROOT}/src/Layer Game" "$LR/Layer Game.wsquashfs"
+step layers-show   "$L" --show "$LR/Layer Game.wsquashfs"
+printf 'DXVK=0\nNVAPI=0\nENV=ZED=dir\n' > "$LR/_defaults.autorun"
+printf 'ENV=BAR=over -FOO\r\n' > "$LR/Layer Game.wsquashfs.autorun"
+step layers-show-all "$L" --show "$LR/Layer Game.wsquashfs" --set NVAPI=1
+step layers-run    env WSQUASHFS_UMU=0 "$L" "$LR/Layer Game.wsquashfs"
+mkdir -p "$HOME/.config/wsquashfs"
+printf 'VKD3D=0\nD7VK=0\nVIRTUAL_DESKTOP=800x600\n' > "$HOME/.config/wsquashfs/defaults.autorun"
+step layers-machine env WSQUASHFS_D7VK=1 "$L" --show "$LR/Layer Game.wsquashfs"
+step layers-set    env WSQUASHFS_UMU=0 "$L" --set ENV=FOO=set --set VIRTUAL_DESKTOP= "$LR/Layer Game.wsquashfs"
+printf 'ENV=\nDXVK=\n' > "$LR/Layer Game.wsquashfs.autorun"
+step layers-env-empty env WSQUASHFS_UMU=0 "$L" "$LR/Layer Game.wsquashfs"
+step layers-show-empty "$L" --show "$LR/Layer Game.wsquashfs"
+step set-bad       "$L" --set nope "$LR/Layer Game.wsquashfs"
+step show-usage    "$L" --show
+rm -f "$HOME/.config/wsquashfs/defaults.autorun" "$LR/_defaults.autorun" "$LR/Layer Game.wsquashfs.autorun"
+
+# --prepare : prefix préparé, jeu non lancé
+step prepare       env WSQUASHFS_UMU=0 "$L" --prepare "$LR/Layer Game.wsquashfs"
+note "Layer Game après --prepare : $(mounted "${ROOT}/cache/wine/Layer Game")"
+
+# --headless : jeu dans gamescope (faux gamescope qui journalise)
+mkdir -p "$ROOT/gs"
+cat > "$ROOT/gs/gamescope" <<'EOF'
+#!/bin/bash
+echo "GAMESCOPE args:$(printf ' [%s]' "$@")" >> "$FAKELOG"
+while [[ $# -gt 0 && "$1" != "--" ]]; do shift; done
+shift
+exec "$@"
+EOF
+chmod +x "$ROOT/gs/gamescope"
+step headless      env WSQUASHFS_UMU=0 PATH="$ROOT/gs:$PATH" "$L" --headless "$LR/Layer Game.wsquashfs"
+
+# --saves : sauvegardes de partie de l'overlay copiées dans
+# userdata/saves/<système>/<jeu>, caches et fichiers supprimés exclus
+U="$ROOT/saves/Layer Game/drive_c/users/wsqtest"
+mkdir -p "$U/Documents/My Game" "$U/AppData/Roaming/Studio" "$U/AppData/Local/Temp" \
+         "$U/AppData/Local/NVIDIA/DXCache" "$U/AppData/Local/Studio"
+echo slot1 > "$U/Documents/My Game/slot1.sav"
+: > "$U/Documents/My Game/.wh.old.sav"
+echo cfg > "$U/AppData/Roaming/Studio/options.ini"
+echo prog > "$U/AppData/Local/Studio/progress.dat"
+echo tmp > "$U/AppData/Local/Temp/junk.tmp"
+echo cache > "$U/AppData/Local/NVIDIA/DXCache/x.bin"
+step saves-one     "$L" --saves "Layer Game.wsquashfs"
+note "copie : $(cd "$ROOT/userdata/saves/layers/Layer Game" && find . -type f | sort | tr '\n' ' ')"
+step saves-again   "$L" --saves "Layer Game"
+step saves-unknown "$L" --saves "Unknown"
+step saves-all     "$L" --saves
+step umount-layers "$L" --umount
+# Layer Game retiré : la trace de l'overlay noyau, plus bas, ne le voit pas.
+rm -rf "$ROOT/saves/Layer Game" "$ROOT/saves/.images/Layer Game" "$ROOT/saves/.work/Layer Game" \
+       "$ROOT/cache/wine/Layer Game" "$ROOT/cache/mnt/Layer Game" "$ROOT/cache/locks/Layer Game.lock" \
+       "$ROOT/userdata/saves/layers" "$LR" "$ROOT/src/Layer Game" "$ROOT/gs"
 
 # ── Overlay noyau (namespace utilisateur) ──────────────────────────────
 #

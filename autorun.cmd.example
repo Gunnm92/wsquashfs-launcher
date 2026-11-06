@@ -2,6 +2,13 @@ REM ============================================
 REM Exemple de fichier autorun.cmd pour WSquashFS
 REM Ce fichier doit être à la racine du fichier .wsquashfs
 REM Compatible avec Batocera et wsquashfs-launcher
+REM
+REM Même format, hors de l'image (ignorés par Batocera) :
+REM   <jeu>.wsquashfs.autorun            surcharge du jeu, à côté de l'image
+REM   <dossier>/_defaults.autorun        tous les jeux du dossier
+REM   ~/.config/wsquashfs/defaults.autorun  toute la machine
+REM ENV= y est fusionné variable par variable (-NOM retire une variable).
+REM Voir « Réglages par couches » (README, --help) et --show.
 REM ============================================
 
 REM === CONFIGURATION DE BASE (OBLIGATOIRE) ===
