@@ -24,9 +24,10 @@ Usage :
         changements vont dans le dossier de sauvegardes du jeu.
   wsquashfs-launcher --umount [<jeu.wsquashfs>]
         Démonte un jeu (ou tous les jeux montés).
-  wsquashfs-launcher --pack <Jeu.wine> [sortie.wsquashfs]
-        Crée un .wsquashfs (zstd) à partir d'un prefix Wine. Un runner propre
-        au jeu se joint en le copiant dans <Jeu.wine>/runners/<nom>/.
+  wsquashfs-launcher --pack <Jeu.wine | Jeu.pc> [sortie.wsquashfs]
+        Crée un .wsquashfs (zstd) à partir d'un prefix Wine ou d'un jeu seul ;
+        défaut : Jeu.wsquashfs à côté. Un runner propre au jeu se joint en le
+        copiant dans <dossier>/runners/<nom>/.
   wsquashfs-launcher --install <jeu.wsquashfs> [dossier]
         Extrait le jeu dans <dossier>/<Jeu> (défaut : à côté de l'image), pour
         jouer sans FUSE ; l'image est conservée, ses sauvegardes non reprises.
@@ -335,7 +336,7 @@ Création de ROOT/userdata/roms/windows/Proton Game.wsquashfs depuis ROOT/src/Pr
 == rc=0
 ################ pack-usage
 -- stderr
-Usage : LAUNCHER --pack <dossier.wine> [sortie.wsquashfs]
+Usage : LAUNCHER --pack <dossier.wine | dossier.pc> [sortie.wsquashfs]
 == rc=1
 ################ info1
 Jeu           : Arcade Game
@@ -1872,6 +1873,13 @@ Réglages :
 Overlay       : ROOT/saves/Folder Game
 Sauvegardes   : dans l'overlay ; --saves les copie dans ROOT/userdata/saves/windows/Folder Game
 == rc=0
+################ folder-pc-pack
+Création de ROOT/userdata/roms/windows/Folder Game.wsquashfs depuis ROOT/userdata/roms/windows/Folder Game.pc...
+[===================================================================|] 2/2 100%
+✓ ROOT/userdata/roms/windows/Folder Game.wsquashfs (SIZE)
+  Version non renseignée (GAME_VERSION=... dans l'autorun.cmd, voir --info)
+== rc=0
+## image du dossier .pc : Folder Game.pc Folder Game.wsquashfs
 ################ proton-umu
 =========================================
 WSquashFS Launcher

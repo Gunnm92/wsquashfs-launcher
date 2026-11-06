@@ -2171,9 +2171,10 @@ Usage :
         changements vont dans le dossier de sauvegardes du jeu.
   wsquashfs-launcher --umount [<jeu.wsquashfs>]
         Démonte un jeu (ou tous les jeux montés).
-  wsquashfs-launcher --pack <Jeu.wine> [sortie.wsquashfs]
-        Crée un .wsquashfs (zstd) à partir d'un prefix Wine. Un runner propre
-        au jeu se joint en le copiant dans <Jeu.wine>/runners/<nom>/.
+  wsquashfs-launcher --pack <Jeu.wine | Jeu.pc> [sortie.wsquashfs]
+        Crée un .wsquashfs (zstd) à partir d'un prefix Wine ou d'un jeu seul ;
+        défaut : Jeu.wsquashfs à côté. Un runner propre au jeu se joint en le
+        copiant dans <dossier>/runners/<nom>/.
   wsquashfs-launcher --install <jeu.wsquashfs> [dossier]
         Extrait le jeu dans <dossier>/<Jeu> (défaut : à côté de l'image), pour
         jouer sans FUSE ; l'image est conservée, ses sauvegardes non reprises.
@@ -2759,13 +2760,23 @@ cmd_umount() {
 
 # ── --pack / --install / --info ────────────────────────────────────────
 
-# --pack <Jeu.wine> [sortie] : prefix Wine (dossier) → .wsquashfs, comme
-# wine2squashfs de batocera-wine (mksquashfs, compression zstd).
+# --pack <Jeu.wine | Jeu.pc> [sortie] : prefix Wine ou jeu seul (dossier) →
+# .wsquashfs, comme wine2squashfs de batocera-wine (mksquashfs, zstd).
+# Sortie par défaut : Jeu.wsquashfs à côté (.wine ou .pc retiré, casse
+# ignorée, comme le gestionnaire) — ses sauvegardes sont celles de l'essai
+# du dossier .pc.
 pack_prefix() {
-    local src="${1%/}" out="${2:-}" saves tmp version reset_saves=false
-    [[ -n "$src" && -d "$src" ]] || usage_error "$0 --pack <dossier.wine> [sortie.wsquashfs]"
+    local src="${1%/}" out="${2:-}" saves tmp version reset_saves=false base
+    [[ -n "$src" && -d "$src" ]] || usage_error "$0 --pack <dossier.wine | dossier.pc> [sortie.wsquashfs]"
     command -v mksquashfs &>/dev/null || die "mksquashfs absent (squashfs-tools)"
-    [[ -n "$out" ]] || out="${src%.wine}.wsquashfs"
+    if [[ -z "$out" ]]; then
+        base=$(basename "$src")
+        case "${base,,}" in
+            *.wine) base="${base:0:${#base}-5}" ;;
+            *.pc)   base="${base:0:${#base}-3}" ;;
+        esac
+        out="$(dirname "$src")/${base}.wsquashfs"
+    fi
     saves="${SAVES_DIR}/$(basename "$out" .wsquashfs)"
     # Fichier existant : question au terminal (26/09), refus sans terminal
     # (script, frontend).

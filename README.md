@@ -196,8 +196,9 @@ wsquashfs-launcher --prepare MonJeu.wsquashfs
 # Essai sans écran : le jeu tourne dans gamescope en arrière-plan
 wsquashfs-launcher --headless MonJeu.wsquashfs
 
-# Créer un .wsquashfs (zstd) à partir d'un prefix Wine
+# Créer un .wsquashfs (zstd) à partir d'un prefix Wine ou d'un jeu seul
 wsquashfs-launcher --pack MonJeu.wine          # → MonJeu.wsquashfs
+wsquashfs-launcher --pack MonJeu.pc            # → MonJeu.wsquashfs
 # Image existante : confirmation au terminal (et proposition de réinitialiser
 # ses sauvegardes), refus sans terminal. L'ancienne image n'est remplacée
 # qu'une fois la nouvelle construite.
