@@ -2934,6 +2934,86 @@ WINE wine-tkg-fake cwd=ROOT/cache/wine/Solo Game args: [explorer] [/desktop=Solo
 WINESERVER -w
 WINESERVER -k
 WINESERVER -w
+################ gpu-amd-fsr4-system
+=========================================
+WSquashFS Launcher
+=========================================
+Environnement : ENV
+Jeu           : Solo Game
+Fichier       : ROOT/userdata/roms/windows/Solo Game.wsquashfs
+Mode          : overlay (squashfuse + fuse-overlayfs)
+✓ Préfixe Wine détecté (structure Batocera)
+Préfixe       : mise à jour pour wine-9.0 (fake)
+-----------------------------------------
+Exécutable    : ROOT/cache/wine/Solo Game/game/run me.exe
+Arguments     : --arg
+Wine          : ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/bin/wine (win64)
+Version Wine  : wine-9.0 (fake)
+Préfixe       : ROOT/cache/wine/Solo Game
+Sauvegardes   : ROOT/saves/Solo Game
+Manettes      : XInput, manette Xbox
+DXVK          : activé
+VKD3D         : activé
+D7VK          : activé (DirectDraw → Vulkan)
+Bureau virtuel: 1280x720
+=========================================
+
+
+=========================================
+Jeu terminé (code : 0)
+=========================================
+-- stderr
+Attention : prefix Wine déjà créé dans les sauvegardes, gardé sous wine-tkg-fake — supprimer ROOT/saves/Solo Game (sauvegardes du jeu comprises) pour passer sous Proton
+== rc=0
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Solo Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
+WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
+  WINEPREFIX=ROOT/cache/wine/Solo Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
+  WINEDEBUG=-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Services\winebus] [/v] [DisableHidraw] [/t] [REG_DWORD] [/d] [1] [/f]
+  WINEPREFIX=ROOT/cache/wine/Solo Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  GAMEID=
+  PROTONPATH=
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
+WINESERVER -k
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Solo Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
+WINE wine-tkg-fake cwd=ROOT/cache/wine/Solo Game args: [explorer] [/desktop=Solo_Game,1280x720] [ROOT/cache/wine/Solo Game/game/run me.exe] [--arg]
+  WINEPREFIX=ROOT/cache/wine/Solo Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
+WINESERVER -w
+WINESERVER -k
+WINESERVER -w
+## lien FSR4 -> ROOT/sysroot/usr/share/fsr4/amdxcffx64.dll
 ################ pack-hook
 Création de ROOT/userdata/roms/windows/Hook Game.wsquashfs depuis ROOT/src/Hook Game...
 [===================================================================|] 4/4 100%
@@ -8371,6 +8451,8 @@ Réglages :
   D7VK             = 1                            (défaut)
   NVAPI            = auto                         (défaut)
   VKREFLEX         = auto                         (défaut)
+  FSR              = 0                            (défaut)
+  FSR4             = 0                            (défaut)
   ESYNC            = 0                            (défaut)
   FSYNC            = 0                            (défaut)
   HIDRAW           = 0                            (défaut)
@@ -8397,6 +8479,8 @@ Réglages :
   D7VK             = 1                            (défaut)
   NVAPI            = 1                            (--set)
   VKREFLEX         = auto                         (défaut)
+  FSR              = 0                            (défaut)
+  FSR4             = 0                            (défaut)
   ESYNC            = 0                            (défaut)
   FSYNC            = 0                            (défaut)
   HIDRAW           = 0                            (défaut)
@@ -8523,6 +8607,8 @@ Réglages :
   D7VK             = 1                            (machine (WSQUASHFS_D7VK))
   NVAPI            = 0                            (dossier)
   VKREFLEX         = auto                         (défaut)
+  FSR              = 0                            (défaut)
+  FSR4             = 0                            (défaut)
   ESYNC            = 0                            (défaut)
   FSYNC            = 0                            (défaut)
   HIDRAW           = 0                            (défaut)
@@ -8725,6 +8811,8 @@ Réglages :
   D7VK             = 0                            (machine)
   NVAPI            = 0                            (dossier)
   VKREFLEX         = auto                         (défaut)
+  FSR              = 0                            (défaut)
+  FSR4             = 0                            (défaut)
   ESYNC            = 0                            (défaut)
   FSYNC            = 0                            (défaut)
   HIDRAW           = 0                            (défaut)

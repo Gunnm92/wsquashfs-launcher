@@ -769,10 +769,12 @@ check_amd() {
     else
         print_error "RADV absent : installer vulkan-radeon (Arch) ou mesa-vulkan-drivers (Debian)"
     fi
-    if [[ -f "${FSR4_DIR}/amdxcffx64.dll" ]]; then
-        print_success "FSR4 : ${FSR4_DIR}/amdxcffx64.dll"
-        return 0
-    fi
+    for dll in /usr/share/fsr4/amdxcffx64.dll "${FSR4_DIR}/amdxcffx64.dll"; do
+        if [[ -f "$dll" ]]; then
+            print_success "FSR4 : ${dll}"
+            return 0
+        fi
+    done
     if ! src=$(find_cachyos_fsr4); then
         print_info "FSR4 : aucun proton-cachyos installé, rien à copier (FSR4 reste désactivé)"
         return 0

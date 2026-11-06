@@ -497,6 +497,14 @@ snapshot after-fsr4
 step gpu-amd-fsr4-nodll env WSQUASHFS_UMU=0 WSQUASHFS_DRM_SYSFS="$ROOT/drm-amd" WSQUASHFS_FSR4=1 WSQUASHFS_FSR4_DIR="$ROOT/no-fsr4" "$L" "$ROMS/Solo Game.wsquashfs"
 snapshot after-fsr4-off
 step gpu-nvidia-fsr4 env WSQUASHFS_UMU=0 WSQUASHFS_DRM_SYSFS="$ROOT/drm-nvidia" WSQUASHFS_FSR4=1 WSQUASHFS_FSR4_DIR="$ROOT/fsr4" "$L" "$ROMS/Solo Game.wsquashfs"
+# FSR4 fournie par le système (/usr/share/fsr4), sans WSQUASHFS_FSR4_DIR.
+# Lien et DLL retirés ensuite : les scénarios suivants n'en dépendent pas.
+mkdir -p "$WSQUASHFS_SYSROOT/usr/share/fsr4"
+cp "$ROOT/fsr4/amdxcffx64.dll" "$WSQUASHFS_SYSROOT/usr/share/fsr4/"
+step gpu-amd-fsr4-system env WSQUASHFS_UMU=0 WSQUASHFS_DRM_SYSFS="$ROOT/drm-amd" WSQUASHFS_FSR4=1 "$L" "$ROMS/Solo Game.wsquashfs"
+note "lien FSR4 -> $(readlink "$ROOT/saves/Solo Game/drive_c/windows/system32/amdxcffx64.dll" | normalize)"
+rm -f "$ROOT/saves/Solo Game/drive_c/windows/system32/amdxcffx64.dll"
+rm -rf "$WSQUASHFS_SYSROOT/usr/share/fsr4"
 
 # PRE= (avant le jeu) et ATTACH= (pendant le jeu, GAME_PID = PID de hook.exe)
 step pack-hook     "$L" --pack "$H" "$ROMS/Hook Game.wsquashfs"

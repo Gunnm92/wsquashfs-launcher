@@ -125,6 +125,7 @@ ENV_RAW=""                  # ENV= tel qu'écrit, quand une seule couche en a un
 EXEC_PATH=""            # chemin Unix de l'exécutable, ou outil Wine (--exec)
 EXEC_ARGS=""            # arguments, pour l'affichage (CMD tel qu'écrit, ou --exec)
 EXEC_ARGS_ARR=()
+SAVE_TARGETS=()          # jeux visés par --saves / --backup (select_save_targets)
 EXT=""                  # extension de l'exécutable, en minuscules
 RUN_CMD=()              # ligne de commande finale (build_run_command)
 
@@ -1770,13 +1771,12 @@ link_runner_components() {
     done
 }
 
-# NVAPI (dxvk-nvapi) et DLSS (nvngx.dll du pilote NVIDIA), comme dxvk_install()
-# de batocera-wine. Appelé seulement si NVAPI_ON=1.
-# FSR4 (amdxcffx64.dll) : dans $WSQUASHFS_FSR4_DIR ou ~/.local/share/wsquashfs/fsr4
-# (copie par install.sh depuis proton-cachyos). Seulement si FSR4_ON=1.
+# FSR4 (amdxcffx64.dll) : dans $WSQUASHFS_FSR4_DIR, /usr/share/fsr4 (paquet
+# système, s'il y en a un) ou ~/.local/share/wsquashfs/fsr4 (copie par
+# install.sh depuis proton-cachyos), même ordre que find_dxvk_dir.
 find_fsr4_dll() {
     local d
-    for d in "${WSQUASHFS_FSR4_DIR:-}" "$HOME/.local/share/wsquashfs/fsr4"; do
+    for d in "${WSQUASHFS_FSR4_DIR:-}" "${SYSROOT}/usr/share/fsr4" "$HOME/.local/share/wsquashfs/fsr4"; do
         [[ -n "$d" && -f "${d}/amdxcffx64.dll" ]] && echo "${d}/amdxcffx64.dll" && return
     done
 }
@@ -1809,6 +1809,8 @@ install_fsr4() {
     ln -sfn "$dll" "$link" 2>/dev/null || true
 }
 
+# NVAPI (dxvk-nvapi) et DLSS (nvngx.dll du pilote NVIDIA), comme dxvk_install()
+# de batocera-wine. Appelé seulement si NVAPI_ON=1.
 install_nvapi() {
     local target_root="$1" nvapi sub32=syswow64 ngx="${SYSROOT}/usr/lib/nvidia/wine" f
     nvapi=$(find_nvapi_dir)
@@ -2439,6 +2441,19 @@ saved_games() {
     done
 }
 
+# select_save_targets [jeu] : SAVE_TARGETS = ce jeu (qui doit avoir des
+# sauvegardes), ou tous les jeux qui en ont. Pas de $(…) : die doit arrêter
+# le lanceur, pas un sous-shell.
+select_save_targets() {
+    SAVE_TARGETS=()
+    if [[ -n "${1:-}" ]]; then
+        SAVE_TARGETS=("$(basename "$1" .wsquashfs)")
+        [[ -d "${SAVES_DIR}/${SAVE_TARGETS[0]}" ]] || die "aucune sauvegarde pour ${SAVE_TARGETS[0]}"
+    else
+        mapfile -t SAVE_TARGETS < <(saved_games)
+    fi
+}
+
 cmd_clean() {
     local games=() g
     echo "Nettoyage des copies de travail et des doublons des sauvegardes..."
@@ -2522,19 +2537,14 @@ backup_saves() {
 
 # cmd_backup [jeu] : un jeu, ou tous ceux qui ont des sauvegardes.
 cmd_backup() {
-    local targets=() g failed=0
-    if [[ -n "${1:-}" ]]; then
-        targets=("$(basename "$1" .wsquashfs)")
-        [[ -d "${SAVES_DIR}/${targets[0]}" ]] || die "aucune sauvegarde pour ${targets[0]}"
-    else
-        mapfile -t targets < <(saved_games)
-    fi
-    if ((${#targets[@]} == 0)); then
+    local g failed=0
+    select_save_targets "${1:-}"
+    if ((${#SAVE_TARGETS[@]} == 0)); then
         echo "Aucune sauvegarde à archiver (${SAVES_DIR})"
         return 0
     fi
     echo "Archivage des sauvegardes dans $(backup_dir)..."
-    for g in "${targets[@]}"; do
+    for g in "${SAVE_TARGETS[@]}"; do
         # Jeu en cours : ses sauvegardes changent sous tar, archive incohérente.
         if saves_busy "$g"; then
             echo "  ${g} : monté ou en cours, ignoré"
@@ -2921,7 +2931,7 @@ image_autorun() {
 # Clés affichées par --show, dans cet ordre ; les autres clés présentes dans
 # une couche suivent.
 SHOW_KEYS=(CMD DIR GAME_VERSION PROTON WINE RUNNER ARCH DXVK VKD3D D7VK NVAPI VKREFLEX
-           ESYNC FSYNC HIDRAW LANG VIRTUAL_DESKTOP SAVEDIR SAVEFILES PRE ATTACH ATTACH_PROCESS)
+           FSR FSR4 ESYNC FSYNC HIDRAW LANG VIRTUAL_DESKTOP SAVEDIR SAVEFILES PRE ATTACH ATTACH_PROCESS)
 
 # --show <jeu> [--set CLÉ=valeur]... : valeur finale de chaque réglage et la
 # couche qui l'a fournie, sans monter l'image (autorun.cmd lu dans l'image
@@ -3070,19 +3080,14 @@ copy_game_saves() {
 # cmd_saves [jeu] : un jeu, ou tous ceux qui ont un overlay ; jeux en cours
 # exceptés (leurs fichiers changent pendant la copie).
 cmd_saves() {
-    local targets=() g
-    if [[ -n "${1:-}" ]]; then
-        targets=("$(basename "$1" .wsquashfs)")
-        [[ -d "${SAVES_DIR}/${targets[0]}" ]] || die "aucune sauvegarde pour ${targets[0]}"
-    else
-        mapfile -t targets < <(saved_games)
-    fi
-    if ((${#targets[@]} == 0)); then
+    local g
+    select_save_targets "${1:-}"
+    if ((${#SAVE_TARGETS[@]} == 0)); then
         echo "Aucune sauvegarde (${SAVES_DIR})"
         return 0
     fi
     echo "Copie des sauvegardes de partie dans la ludothèque..."
-    for g in "${targets[@]}"; do
+    for g in "${SAVE_TARGETS[@]}"; do
         if game_running "$g"; then
             echo "  ${g} : en cours, ignoré"
             continue

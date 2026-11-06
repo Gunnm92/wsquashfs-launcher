@@ -405,7 +405,7 @@ Chaque clé vient de la couche la plus forte qui la définit (même format
 |---|---|---|---|
 | 1 | défauts du lanceur | — | |
 | 2 | machine | `~/.config/wsquashfs/defaults.autorun` | facultatif |
-| 3 | machine | variables `WSQUASHFS_*` (DXVK, NVAPI, VKREFLEX, D7VK, VIRTUAL_DESKTOP) | |
+| 3 | machine | variables `WSQUASHFS_*` (DXVK, D7VK, NVAPI, VKREFLEX, FSR, FSR4, HIDRAW, VIRTUAL_DESKTOP) | |
 | 4 | dossier | `<dossier du jeu>/_defaults.autorun` : tous les jeux du dossier | facultatif |
 | 5 | image | `autorun.cmd` | |
 | 6 | surcharge | `<jeu>.wsquashfs.autorun`, à côté de l'image | facultatif |
