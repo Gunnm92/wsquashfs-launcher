@@ -26,10 +26,12 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/user"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -259,7 +261,62 @@ func cmdPair(args []string) int {
 	fmt.Println()
 	fmt.Println("Autres adresses : " + strings.Join(localAddresses(), ", "))
 	fmt.Println("Dossiers roms/  : " + strings.Join(cfg.Roms, ", "))
+	// Le manager doit pouvoir joindre l'agent tout de suite : --pair le lance
+	// s'il ne tourne pas (socket systemd : elle accepte déjà la connexion).
+	if agentListening(cfg.Port) {
+		fmt.Printf("Agent           : déjà en marche sur le port %d\n", cfg.Port)
+	} else if pid, err := startAgentDetached(); err != nil {
+		fmt.Println("Agent           : lancement impossible : " + err.Error() + " (lancer « wsquashfs-launcher --agent »)")
+	} else {
+		fmt.Printf("Agent           : lancé (pid %d, port %d), journal : %s\n", pid, cfg.Port, agentLogPath())
+		fmt.Println("                  redémarrage du PC : « --setup --agent » l'installe avec systemd.")
+	}
 	return 0
+}
+
+// agentListening : un agent (ou une socket systemd) accepte les connexions.
+func agentListening(port int) bool {
+	conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), time.Second)
+	if err != nil {
+		return false
+	}
+	conn.Close()
+	return true
+}
+
+// agentLogPath : journal de l'agent lancé par --pair.
+func agentLogPath() string {
+	base := os.Getenv("XDG_STATE_HOME")
+	if base == "" {
+		base = filepath.Join(os.Getenv("HOME"), ".local", "state")
+	}
+	return filepath.Join(base, "wsquashfs", "agent.log")
+}
+
+// startAgentDetached : lance « wsquashfs-launcher --agent » hors du terminal
+// (nouvelle session, journal dans agentLogPath). Retourne son PID.
+func startAgentDetached() (int, error) {
+	logPath := agentLogPath()
+	if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
+		return 0, err
+	}
+	log, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return 0, err
+	}
+	defer log.Close()
+	cmd := exec.Command(selfPath, "--agent", "log")
+	cmd.Stdin = nil
+	cmd.Stdout = log
+	cmd.Stderr = log
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	if err := cmd.Start(); err != nil {
+		return 0, err
+	}
+	pid := cmd.Process.Pid
+	_ = cmd.Process.Release()
+	time.Sleep(500 * time.Millisecond)
+	return pid, nil
 }
 
 // agentOwner : utilisateur de la session (pour l'information de l'agent).
