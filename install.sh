@@ -46,6 +46,7 @@ DXVK_DIR="${WSQ_DATA}/dxvk"
 VKD3D_DIR="${WSQ_DATA}/vkd3d-proton"
 D7VK_DIR="${WSQ_DATA}/d7vk"
 NVAPI_DIR="${WSQ_DATA}/dxvk-nvapi"
+FSR4_DIR="${WSQ_DATA}/fsr4"
 # Emplacement standard des Proton de Steam : le lanceur, Steam et Heroic
 # les y trouvent tous.
 PROTON_INSTALL_DIR="$HOME/.local/share/Steam/compatibilitytools.d"
@@ -737,6 +738,60 @@ check_nvapi() {
         "dxvk-nvapi-{tag}.tar.gz" "$NVAPI_DIR" x64/nvapi64.dll
 }
 
+# AMD : RADV (pilote Vulkan de Mesa, fourni par le système) et FSR4. FSR4 est
+# une DLL (amdxcffx64.dll) livrée par proton-cachyos ; le lanceur ne la charge
+# que sur demande (FSR4=1) et le jeu décide de l'utiliser. Rien n'est activé
+# par défaut. FSR4 demande une carte RDNA 4 : sur les autres, sans effet.
+has_amd_gpu() {
+    grep -qs 0x1002 /sys/class/drm/card*/device/vendor
+}
+
+# Première amdxcffx64.dll d'un proton-cachyos installé (Steam, Heroic).
+find_cachyos_fsr4() {
+    local root dll
+    for root in "$HOME/.local/share/Steam/compatibilitytools.d" \
+                "$HOME/.steam/root/compatibilitytools.d" \
+                "$HOME/.config/heroic/tools/proton" \
+                /usr/share/steam/compatibilitytools.d; do
+        [[ -d "$root" ]] || continue
+        dll=$(find "$root" -maxdepth 4 -iname 'amdxcffx64.dll' -path '*cachyos*' 2>/dev/null | head -n 1)
+        [[ -n "$dll" ]] && { echo "$dll"; return 0; }
+    done
+    return 1
+}
+
+check_amd() {
+    local dll src
+    has_amd_gpu || return 0
+    section "AMD : RADV et FSR4"
+    if ls /usr/share/vulkan/icd.d/radeon_icd*.json >/dev/null 2>&1; then
+        print_success "RADV (pilote Vulkan Mesa) : présent"
+    else
+        print_error "RADV absent : installer vulkan-radeon (Arch) ou mesa-vulkan-drivers (Debian)"
+    fi
+    if [[ -f "${FSR4_DIR}/amdxcffx64.dll" ]]; then
+        print_success "FSR4 : ${FSR4_DIR}/amdxcffx64.dll"
+        return 0
+    fi
+    if ! src=$(find_cachyos_fsr4); then
+        print_info "FSR4 : aucun proton-cachyos installé, rien à copier (FSR4 reste désactivé)"
+        return 0
+    fi
+    echo "    Carte AMD détectée. FSR4 n'est activé que sur demande (FSR4=1 dans autorun.cmd)"
+    echo "    et seulement sur une carte RDNA 4. DLL trouvée : ${src}"
+    if ! ask_yes_no "Copier amdxcffx64.dll dans ${FSR4_DIR} ?" n; then
+        print_info "Ignoré : FSR4 non copié"
+        return 0
+    fi
+    if [[ "$DRY_RUN" == true ]]; then
+        print_info "Simulation : copie de ${src} vers ${FSR4_DIR}"
+        return 0
+    fi
+    mkdir -p "$FSR4_DIR" && cp -f "$src" "${FSR4_DIR}/amdxcffx64.dll" \
+        && print_success "FSR4 copié : ${FSR4_DIR}/amdxcffx64.dll" \
+        || print_error "Copie de FSR4 échouée"
+}
+
 check_rendering() {
     local dxvk vkd3d d7vk
     section "Rendu : DXVK, VKD3D-Proton, d7vk"
@@ -1130,6 +1185,7 @@ install_all() {
     check_proton
     check_rendering
     check_nvapi
+    check_amd
     install_launcher || exit 1
     create_mime_type
     if [[ "$AGENT_WANTED" == true ]]; then

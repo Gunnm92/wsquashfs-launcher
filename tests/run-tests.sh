@@ -80,6 +80,26 @@ mkdir -p "$HOME" "$FAKEBIN"
 # machine de test changeait la trace (17/10). Les scénarios hidraw
 # désignent le leur (HIDRAW_SYSFS="$ROOT/sysfs").
 export HIDRAW_SYSFS="${ROOT}/no-sysfs"
+# Même principe pour les GPU : sysfs DRM vide par défaut (aucun fournisseur),
+# les scénarios GPU désignent leur faux sysfs (drm-amd, drm-nvidia, drm-both).
+export WSQUASHFS_DRM_SYSFS="${ROOT}/no-drm"
+# RADV (ICD Vulkan) : absent par défaut, présent pour doctor-amd. Sans ce
+# réglage, --doctor lirait /usr/share/vulkan de la machine de test.
+export WSQUASHFS_VK_ICD_DIR="${ROOT}/icd-none"
+mkdir -p "$WSQUASHFS_VK_ICD_DIR" "${ROOT}/icd"
+echo '{}' > "${ROOT}/icd/radeon_icd.x86_64.json"
+# FSR4 : une fausse amdxcffx64.dll pour le scénario FSR4=1 ; un dossier vide sinon.
+mkdir -p "${ROOT}/fsr4" "${ROOT}/no-fsr4"
+printf 'MZ fake amdxcffx64\n' > "${ROOT}/fsr4/amdxcffx64.dll"
+mkdir -p "$WSQUASHFS_DRM_SYSFS"
+for drm in amd:1002 nvidia:10de; do
+    mkdir -p "${ROOT}/drm-${drm%%:*}/card0/device"
+    echo "0x${drm##*:}" > "${ROOT}/drm-${drm%%:*}/card0/device/vendor"
+done
+# Machine mixte : une carte NVIDIA (card0) et une AMD (card1, iGPU ou second GPU).
+mkdir -p "${ROOT}/drm-both/card0/device" "${ROOT}/drm-both/card1/device"
+echo 0x10de > "${ROOT}/drm-both/card0/device/vendor"
+echo 0x1002 > "${ROOT}/drm-both/card1/device/vendor"
 # fuse-overlayfs imposé : la trace ne dépend pas de la machine (namespaces
 # permis ou non). L'overlay noyau a ses scénarios, en fin de fichier.
 export WSQUASHFS_OVERLAY=fuse
@@ -100,7 +120,9 @@ mkwine() {
 {
   echo "WINE $(basename "$(dirname "$(dirname "$0")")") cwd=${PWD} args:$(printf ' [%s]' "$@")"
   for v in WINEPREFIX WINEARCH WINEDLLOVERRIDES WINEDEBUG WINEUSERNAME WINEESYNC WINEFSYNC LC_ALL \
-           PROTON_USE_WINED3D PROTON_DLL_COPY PROTON_SONY_HIDRAW_XINPUT GAMEID PROTONPATH FOO; do
+           PROTON_USE_WINED3D PROTON_DLL_COPY PROTON_SONY_HIDRAW_XINPUT GAMEID PROTONPATH FOO \
+           WINE_FULLSCREEN_FSR DXVK_ENABLE_NVAPI DXVK_NVAPI_VKREFLEX DXVK_STATE_CACHE_PATH \
+           __GL_SHADER_DISK_CACHE_PATH; do
     [[ -n "${!v+x}" ]] && echo "  $v=${!v}"
   done
 } >> "$FAKELOG"
@@ -417,6 +439,9 @@ unit backup_suffix 'date() { echo fige; }; SAVES_DIR="$HOME/unit-saves"; WSQUASH
 # Ligne de commande
 step help          "$L" --help
 step doctor        env HIDRAW_SYSFS="$ROOT/sysfs" "$L" --doctor
+step doctor-amd    env WSQUASHFS_DRM_SYSFS="$ROOT/drm-amd" WSQUASHFS_VK_ICD_DIR="$ROOT/icd" WSQUASHFS_FSR4_DIR="$ROOT/fsr4" "$L" --doctor
+step doctor-nvidia env WSQUASHFS_DRM_SYSFS="$ROOT/drm-nvidia" "$L" --doctor
+step doctor-both   env WSQUASHFS_DRM_SYSFS="$ROOT/drm-both" "$L" --doctor
 step list-empty    "$L" --list
 step backup-empty  "$L" --backup
 step noarg         "$L"
@@ -460,6 +485,16 @@ step solo-again    env WSQUASHFS_UMU=0 "$L" "$ROMS/Solo Game.wsquashfs"
 step proton-umu    "$L" "$ROMS/Proton Game.wsquashfs"
 step proton-nodxvk env WSQUASHFS_DXVK_DIR=/nope "$L" "$ROMS/Proton Game.wsquashfs"
 step win32-hidraw  env WSQUASHFS_UMU=0 HIDRAW_SYSFS="$ROOT/sysfs" "$L" "$ROMS/Old32.wsquashfs"
+
+# GPU : AMD (FSR par autorun via WSQUASHFS_FSR), NVIDIA (pas de réglage AMD)
+step gpu-amd-fsr  env WSQUASHFS_UMU=0 WSQUASHFS_DRM_SYSFS="$ROOT/drm-amd" WSQUASHFS_FSR=1 "$L" "$ROMS/Solo Game.wsquashfs"
+step gpu-amd      env WSQUASHFS_UMU=0 WSQUASHFS_DRM_SYSFS="$ROOT/drm-amd" "$L" "$ROMS/Solo Game.wsquashfs"
+step gpu-nvidia   env WSQUASHFS_UMU=0 WSQUASHFS_DRM_SYSFS="$ROOT/drm-nvidia" "$L" "$ROMS/Solo Game.wsquashfs"
+step gpu-amd-fsr4 env WSQUASHFS_UMU=0 WSQUASHFS_DRM_SYSFS="$ROOT/drm-amd" WSQUASHFS_FSR4=1 WSQUASHFS_FSR4_DIR="$ROOT/fsr4" "$L" "$ROMS/Solo Game.wsquashfs"
+snapshot after-fsr4
+step gpu-amd-fsr4-nodll env WSQUASHFS_UMU=0 WSQUASHFS_DRM_SYSFS="$ROOT/drm-amd" WSQUASHFS_FSR4=1 WSQUASHFS_FSR4_DIR="$ROOT/no-fsr4" "$L" "$ROMS/Solo Game.wsquashfs"
+snapshot after-fsr4-off
+step gpu-nvidia-fsr4 env WSQUASHFS_UMU=0 WSQUASHFS_DRM_SYSFS="$ROOT/drm-nvidia" WSQUASHFS_FSR4=1 WSQUASHFS_FSR4_DIR="$ROOT/fsr4" "$L" "$ROMS/Solo Game.wsquashfs"
 
 # PRE= (avant le jeu) et ATTACH= (pendant le jeu, GAME_PID = PID de hook.exe)
 step pack-hook     "$L" --pack "$H" "$ROMS/Hook Game.wsquashfs"

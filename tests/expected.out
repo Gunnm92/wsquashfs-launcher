@@ -108,8 +108,81 @@ Variables d'environnement :
   WSQUASHFS_VKREFLEX=auto|0|1  Couche Reflex de dxvk-nvapi. auto (défaut) : active si NVAPI
                              est active et la couche installée ; 1 force NVAPI ; 0 coupe.
                              Aussi par jeu : VKREFLEX= dans autorun.cmd
+  WSQUASHFS_FSR=0|1          FSR de Wine en plein écran (défaut 0). Aussi par jeu : FSR=1 dans autorun.cmd
+  WSQUASHFS_FSR4=0|1         FSR4 (amdxcffx64.dll, carte AMD, DLL d'install.sh) : la DLL est posée dans le
+                             prefix, le jeu décide de l'utiliser. Défaut 0. Aussi par jeu : FSR4=1
 == rc=0
 ################ doctor
+Montage des images
+  ✓ /dev/fuse accessible
+  ✓ squashfuse (PATH) : montage de l'image
+  – overlay noyau indisponible : WSQUASHFS_OVERLAY=fuse (fuse-overlayfs à la place)
+  ✓ fuse-overlayfs (ROOT/bin/fuse-overlayfs) : mode overlay, sauvegardes séparées (sinon mode copy)
+  ✓ unsquashfs (PATH) : mode copy, --info, --install
+  ✓ mksquashfs (PATH) : --pack
+  ✓ getfattr (PATH) : --clean (doublons des sauvegardes)
+  ✓ flock (PATH) : verrou par jeu (double lancement)
+  ✓ zstd (PATH) : archives --backup compactes (sinon gzip)
+Wine / Proton
+  ✓ Wine par défaut : wine-tkg-fake wine-9.0 (fake) (ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/bin/wine)
+  ✓ prefixes 32 bits (win32) pris en charge
+  ✓ runners installés (--wine) :
+      wine-tkg-fake  ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake
+      GE-Proton9-1  ROOT/home/.local/share/Steam/compatibilitytools.d/GE-Proton9-1
+  ✓ umu-run (ROOT/bin/umu-run) : prefixes Proton et jeux seuls lancés par Proton
+Rendu
+  ✓ DXVK (ROOT/dxvk)
+  ✓ VKD3D-Proton (ROOT/vkd3d)
+  ✓ d7vk (ROOT/d7vk/x32/ddraw.dll)
+  – GPU : aucun fournisseur reconnu dans ROOT/no-drm
+Manettes
+  – hidraw : /dev/hidraw99 illisible (HIDRAW=1 retombe en XInput)
+  ✓ dualsense-usb-bridge (PATH)
+Dossiers
+  – ROOT/saves : pas encore créé
+  – ROOT/cache : pas encore créé
+  – ROOT/home/.local/share/wsquashfs/backups : pas encore créé
+
+✓ Prêt à lancer des jeux
+== rc=0
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+################ doctor-amd
+Montage des images
+  ✓ /dev/fuse accessible
+  ✓ squashfuse (PATH) : montage de l'image
+  – overlay noyau indisponible : WSQUASHFS_OVERLAY=fuse (fuse-overlayfs à la place)
+  ✓ fuse-overlayfs (ROOT/bin/fuse-overlayfs) : mode overlay, sauvegardes séparées (sinon mode copy)
+  ✓ unsquashfs (PATH) : mode copy, --info, --install
+  ✓ mksquashfs (PATH) : --pack
+  ✓ getfattr (PATH) : --clean (doublons des sauvegardes)
+  ✓ flock (PATH) : verrou par jeu (double lancement)
+  ✓ zstd (PATH) : archives --backup compactes (sinon gzip)
+Wine / Proton
+  ✓ Wine par défaut : wine-tkg-fake wine-9.0 (fake) (ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/bin/wine)
+  ✓ prefixes 32 bits (win32) pris en charge
+  ✓ runners installés (--wine) :
+      wine-tkg-fake  ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake
+      GE-Proton9-1  ROOT/home/.local/share/Steam/compatibilitytools.d/GE-Proton9-1
+  ✓ umu-run (ROOT/bin/umu-run) : prefixes Proton et jeux seuls lancés par Proton
+Rendu
+  ✓ DXVK (ROOT/dxvk)
+  ✓ VKD3D-Proton (ROOT/vkd3d)
+  ✓ d7vk (ROOT/d7vk/x32/ddraw.dll)
+  ✓ GPU : AMD détecté (aucun réglage NVIDIA)
+  ✓ RADV (pilote Vulkan Mesa) présent
+  ✓ FSR4 : ROOT/fsr4/amdxcffx64.dll (FSR4=1 pour l'activer, défaut désactivé)
+Manettes
+  – hidraw : aucune manette Sony (HIDRAW=1 retombe en XInput)
+  ✓ dualsense-usb-bridge (PATH)
+Dossiers
+  – ROOT/saves : pas encore créé
+  – ROOT/cache : pas encore créé
+  – ROOT/home/.local/share/wsquashfs/backups : pas encore créé
+
+✓ Prêt à lancer des jeux
+== rc=0
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+################ doctor-nvidia
 Montage des images
   ✓ /dev/fuse accessible
   ✓ squashfuse (PATH) : montage de l'image
@@ -135,7 +208,45 @@ Rendu
   – dxvk-nvapi absent : NVAPI sans effet (DLSS indisponible)
   – couche Reflex absente : VKREFLEX sans effet
 Manettes
-  – hidraw : /dev/hidraw99 illisible (HIDRAW=1 retombe en XInput)
+  – hidraw : aucune manette Sony (HIDRAW=1 retombe en XInput)
+  ✓ dualsense-usb-bridge (PATH)
+Dossiers
+  – ROOT/saves : pas encore créé
+  – ROOT/cache : pas encore créé
+  – ROOT/home/.local/share/wsquashfs/backups : pas encore créé
+
+✓ Prêt à lancer des jeux
+== rc=0
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+################ doctor-both
+Montage des images
+  ✓ /dev/fuse accessible
+  ✓ squashfuse (PATH) : montage de l'image
+  – overlay noyau indisponible : WSQUASHFS_OVERLAY=fuse (fuse-overlayfs à la place)
+  ✓ fuse-overlayfs (ROOT/bin/fuse-overlayfs) : mode overlay, sauvegardes séparées (sinon mode copy)
+  ✓ unsquashfs (PATH) : mode copy, --info, --install
+  ✓ mksquashfs (PATH) : --pack
+  ✓ getfattr (PATH) : --clean (doublons des sauvegardes)
+  ✓ flock (PATH) : verrou par jeu (double lancement)
+  ✓ zstd (PATH) : archives --backup compactes (sinon gzip)
+Wine / Proton
+  ✓ Wine par défaut : wine-tkg-fake wine-9.0 (fake) (ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/bin/wine)
+  ✓ prefixes 32 bits (win32) pris en charge
+  ✓ runners installés (--wine) :
+      wine-tkg-fake  ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake
+      GE-Proton9-1  ROOT/home/.local/share/Steam/compatibilitytools.d/GE-Proton9-1
+  ✓ umu-run (ROOT/bin/umu-run) : prefixes Proton et jeux seuls lancés par Proton
+Rendu
+  ✓ DXVK (ROOT/dxvk)
+  ✓ VKD3D-Proton (ROOT/vkd3d)
+  ✓ d7vk (ROOT/d7vk/x32/ddraw.dll)
+  ✓ GPU : NVIDIA et AMD détectés (réglages NVIDIA et AMD actifs)
+  – dxvk-nvapi absent : NVAPI sans effet (DLSS indisponible)
+  – couche Reflex absente : VKREFLEX sans effet
+  – RADV absent : vulkan-radeon (Arch) ou mesa-vulkan-drivers (Debian)
+  – FSR4 : amdxcffx64.dll absente (install.sh peut la copier depuis proton-cachyos)
+Manettes
+  – hidraw : aucune manette Sony (HIDRAW=1 retombe en XInput)
   ✓ dualsense-usb-bridge (PATH)
 Dossiers
   – ROOT/saves : pas encore créé
@@ -280,6 +391,9 @@ WINE wine-tkg-fake cwd=ROOT args: [--version]
   WINEESYNC=1
   LC_ALL=fr_FR.UTF-8
   FOO=bar
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
   WINEPREFIX=ROOT/cache/wine/Arcade Game
   WINEARCH=win64
@@ -289,6 +403,9 @@ WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
   WINEESYNC=1
   LC_ALL=fr_FR.UTF-8
   FOO=bar
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -w
 WINE wine-tkg-fake cwd=ROOT args: [regedit] [//?/unixROOT/cache/wine/Arcade Game/regs/a.reg]
   WINEPREFIX=ROOT/cache/wine/Arcade Game
@@ -301,6 +418,9 @@ WINE wine-tkg-fake cwd=ROOT args: [regedit] [//?/unixROOT/cache/wine/Arcade Game
   GAMEID=
   PROTONPATH=
   FOO=bar
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Services\winebus] [/v] [DisableHidraw] [/t] [REG_DWORD] [/d] [1] [/f]
   WINEPREFIX=ROOT/cache/wine/Arcade Game
   WINEARCH=win64
@@ -312,6 +432,9 @@ WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Ser
   GAMEID=
   PROTONPATH=
   FOO=bar
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -k
 WINESERVER -w
 WINE wine-tkg-fake cwd=ROOT args: [--version]
@@ -323,6 +446,9 @@ WINE wine-tkg-fake cwd=ROOT args: [--version]
   WINEESYNC=1
   LC_ALL=fr_FR.UTF-8
   FOO=bar
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINE wine-tkg-fake cwd=ROOT/cache/wine/Arcade Game/drive_c/Game Dir/Bin args: [ROOT/cache/wine/Arcade Game/drive_c/Game Dir/Bin/Game.EXE] [-fullscreen] [-w] [1]
   WINEPREFIX=ROOT/cache/wine/Arcade Game
   WINEARCH=win64
@@ -332,6 +458,9 @@ WINE wine-tkg-fake cwd=ROOT/cache/wine/Arcade Game/drive_c/Game Dir/Bin args: [R
   WINEESYNC=1
   LC_ALL=fr_FR.UTF-8
   FOO=bar
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -w
 WINESERVER -k
 WINESERVER -w
@@ -342,7 +471,6 @@ d cache/mnt ->
 d cache/mnt/Arcade Game -> 
 d cache/shaders -> 
 d cache/shaders/dxvk -> 
-d cache/shaders/nvidia -> 
 d cache/shaders/vkd3d -> 
 d cache/wine -> 
 d cache/wine/Arcade Game -> 
@@ -608,6 +736,9 @@ WINE wine-tkg-fake cwd=ROOT args: [--version]
   WINEESYNC=1
   LC_ALL=fr_FR.UTF-8
   FOO=bar
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
   WINEPREFIX=ROOT/cache/wine/Arcade Game
   WINEARCH=win64
@@ -617,6 +748,9 @@ WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
   WINEESYNC=1
   LC_ALL=fr_FR.UTF-8
   FOO=bar
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -w
 WINE wine-tkg-fake cwd=ROOT args: [regedit] [//?/unixROOT/cache/wine/Arcade Game/regs/a.reg]
   WINEPREFIX=ROOT/cache/wine/Arcade Game
@@ -629,6 +763,9 @@ WINE wine-tkg-fake cwd=ROOT args: [regedit] [//?/unixROOT/cache/wine/Arcade Game
   GAMEID=
   PROTONPATH=
   FOO=bar
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Services\winebus] [/v] [DisableHidraw] [/t] [REG_DWORD] [/d] [1] [/f]
   WINEPREFIX=ROOT/cache/wine/Arcade Game
   WINEARCH=win64
@@ -640,6 +777,9 @@ WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Ser
   GAMEID=
   PROTONPATH=
   FOO=bar
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -k
 WINESERVER -w
 WINE wine-tkg-fake cwd=ROOT args: [--version]
@@ -651,6 +791,9 @@ WINE wine-tkg-fake cwd=ROOT args: [--version]
   WINEESYNC=1
   LC_ALL=fr_FR.UTF-8
   FOO=bar
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINE wine-tkg-fake cwd=ROOT/cache/wine/Arcade Game/drive_c/Game Dir/Bin args: [ROOT/cache/wine/Arcade Game/drive_c/Game Dir/Bin/Game.EXE] [-fullscreen] [-w] [1]
   WINEPREFIX=ROOT/cache/wine/Arcade Game
   WINEARCH=win64
@@ -660,6 +803,9 @@ WINE wine-tkg-fake cwd=ROOT/cache/wine/Arcade Game/drive_c/Game Dir/Bin args: [R
   WINEESYNC=1
   LC_ALL=fr_FR.UTF-8
   FOO=bar
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -w
 WINESERVER -k
 WINESERVER -w
@@ -708,6 +854,9 @@ WINE wine-tkg-fake cwd=ROOT args: [--version]
   WINEESYNC=1
   LC_ALL=fr_FR.UTF-8
   FOO=bar
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
   WINEPREFIX=ROOT/cache/wine/Arcade Game
   WINEARCH=win64
@@ -717,6 +866,9 @@ WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
   WINEESYNC=1
   LC_ALL=fr_FR.UTF-8
   FOO=bar
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -w
 WINE wine-tkg-fake cwd=ROOT args: [regedit] [//?/unixROOT/cache/wine/Arcade Game/regs/a.reg]
   WINEPREFIX=ROOT/cache/wine/Arcade Game
@@ -729,6 +881,9 @@ WINE wine-tkg-fake cwd=ROOT args: [regedit] [//?/unixROOT/cache/wine/Arcade Game
   GAMEID=
   PROTONPATH=
   FOO=bar
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Services\winebus] [/v] [DisableHidraw] [/t] [REG_DWORD] [/d] [1] [/f]
   WINEPREFIX=ROOT/cache/wine/Arcade Game
   WINEARCH=win64
@@ -740,6 +895,9 @@ WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Ser
   GAMEID=
   PROTONPATH=
   FOO=bar
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -k
 WINESERVER -w
 WINE wine-tkg-fake cwd=ROOT args: [--version]
@@ -751,6 +909,9 @@ WINE wine-tkg-fake cwd=ROOT args: [--version]
   WINEESYNC=1
   LC_ALL=fr_FR.UTF-8
   FOO=bar
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINE wine-tkg-fake cwd=ROOT/cache/wine/Arcade Game/drive_c/Game Dir/Bin args: [ROOT/cache/wine/Arcade Game/drive_c/Game Dir/Bin/Config.exe]
   WINEPREFIX=ROOT/cache/wine/Arcade Game
   WINEARCH=win64
@@ -760,6 +921,9 @@ WINE wine-tkg-fake cwd=ROOT/cache/wine/Arcade Game/drive_c/Game Dir/Bin args: [R
   WINEESYNC=1
   LC_ALL=fr_FR.UTF-8
   FOO=bar
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -w
 WINESERVER -k
 WINESERVER -w
@@ -817,6 +981,9 @@ WINE wine-tkg-fake cwd=ROOT args: [--version]
   WINEESYNC=1
   LC_ALL=fr_FR.UTF-8
   FOO=bar
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
   WINEPREFIX=ROOT/cache/wine/Arcade Game
   WINEARCH=win64
@@ -826,6 +993,9 @@ WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
   WINEESYNC=1
   LC_ALL=fr_FR.UTF-8
   FOO=bar
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -w
 WINE wine-tkg-fake cwd=ROOT args: [regedit] [//?/unixROOT/cache/wine/Arcade Game/regs/a.reg]
   WINEPREFIX=ROOT/cache/wine/Arcade Game
@@ -838,6 +1008,9 @@ WINE wine-tkg-fake cwd=ROOT args: [regedit] [//?/unixROOT/cache/wine/Arcade Game
   GAMEID=
   PROTONPATH=
   FOO=bar
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Services\winebus] [/v] [DisableHidraw] [/t] [REG_DWORD] [/d] [1] [/f]
   WINEPREFIX=ROOT/cache/wine/Arcade Game
   WINEARCH=win64
@@ -849,6 +1022,9 @@ WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Ser
   GAMEID=
   PROTONPATH=
   FOO=bar
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -k
 WINESERVER -w
 WINE wine-tkg-fake cwd=ROOT args: [--version]
@@ -860,6 +1036,9 @@ WINE wine-tkg-fake cwd=ROOT args: [--version]
   WINEESYNC=1
   LC_ALL=fr_FR.UTF-8
   FOO=bar
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINE wine-tkg-fake cwd=ROOT/cache/wine/Arcade Game args: [winecfg]
   WINEPREFIX=ROOT/cache/wine/Arcade Game
   WINEARCH=win64
@@ -869,6 +1048,9 @@ WINE wine-tkg-fake cwd=ROOT/cache/wine/Arcade Game args: [winecfg]
   WINEESYNC=1
   LC_ALL=fr_FR.UTF-8
   FOO=bar
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -w
 WINESERVER -k
 WINESERVER -w
@@ -917,6 +1099,9 @@ WINE wine-tkg-fake cwd=ROOT args: [--version]
   WINEESYNC=1
   LC_ALL=fr_FR.UTF-8
   FOO=bar
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
   WINEPREFIX=ROOT/cache/wine/Arcade Game
   WINEARCH=win64
@@ -926,6 +1111,9 @@ WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
   WINEESYNC=1
   LC_ALL=fr_FR.UTF-8
   FOO=bar
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -w
 WINE wine-tkg-fake cwd=ROOT args: [regedit] [//?/unixROOT/cache/wine/Arcade Game/regs/a.reg]
   WINEPREFIX=ROOT/cache/wine/Arcade Game
@@ -938,6 +1126,9 @@ WINE wine-tkg-fake cwd=ROOT args: [regedit] [//?/unixROOT/cache/wine/Arcade Game
   GAMEID=
   PROTONPATH=
   FOO=bar
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Services\winebus] [/v] [DisableHidraw] [/t] [REG_DWORD] [/d] [1] [/f]
   WINEPREFIX=ROOT/cache/wine/Arcade Game
   WINEARCH=win64
@@ -949,6 +1140,9 @@ WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Ser
   GAMEID=
   PROTONPATH=
   FOO=bar
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -k
 WINESERVER -w
 WINE wine-tkg-fake cwd=ROOT args: [--version]
@@ -960,6 +1154,9 @@ WINE wine-tkg-fake cwd=ROOT args: [--version]
   WINEESYNC=1
   LC_ALL=fr_FR.UTF-8
   FOO=bar
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINE wine-tkg-fake cwd=ROOT/cache/wine/Arcade Game/drive_c/Game Dir/Bin args: [ROOT/cache/wine/Arcade Game/drive_c/Game Dir/Bin/Config.exe] [/x]
   WINEPREFIX=ROOT/cache/wine/Arcade Game
   WINEARCH=win64
@@ -969,6 +1166,9 @@ WINE wine-tkg-fake cwd=ROOT/cache/wine/Arcade Game/drive_c/Game Dir/Bin args: [R
   WINEESYNC=1
   LC_ALL=fr_FR.UTF-8
   FOO=bar
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -w
 WINESERVER -k
 WINESERVER -w
@@ -1034,6 +1234,9 @@ WINE files cwd=ROOT args: [--version]
   WINEESYNC=1
   LC_ALL=fr_FR.UTF-8
   FOO=bar
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINE files cwd=ROOT args: [wineboot] [-u]
   WINEPREFIX=ROOT/cache/wine/Arcade Game
   WINEARCH=win64
@@ -1043,6 +1246,9 @@ WINE files cwd=ROOT args: [wineboot] [-u]
   WINEESYNC=1
   LC_ALL=fr_FR.UTF-8
   FOO=bar
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -w
 WINE files cwd=ROOT args: [regedit] [//?/unixROOT/cache/wine/Arcade Game/regs/a.reg]
   WINEPREFIX=ROOT/cache/wine/Arcade Game
@@ -1055,6 +1261,9 @@ WINE files cwd=ROOT args: [regedit] [//?/unixROOT/cache/wine/Arcade Game/regs/a.
   GAMEID=
   PROTONPATH=
   FOO=bar
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINE files cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Services\winebus] [/v] [DisableHidraw] [/t] [REG_DWORD] [/d] [1] [/f]
   WINEPREFIX=ROOT/cache/wine/Arcade Game
   WINEARCH=win64
@@ -1066,6 +1275,9 @@ WINE files cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Services\wi
   GAMEID=
   PROTONPATH=
   FOO=bar
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -k
 WINESERVER -w
 WINE files cwd=ROOT/cache/wine/Arcade Game/drive_c/Game Dir/Bin args: [ROOT/cache/wine/Arcade Game/drive_c/Game Dir/Bin/Game.EXE] [-fullscreen] [-w] [1]
@@ -1077,6 +1289,9 @@ WINE files cwd=ROOT/cache/wine/Arcade Game/drive_c/Game Dir/Bin args: [ROOT/cach
   WINEESYNC=1
   LC_ALL=fr_FR.UTF-8
   FOO=bar
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -w
 WINESERVER -k
 WINESERVER -w
@@ -1116,17 +1331,26 @@ WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
   WINEARCH=win64
   WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -w
 WINE wine-tkg-fake cwd=ROOT args: [--version]
   WINEPREFIX=ROOT/cache/wine/Solo Game
   WINEARCH=win64
   WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
   WINEPREFIX=ROOT/cache/wine/Solo Game
   WINEARCH=win64
   WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
   WINEDEBUG=-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -w
 WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Services\winebus] [/v] [DisableHidraw] [/t] [REG_DWORD] [/d] [1] [/f]
   WINEPREFIX=ROOT/cache/wine/Solo Game
@@ -1135,6 +1359,9 @@ WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Ser
   WINEDEBUG=fixme-all
   GAMEID=
   PROTONPATH=
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -k
 WINESERVER -w
 WINE wine-tkg-fake cwd=ROOT args: [--version]
@@ -1142,11 +1369,17 @@ WINE wine-tkg-fake cwd=ROOT args: [--version]
   WINEARCH=win64
   WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINE wine-tkg-fake cwd=ROOT/cache/wine/Solo Game args: [explorer] [/desktop=Solo_Game,1280x720] [ROOT/cache/wine/Solo Game/game/run me.exe] [--arg]
   WINEPREFIX=ROOT/cache/wine/Solo Game
   WINEARCH=win64
   WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -w
 WINESERVER -k
 WINESERVER -w
@@ -1158,7 +1391,6 @@ d cache/mnt/Arcade Game ->
 d cache/mnt/Solo Game -> 
 d cache/shaders -> 
 d cache/shaders/dxvk -> 
-d cache/shaders/nvidia -> 
 d cache/shaders/vkd3d -> 
 d cache/wine -> 
 d cache/wine/Arcade Game -> 
@@ -1444,11 +1676,17 @@ WINE wine-tkg-fake cwd=ROOT args: [--version]
   WINEARCH=win64
   WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
   WINEPREFIX=ROOT/cache/wine/Solo Game
   WINEARCH=win64
   WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
   WINEDEBUG=-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -w
 WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Services\winebus] [/v] [DisableHidraw] [/t] [REG_DWORD] [/d] [1] [/f]
   WINEPREFIX=ROOT/cache/wine/Solo Game
@@ -1457,6 +1695,9 @@ WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Ser
   WINEDEBUG=fixme-all
   GAMEID=
   PROTONPATH=
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -k
 WINESERVER -w
 WINE wine-tkg-fake cwd=ROOT args: [--version]
@@ -1464,11 +1705,17 @@ WINE wine-tkg-fake cwd=ROOT args: [--version]
   WINEARCH=win64
   WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINE wine-tkg-fake cwd=ROOT/cache/wine/Solo Game args: [explorer] [/desktop=Solo_Game,1280x720] [ROOT/cache/wine/Solo Game/game/run me.exe] [--arg]
   WINEPREFIX=ROOT/cache/wine/Solo Game
   WINEARCH=win64
   WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -w
 WINESERVER -k
 WINESERVER -w
@@ -1568,11 +1815,17 @@ WINE wine-tkg-fake cwd=ROOT args: [--version]
   WINEARCH=win32
   WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
   WINEPREFIX=ROOT/cache/wine/Old32
   WINEARCH=win32
   WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
   WINEDEBUG=-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -w
 WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Services\winebus] [/v] [DisableHidraw] [/t] [REG_DWORD] [/d] [1] [/f]
   WINEPREFIX=ROOT/cache/wine/Old32
@@ -1581,6 +1834,9 @@ WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Ser
   WINEDEBUG=fixme-all
   GAMEID=
   PROTONPATH=
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -k
 WINESERVER -w
 WINE wine-tkg-fake cwd=ROOT args: [--version]
@@ -1588,11 +1844,1062 @@ WINE wine-tkg-fake cwd=ROOT args: [--version]
   WINEARCH=win32
   WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINE wine-tkg-fake cwd=ROOT/cache/wine/Old32/drive_c/game args: [cmd] [/c] [ROOT/cache/wine/Old32/drive_c/game/start.bat]
   WINEPREFIX=ROOT/cache/wine/Old32
   WINEARCH=win32
   WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
+WINESERVER -w
+WINESERVER -k
+WINESERVER -w
+################ gpu-amd-fsr
+=========================================
+WSquashFS Launcher
+=========================================
+Environnement : ENV
+Jeu           : Solo Game
+Fichier       : ROOT/userdata/roms/windows/Solo Game.wsquashfs
+Mode          : overlay (squashfuse + fuse-overlayfs)
+✓ Préfixe Wine détecté (structure Batocera)
+Préfixe       : mise à jour pour wine-9.0 (fake)
+-----------------------------------------
+Exécutable    : ROOT/cache/wine/Solo Game/game/run me.exe
+Arguments     : --arg
+Wine          : ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/bin/wine (win64)
+Version Wine  : wine-9.0 (fake)
+Préfixe       : ROOT/cache/wine/Solo Game
+Sauvegardes   : ROOT/saves/Solo Game
+Manettes      : XInput, manette Xbox
+DXVK          : activé
+VKD3D         : activé
+D7VK          : activé (DirectDraw → Vulkan)
+Bureau virtuel: 1280x720
+=========================================
+
+
+=========================================
+Jeu terminé (code : 0)
+=========================================
+-- stderr
+Attention : prefix Wine déjà créé dans les sauvegardes, gardé sous wine-tkg-fake — supprimer ROOT/saves/Solo Game (sauvegardes du jeu comprises) pour passer sous Proton
+== rc=0
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Solo Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=1
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
+WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
+  WINEPREFIX=ROOT/cache/wine/Solo Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
+  WINEDEBUG=-all
+  WINE_FULLSCREEN_FSR=1
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Services\winebus] [/v] [DisableHidraw] [/t] [REG_DWORD] [/d] [1] [/f]
+  WINEPREFIX=ROOT/cache/wine/Solo Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  GAMEID=
+  PROTONPATH=
+  WINE_FULLSCREEN_FSR=1
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
+WINESERVER -k
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Solo Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=1
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
+WINE wine-tkg-fake cwd=ROOT/cache/wine/Solo Game args: [explorer] [/desktop=Solo_Game,1280x720] [ROOT/cache/wine/Solo Game/game/run me.exe] [--arg]
+  WINEPREFIX=ROOT/cache/wine/Solo Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=1
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
+WINESERVER -w
+WINESERVER -k
+WINESERVER -w
+################ gpu-amd
+=========================================
+WSquashFS Launcher
+=========================================
+Environnement : ENV
+Jeu           : Solo Game
+Fichier       : ROOT/userdata/roms/windows/Solo Game.wsquashfs
+Mode          : overlay (squashfuse + fuse-overlayfs)
+✓ Préfixe Wine détecté (structure Batocera)
+Préfixe       : mise à jour pour wine-9.0 (fake)
+-----------------------------------------
+Exécutable    : ROOT/cache/wine/Solo Game/game/run me.exe
+Arguments     : --arg
+Wine          : ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/bin/wine (win64)
+Version Wine  : wine-9.0 (fake)
+Préfixe       : ROOT/cache/wine/Solo Game
+Sauvegardes   : ROOT/saves/Solo Game
+Manettes      : XInput, manette Xbox
+DXVK          : activé
+VKD3D         : activé
+D7VK          : activé (DirectDraw → Vulkan)
+Bureau virtuel: 1280x720
+=========================================
+
+
+=========================================
+Jeu terminé (code : 0)
+=========================================
+-- stderr
+Attention : prefix Wine déjà créé dans les sauvegardes, gardé sous wine-tkg-fake — supprimer ROOT/saves/Solo Game (sauvegardes du jeu comprises) pour passer sous Proton
+== rc=0
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Solo Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
+WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
+  WINEPREFIX=ROOT/cache/wine/Solo Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
+  WINEDEBUG=-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Services\winebus] [/v] [DisableHidraw] [/t] [REG_DWORD] [/d] [1] [/f]
+  WINEPREFIX=ROOT/cache/wine/Solo Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  GAMEID=
+  PROTONPATH=
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
+WINESERVER -k
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Solo Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
+WINE wine-tkg-fake cwd=ROOT/cache/wine/Solo Game args: [explorer] [/desktop=Solo_Game,1280x720] [ROOT/cache/wine/Solo Game/game/run me.exe] [--arg]
+  WINEPREFIX=ROOT/cache/wine/Solo Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
+WINESERVER -w
+WINESERVER -k
+WINESERVER -w
+################ gpu-nvidia
+=========================================
+WSquashFS Launcher
+=========================================
+Environnement : ENV
+Jeu           : Solo Game
+Fichier       : ROOT/userdata/roms/windows/Solo Game.wsquashfs
+Mode          : overlay (squashfuse + fuse-overlayfs)
+✓ Préfixe Wine détecté (structure Batocera)
+Préfixe       : mise à jour pour wine-9.0 (fake)
+-----------------------------------------
+Exécutable    : ROOT/cache/wine/Solo Game/game/run me.exe
+Arguments     : --arg
+Wine          : ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/bin/wine (win64)
+Version Wine  : wine-9.0 (fake)
+Préfixe       : ROOT/cache/wine/Solo Game
+Sauvegardes   : ROOT/saves/Solo Game
+Manettes      : XInput, manette Xbox
+DXVK          : activé
+VKD3D         : activé
+D7VK          : activé (DirectDraw → Vulkan)
+Bureau virtuel: 1280x720
+=========================================
+
+
+=========================================
+Jeu terminé (code : 0)
+=========================================
+-- stderr
+Attention : prefix Wine déjà créé dans les sauvegardes, gardé sous wine-tkg-fake — supprimer ROOT/saves/Solo Game (sauvegardes du jeu comprises) pour passer sous Proton
+== rc=0
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Solo Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
+  __GL_SHADER_DISK_CACHE_PATH=ROOT/cache/shaders/nvidia
+WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
+  WINEPREFIX=ROOT/cache/wine/Solo Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
+  WINEDEBUG=-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
+  __GL_SHADER_DISK_CACHE_PATH=ROOT/cache/shaders/nvidia
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Services\winebus] [/v] [DisableHidraw] [/t] [REG_DWORD] [/d] [1] [/f]
+  WINEPREFIX=ROOT/cache/wine/Solo Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  GAMEID=
+  PROTONPATH=
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
+  __GL_SHADER_DISK_CACHE_PATH=ROOT/cache/shaders/nvidia
+WINESERVER -k
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Solo Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
+  __GL_SHADER_DISK_CACHE_PATH=ROOT/cache/shaders/nvidia
+WINE wine-tkg-fake cwd=ROOT/cache/wine/Solo Game args: [explorer] [/desktop=Solo_Game,1280x720] [ROOT/cache/wine/Solo Game/game/run me.exe] [--arg]
+  WINEPREFIX=ROOT/cache/wine/Solo Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
+  __GL_SHADER_DISK_CACHE_PATH=ROOT/cache/shaders/nvidia
+WINESERVER -w
+WINESERVER -k
+WINESERVER -w
+################ gpu-amd-fsr4
+=========================================
+WSquashFS Launcher
+=========================================
+Environnement : ENV
+Jeu           : Solo Game
+Fichier       : ROOT/userdata/roms/windows/Solo Game.wsquashfs
+Mode          : overlay (squashfuse + fuse-overlayfs)
+✓ Préfixe Wine détecté (structure Batocera)
+Préfixe       : mise à jour pour wine-9.0 (fake)
+-----------------------------------------
+Exécutable    : ROOT/cache/wine/Solo Game/game/run me.exe
+Arguments     : --arg
+Wine          : ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/bin/wine (win64)
+Version Wine  : wine-9.0 (fake)
+Préfixe       : ROOT/cache/wine/Solo Game
+Sauvegardes   : ROOT/saves/Solo Game
+Manettes      : XInput, manette Xbox
+DXVK          : activé
+VKD3D         : activé
+D7VK          : activé (DirectDraw → Vulkan)
+Bureau virtuel: 1280x720
+=========================================
+
+
+=========================================
+Jeu terminé (code : 0)
+=========================================
+-- stderr
+Attention : prefix Wine déjà créé dans les sauvegardes, gardé sous wine-tkg-fake — supprimer ROOT/saves/Solo Game (sauvegardes du jeu comprises) pour passer sous Proton
+== rc=0
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Solo Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
+WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
+  WINEPREFIX=ROOT/cache/wine/Solo Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
+  WINEDEBUG=-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Services\winebus] [/v] [DisableHidraw] [/t] [REG_DWORD] [/d] [1] [/f]
+  WINEPREFIX=ROOT/cache/wine/Solo Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  GAMEID=
+  PROTONPATH=
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
+WINESERVER -k
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Solo Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
+WINE wine-tkg-fake cwd=ROOT/cache/wine/Solo Game args: [explorer] [/desktop=Solo_Game,1280x720] [ROOT/cache/wine/Solo Game/game/run me.exe] [--arg]
+  WINEPREFIX=ROOT/cache/wine/Solo Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
+WINESERVER -w
+WINESERVER -k
+WINESERVER -w
+################ TREE after-fsr4
+d cache -> 
+d cache/locks -> 
+d cache/mnt -> 
+d cache/mnt/Arcade Game -> 
+d cache/mnt/Old32 -> 
+d cache/mnt/Proton Game -> 
+d cache/mnt/Solo Game -> 
+d cache/shaders -> 
+d cache/shaders/dxvk -> 
+d cache/shaders/nvidia -> 
+d cache/shaders/vkd3d -> 
+d cache/wine -> 
+d cache/wine/Arcade Game -> 
+d cache/wine/Old32 -> 
+d cache/wine/Proton Game -> 
+d cache/wine/Solo Game -> 
+d saves -> 
+d saves/.images -> 
+d saves/.work -> 
+d saves/Arcade Game -> 
+d saves/Arcade Game/drive_c -> 
+d saves/Arcade Game/drive_c/Game Dir -> 
+d saves/Arcade Game/drive_c/users -> 
+d saves/Arcade Game/drive_c/users/steamuser -> 
+d saves/Arcade Game/drive_c/users/steamuser/Music -> 
+d saves/Arcade Game/drive_c/users/wsqtest -> 
+d saves/Arcade Game/drive_c/windows -> 
+d saves/Arcade Game/drive_c/windows/system32 -> 
+d saves/Arcade Game/drive_c/windows/syswow64 -> 
+d saves/Old32 -> 
+d saves/Old32/drive_c -> 
+d saves/Old32/drive_c/users -> 
+d saves/Old32/drive_c/users/wsqtest -> 
+d saves/Old32/drive_c/windows -> 
+d saves/Old32/drive_c/windows/system32 -> 
+d saves/Proton Game -> 
+d saves/Solo Game -> 
+d saves/Solo Game/drive_c -> 
+d saves/Solo Game/drive_c/users -> 
+d saves/Solo Game/drive_c/users/wsqtest -> 
+d saves/Solo Game/drive_c/windows -> 
+d saves/Solo Game/drive_c/windows/system32 -> 
+d saves/Solo Game/drive_c/windows/syswow64 -> 
+d src -> 
+d src/Arcade Game.wine -> 
+d src/Arcade Game.wine/drive_c -> 
+d src/Arcade Game.wine/drive_c/Game Dir -> 
+d src/Arcade Game.wine/drive_c/Game Dir/Bin -> 
+d src/Arcade Game.wine/drive_c/Game Dir/Saves -> 
+d src/Arcade Game.wine/drive_c/users -> 
+d src/Arcade Game.wine/drive_c/users/steamuser -> 
+d src/Arcade Game.wine/drive_c/users/steamuser/Documents -> 
+d src/Arcade Game.wine/drive_c/windows -> 
+d src/Arcade Game.wine/drive_c/windows/system32 -> 
+d src/Arcade Game.wine/drive_c/windows/syswow64 -> 
+d src/Arcade Game.wine/regs -> 
+d src/Hook Game -> 
+d src/Hook Game/game -> 
+d src/Joint Game -> 
+d src/Joint Game/game -> 
+d src/Joint Game/runners -> 
+d src/Joint Game/runners/Joint-Proton -> 
+d src/Joint Game/runners/Joint-Proton/files -> 
+d src/Joint Game/runners/Joint-Proton/files/bin -> 
+d src/Joint Game/runners/Joint-Proton/files/lib -> 
+d src/Joint Game/runners/Joint-Proton/files/lib/wine -> 
+d src/Joint Game/runners/Joint-Proton/files/lib/wine/i386-unix -> 
+d src/Joint Game/runners/Joint-Proton/files/lib/wine/i386-windows -> 
+d src/Joint Game/runners/Joint-Proton/files/lib/wine/x86_64-windows -> 
+d src/Joint Game/runners/Joint-Proton/files/share -> 
+d src/Joint Game/runners/Joint-Proton/files/share/wine -> 
+d src/Loader Game -> 
+d src/Loader Game/game -> 
+d src/Missing Runner Game -> 
+d src/Missing Runner Game/game -> 
+d src/Named Game -> 
+d src/Named Game/game -> 
+d src/Named Game/runners -> 
+d src/Named Game/runners/GE-Proton9-1 -> 
+d src/Named Game/runners/GE-Proton9-1/files -> 
+d src/Named Game/runners/GE-Proton9-1/files/bin -> 
+d src/Named Game/runners/GE-Proton9-1/files/lib -> 
+d src/Named Game/runners/GE-Proton9-1/files/lib/wine -> 
+d src/Named Game/runners/GE-Proton9-1/files/lib/wine/i386-unix -> 
+d src/Named Game/runners/GE-Proton9-1/files/lib/wine/i386-windows -> 
+d src/Named Game/runners/GE-Proton9-1/files/lib/wine/x86_64-windows -> 
+d src/Named Game/runners/GE-Proton9-1/files/share -> 
+d src/Named Game/runners/GE-Proton9-1/files/share/wine -> 
+d src/Old32.wine -> 
+d src/Old32.wine/drive_c -> 
+d src/Old32.wine/drive_c/game -> 
+d src/Old32.wine/drive_c/windows -> 
+d src/Old32.wine/drive_c/windows/system32 -> 
+d src/Pre Fail Game -> 
+d src/Pre Fail Game/game -> 
+d src/Proton Game.wine -> 
+d src/Proton Game.wine/drive_c -> 
+d src/Proton Game.wine/drive_c/pg -> 
+d src/Proton Game.wine/drive_c/windows -> 
+d src/Proton Game.wine/drive_c/windows/system32 -> 
+d src/Relative Runner Game -> 
+d src/Relative Runner Game/game -> 
+d src/Solo Game -> 
+d src/Solo Game/game -> 
+d src/Two Runners Game -> 
+d src/Two Runners Game/game -> 
+d src/Two Runners Game/runners -> 
+d src/Two Runners Game/runners/A-Proton -> 
+d src/Two Runners Game/runners/A-Proton/files -> 
+d src/Two Runners Game/runners/A-Proton/files/bin -> 
+d src/Two Runners Game/runners/A-Proton/files/lib -> 
+d src/Two Runners Game/runners/A-Proton/files/lib/wine -> 
+d src/Two Runners Game/runners/A-Proton/files/lib/wine/i386-unix -> 
+d src/Two Runners Game/runners/A-Proton/files/lib/wine/i386-windows -> 
+d src/Two Runners Game/runners/A-Proton/files/lib/wine/x86_64-windows -> 
+d src/Two Runners Game/runners/A-Proton/files/share -> 
+d src/Two Runners Game/runners/A-Proton/files/share/wine -> 
+d src/Two Runners Game/runners/B-Proton -> 
+d src/Two Runners Game/runners/B-Proton/files -> 
+d src/Two Runners Game/runners/B-Proton/files/bin -> 
+d src/Two Runners Game/runners/B-Proton/files/lib -> 
+d src/Two Runners Game/runners/B-Proton/files/lib/wine -> 
+d src/Two Runners Game/runners/B-Proton/files/lib/wine/i386-unix -> 
+d src/Two Runners Game/runners/B-Proton/files/lib/wine/i386-windows -> 
+d src/Two Runners Game/runners/B-Proton/files/lib/wine/x86_64-windows -> 
+d src/Two Runners Game/runners/B-Proton/files/share -> 
+d src/Two Runners Game/runners/B-Proton/files/share/wine -> 
+d src/Wine Joint Game -> 
+d src/Wine Joint Game/game -> 
+d src/Wine Joint Game/runners -> 
+d src/Wine Joint Game/runners/wine-mine -> 
+d src/Wine Joint Game/runners/wine-mine/bin -> 
+d src/Wine Joint Game/runners/wine-mine/lib -> 
+d src/Wine Joint Game/runners/wine-mine/lib/wine -> 
+d src/Wine Joint Game/runners/wine-mine/lib/wine/i386-unix -> 
+d src/Wine Joint Game/runners/wine-mine/lib/wine/i386-windows -> 
+d src/Wine Joint Game/runners/wine-mine/lib/wine/x86_64-windows -> 
+d src/Wine Joint Game/runners/wine-mine/share -> 
+d src/Wine Joint Game/runners/wine-mine/share/wine -> 
+d userdata -> 
+d userdata/roms -> 
+d userdata/roms/windows -> 
+d userdata/saves -> 
+d userdata/saves/windows -> 
+d userdata/saves/windows/Arcade Game -> 
+f cache/locks/Arcade Game.lock -> 
+f cache/locks/Old32.lock -> 
+f cache/locks/Proton Game.lock -> 
+f cache/locks/Solo Game.lock -> 
+f saves/.images/Arcade Game -> 
+f saves/.images/Old32 -> 
+f saves/.images/Proton Game -> 
+f saves/.images/Solo Game -> 
+f saves/Arcade Game/drive_c/users/steamuser/Music/.wh..wh..opq -> 
+f saves/Arcade Game/drive_c/users/wsqtest/.wh..wh..opq -> 
+f saves/Old32/drive_c/users/.wh..wh..opq -> 
+f saves/Old32/drive_c/users/wsqtest/.wh..wh..opq -> 
+f saves/Solo Game/drive_c/.wh..wh..opq -> 
+f saves/Solo Game/drive_c/users/.wh..wh..opq -> 
+f saves/Solo Game/drive_c/users/wsqtest/.wh..wh..opq -> 
+f saves/Solo Game/drive_c/windows/.wh..wh..opq -> 
+f saves/Solo Game/drive_c/windows/system32/.wh..wh..opq -> 
+f saves/Solo Game/drive_c/windows/system32/explorer.exe -> 
+f saves/Solo Game/system.reg -> 
+f src/Arcade Game.wine/autorun.cmd -> 
+f src/Arcade Game.wine/drive_c/Game Dir/Bin/Config.exe -> 
+f src/Arcade Game.wine/drive_c/Game Dir/Bin/Game.EXE -> 
+f src/Arcade Game.wine/drive_c/Game Dir/Saves/slot1 -> 
+f src/Arcade Game.wine/drive_c/windows/system32/d3dx9_42.dll -> 
+f src/Arcade Game.wine/drive_c/windows/system32/explorer.exe -> 
+f src/Arcade Game.wine/drive_c/windows/system32/kernel32.dll -> 
+f src/Arcade Game.wine/regs/a.reg -> 
+f src/Arcade Game.wine/system.reg -> 
+f src/Hook Game/autorun.cmd -> 
+f src/Hook Game/game/attach.sh -> 
+f src/Hook Game/game/hook.exe -> 
+f src/Hook Game/game/pre.sh -> 
+f src/Joint Game/autorun.cmd -> 
+f src/Joint Game/game/game.exe -> 
+f src/Joint Game/runners/Joint-Proton/files/bin/wine -> 
+f src/Joint Game/runners/Joint-Proton/files/lib/wine/i386-windows/ddraw.dll -> 
+f src/Joint Game/runners/Joint-Proton/files/lib/wine/i386-windows/kernel32.dll -> 
+f src/Joint Game/runners/Joint-Proton/files/lib/wine/x86_64-windows/explorer.exe -> 
+f src/Joint Game/runners/Joint-Proton/files/lib/wine/x86_64-windows/kernel32.dll -> 
+f src/Joint Game/runners/Joint-Proton/files/share/wine/wine.inf -> 
+f src/Joint Game/runners/Joint-Proton/proton -> 
+f src/Joint Game/runners/Joint-Proton/version -> 
+f src/Loader Game/autorun.cmd -> 
+f src/Loader Game/game/attach me.sh -> 
+f src/Loader Game/game/loader.exe -> 
+f src/Missing Runner Game/autorun.cmd -> 
+f src/Missing Runner Game/game/game.exe -> 
+f src/Named Game/autorun.cmd -> 
+f src/Named Game/game/game.exe -> 
+f src/Named Game/runners/GE-Proton9-1/files/bin/wine -> 
+f src/Named Game/runners/GE-Proton9-1/files/lib/wine/i386-windows/ddraw.dll -> 
+f src/Named Game/runners/GE-Proton9-1/files/lib/wine/i386-windows/kernel32.dll -> 
+f src/Named Game/runners/GE-Proton9-1/files/lib/wine/x86_64-windows/explorer.exe -> 
+f src/Named Game/runners/GE-Proton9-1/files/lib/wine/x86_64-windows/kernel32.dll -> 
+f src/Named Game/runners/GE-Proton9-1/files/share/wine/wine.inf -> 
+f src/Named Game/runners/GE-Proton9-1/proton -> 
+f src/Named Game/runners/GE-Proton9-1/version -> 
+f src/Old32.wine/autorun.cmd -> 
+f src/Old32.wine/drive_c/game/start.bat -> 
+f src/Old32.wine/drive_c/windows/system32/explorer.exe -> 
+f src/Old32.wine/system.reg -> 
+f src/Pre Fail Game/autorun.cmd -> 
+f src/Pre Fail Game/game/hook.exe -> 
+f src/Proton Game.wine/autorun.cmd -> 
+f src/Proton Game.wine/config_info -> 
+f src/Proton Game.wine/drive_c/pg/pg.exe -> 
+f src/Proton Game.wine/system.reg -> 
+f src/Relative Runner Game/autorun.cmd -> 
+f src/Relative Runner Game/game/game.exe -> 
+f src/Solo Game/autorun.cmd -> 
+f src/Solo Game/game/run me.exe -> 
+f src/Two Runners Game/autorun.cmd -> 
+f src/Two Runners Game/game/game.exe -> 
+f src/Two Runners Game/runners/A-Proton/files/bin/wine -> 
+f src/Two Runners Game/runners/A-Proton/files/lib/wine/i386-windows/ddraw.dll -> 
+f src/Two Runners Game/runners/A-Proton/files/lib/wine/i386-windows/kernel32.dll -> 
+f src/Two Runners Game/runners/A-Proton/files/lib/wine/x86_64-windows/explorer.exe -> 
+f src/Two Runners Game/runners/A-Proton/files/lib/wine/x86_64-windows/kernel32.dll -> 
+f src/Two Runners Game/runners/A-Proton/files/share/wine/wine.inf -> 
+f src/Two Runners Game/runners/A-Proton/proton -> 
+f src/Two Runners Game/runners/A-Proton/version -> 
+f src/Two Runners Game/runners/B-Proton/files/bin/wine -> 
+f src/Two Runners Game/runners/B-Proton/files/lib/wine/i386-windows/ddraw.dll -> 
+f src/Two Runners Game/runners/B-Proton/files/lib/wine/i386-windows/kernel32.dll -> 
+f src/Two Runners Game/runners/B-Proton/files/lib/wine/x86_64-windows/explorer.exe -> 
+f src/Two Runners Game/runners/B-Proton/files/lib/wine/x86_64-windows/kernel32.dll -> 
+f src/Two Runners Game/runners/B-Proton/files/share/wine/wine.inf -> 
+f src/Two Runners Game/runners/B-Proton/proton -> 
+f src/Two Runners Game/runners/B-Proton/version -> 
+f src/Wine Joint Game/autorun.cmd -> 
+f src/Wine Joint Game/game/game.exe -> 
+f src/Wine Joint Game/runners/wine-mine/bin/wine -> 
+f src/Wine Joint Game/runners/wine-mine/lib/wine/i386-windows/ddraw.dll -> 
+f src/Wine Joint Game/runners/wine-mine/lib/wine/i386-windows/kernel32.dll -> 
+f src/Wine Joint Game/runners/wine-mine/lib/wine/x86_64-windows/explorer.exe -> 
+f src/Wine Joint Game/runners/wine-mine/lib/wine/x86_64-windows/kernel32.dll -> 
+f src/Wine Joint Game/runners/wine-mine/share/wine/wine.inf -> 
+f userdata/roms/windows/Arcade Game.wsquashfs -> 
+f userdata/roms/windows/Old32.wsquashfs -> 
+f userdata/roms/windows/Proton Game.wsquashfs -> 
+f userdata/roms/windows/Solo Game.wsquashfs -> 
+f userdata/saves/windows/Arcade Game/slot1 -> 
+l saves/Arcade Game/drive_c/Game Dir/Saves -> ROOT/userdata/saves/windows/Arcade Game
+l saves/Arcade Game/drive_c/windows/system32/d3d11.dll -> ROOT/dxvk/x64/d3d11.dll
+l saves/Arcade Game/drive_c/windows/system32/d3d12.dll -> ROOT/vkd3d/x64/d3d12.dll
+l saves/Arcade Game/drive_c/windows/system32/d3d9.dll -> ROOT/dxvk/x64/d3d9.dll
+l saves/Arcade Game/drive_c/windows/system32/dxgi.dll -> ROOT/dxvk/x64/dxgi.dll
+l saves/Arcade Game/drive_c/windows/system32/kernel32.dll -> ROOT/home/.local/share/Steam/compatibilitytools.d/GE-Proton9-1/files/lib/wine/x86_64-windows/kernel32.dll
+l saves/Arcade Game/drive_c/windows/syswow64/d3d11.dll -> ROOT/dxvk/x32/d3d11.dll
+l saves/Arcade Game/drive_c/windows/syswow64/d3d12.dll -> ROOT/vkd3d/x86/d3d12.dll
+l saves/Arcade Game/drive_c/windows/syswow64/d3d9.dll -> ROOT/dxvk/x32/d3d9.dll
+l saves/Arcade Game/drive_c/windows/syswow64/ddraw.dll -> ROOT/d7vk/x32/ddraw.dll
+l saves/Arcade Game/drive_c/windows/syswow64/ddraw_.dll -> ROOT/home/.local/share/Steam/compatibilitytools.d/GE-Proton9-1/files/lib/wine/i386-windows/ddraw.dll
+l saves/Arcade Game/drive_c/windows/syswow64/dxgi.dll -> ROOT/dxvk/x32/dxgi.dll
+l saves/Arcade Game/drive_c/windows/syswow64/kernel32.dll -> ROOT/home/.local/share/Steam/compatibilitytools.d/GE-Proton9-1/files/lib/wine/i386-windows/kernel32.dll
+l saves/Old32/drive_c/windows/system32/d3d12.dll -> ROOT/vkd3d/x86/d3d12.dll
+l saves/Old32/drive_c/windows/system32/ddraw.dll -> ROOT/d7vk/x32/ddraw.dll
+l saves/Old32/drive_c/windows/system32/ddraw_.dll -> ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/lib/wine/i386-windows/ddraw.dll
+l saves/Old32/drive_c/windows/system32/kernel32.dll -> ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/lib/wine/i386-windows/kernel32.dll
+l saves/Solo Game/drive_c/windows/system32/amdxcffx64.dll -> ROOT/fsr4/amdxcffx64.dll
+l saves/Solo Game/drive_c/windows/system32/d3d11.dll -> ROOT/dxvk/x64/d3d11.dll
+l saves/Solo Game/drive_c/windows/system32/d3d12.dll -> ROOT/vkd3d/x64/d3d12.dll
+l saves/Solo Game/drive_c/windows/system32/d3d9.dll -> ROOT/dxvk/x64/d3d9.dll
+l saves/Solo Game/drive_c/windows/system32/dxgi.dll -> ROOT/dxvk/x64/dxgi.dll
+l saves/Solo Game/drive_c/windows/system32/kernel32.dll -> ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/lib/wine/x86_64-windows/kernel32.dll
+l saves/Solo Game/drive_c/windows/syswow64/d3d11.dll -> ROOT/dxvk/x32/d3d11.dll
+l saves/Solo Game/drive_c/windows/syswow64/d3d12.dll -> ROOT/vkd3d/x86/d3d12.dll
+l saves/Solo Game/drive_c/windows/syswow64/d3d9.dll -> ROOT/dxvk/x32/d3d9.dll
+l saves/Solo Game/drive_c/windows/syswow64/ddraw.dll -> ROOT/d7vk/x32/ddraw.dll
+l saves/Solo Game/drive_c/windows/syswow64/ddraw_.dll -> ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/lib/wine/i386-windows/ddraw.dll
+l saves/Solo Game/drive_c/windows/syswow64/dxgi.dll -> ROOT/dxvk/x32/dxgi.dll
+l saves/Solo Game/drive_c/windows/syswow64/kernel32.dll -> ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/lib/wine/i386-windows/kernel32.dll
+l src/Arcade Game.wine/drive_c/users/steamuser/Music -> /userdata/system/Music
+l src/Arcade Game.wine/drive_c/windows/system32/dxgi.dll -> /userdata/system/wine/dxvk/x64/dxgi.dll
+################ gpu-amd-fsr4-nodll
+=========================================
+WSquashFS Launcher
+=========================================
+Environnement : ENV
+Jeu           : Solo Game
+Fichier       : ROOT/userdata/roms/windows/Solo Game.wsquashfs
+Mode          : overlay (squashfuse + fuse-overlayfs)
+✓ Préfixe Wine détecté (structure Batocera)
+Préfixe       : mise à jour pour wine-9.0 (fake)
+-----------------------------------------
+Exécutable    : ROOT/cache/wine/Solo Game/game/run me.exe
+Arguments     : --arg
+Wine          : ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/bin/wine (win64)
+Version Wine  : wine-9.0 (fake)
+Préfixe       : ROOT/cache/wine/Solo Game
+Sauvegardes   : ROOT/saves/Solo Game
+Manettes      : XInput, manette Xbox
+DXVK          : activé
+VKD3D         : activé
+D7VK          : activé (DirectDraw → Vulkan)
+Bureau virtuel: 1280x720
+=========================================
+
+
+=========================================
+Jeu terminé (code : 0)
+=========================================
+-- stderr
+Attention : prefix Wine déjà créé dans les sauvegardes, gardé sous wine-tkg-fake — supprimer ROOT/saves/Solo Game (sauvegardes du jeu comprises) pour passer sous Proton
+Attention : FSR4=1 ignoré : amdxcffx64.dll introuvable (install.sh propose de la copier depuis proton-cachyos)
+== rc=0
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Solo Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
+WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
+  WINEPREFIX=ROOT/cache/wine/Solo Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
+  WINEDEBUG=-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Services\winebus] [/v] [DisableHidraw] [/t] [REG_DWORD] [/d] [1] [/f]
+  WINEPREFIX=ROOT/cache/wine/Solo Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  GAMEID=
+  PROTONPATH=
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
+WINESERVER -k
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Solo Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
+WINE wine-tkg-fake cwd=ROOT/cache/wine/Solo Game args: [explorer] [/desktop=Solo_Game,1280x720] [ROOT/cache/wine/Solo Game/game/run me.exe] [--arg]
+  WINEPREFIX=ROOT/cache/wine/Solo Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
+WINESERVER -w
+WINESERVER -k
+WINESERVER -w
+################ TREE after-fsr4-off
+d cache -> 
+d cache/locks -> 
+d cache/mnt -> 
+d cache/mnt/Arcade Game -> 
+d cache/mnt/Old32 -> 
+d cache/mnt/Proton Game -> 
+d cache/mnt/Solo Game -> 
+d cache/shaders -> 
+d cache/shaders/dxvk -> 
+d cache/shaders/nvidia -> 
+d cache/shaders/vkd3d -> 
+d cache/wine -> 
+d cache/wine/Arcade Game -> 
+d cache/wine/Old32 -> 
+d cache/wine/Proton Game -> 
+d cache/wine/Solo Game -> 
+d saves -> 
+d saves/.images -> 
+d saves/.work -> 
+d saves/Arcade Game -> 
+d saves/Arcade Game/drive_c -> 
+d saves/Arcade Game/drive_c/Game Dir -> 
+d saves/Arcade Game/drive_c/users -> 
+d saves/Arcade Game/drive_c/users/steamuser -> 
+d saves/Arcade Game/drive_c/users/steamuser/Music -> 
+d saves/Arcade Game/drive_c/users/wsqtest -> 
+d saves/Arcade Game/drive_c/windows -> 
+d saves/Arcade Game/drive_c/windows/system32 -> 
+d saves/Arcade Game/drive_c/windows/syswow64 -> 
+d saves/Old32 -> 
+d saves/Old32/drive_c -> 
+d saves/Old32/drive_c/users -> 
+d saves/Old32/drive_c/users/wsqtest -> 
+d saves/Old32/drive_c/windows -> 
+d saves/Old32/drive_c/windows/system32 -> 
+d saves/Proton Game -> 
+d saves/Solo Game -> 
+d saves/Solo Game/drive_c -> 
+d saves/Solo Game/drive_c/users -> 
+d saves/Solo Game/drive_c/users/wsqtest -> 
+d saves/Solo Game/drive_c/windows -> 
+d saves/Solo Game/drive_c/windows/system32 -> 
+d saves/Solo Game/drive_c/windows/syswow64 -> 
+d src -> 
+d src/Arcade Game.wine -> 
+d src/Arcade Game.wine/drive_c -> 
+d src/Arcade Game.wine/drive_c/Game Dir -> 
+d src/Arcade Game.wine/drive_c/Game Dir/Bin -> 
+d src/Arcade Game.wine/drive_c/Game Dir/Saves -> 
+d src/Arcade Game.wine/drive_c/users -> 
+d src/Arcade Game.wine/drive_c/users/steamuser -> 
+d src/Arcade Game.wine/drive_c/users/steamuser/Documents -> 
+d src/Arcade Game.wine/drive_c/windows -> 
+d src/Arcade Game.wine/drive_c/windows/system32 -> 
+d src/Arcade Game.wine/drive_c/windows/syswow64 -> 
+d src/Arcade Game.wine/regs -> 
+d src/Hook Game -> 
+d src/Hook Game/game -> 
+d src/Joint Game -> 
+d src/Joint Game/game -> 
+d src/Joint Game/runners -> 
+d src/Joint Game/runners/Joint-Proton -> 
+d src/Joint Game/runners/Joint-Proton/files -> 
+d src/Joint Game/runners/Joint-Proton/files/bin -> 
+d src/Joint Game/runners/Joint-Proton/files/lib -> 
+d src/Joint Game/runners/Joint-Proton/files/lib/wine -> 
+d src/Joint Game/runners/Joint-Proton/files/lib/wine/i386-unix -> 
+d src/Joint Game/runners/Joint-Proton/files/lib/wine/i386-windows -> 
+d src/Joint Game/runners/Joint-Proton/files/lib/wine/x86_64-windows -> 
+d src/Joint Game/runners/Joint-Proton/files/share -> 
+d src/Joint Game/runners/Joint-Proton/files/share/wine -> 
+d src/Loader Game -> 
+d src/Loader Game/game -> 
+d src/Missing Runner Game -> 
+d src/Missing Runner Game/game -> 
+d src/Named Game -> 
+d src/Named Game/game -> 
+d src/Named Game/runners -> 
+d src/Named Game/runners/GE-Proton9-1 -> 
+d src/Named Game/runners/GE-Proton9-1/files -> 
+d src/Named Game/runners/GE-Proton9-1/files/bin -> 
+d src/Named Game/runners/GE-Proton9-1/files/lib -> 
+d src/Named Game/runners/GE-Proton9-1/files/lib/wine -> 
+d src/Named Game/runners/GE-Proton9-1/files/lib/wine/i386-unix -> 
+d src/Named Game/runners/GE-Proton9-1/files/lib/wine/i386-windows -> 
+d src/Named Game/runners/GE-Proton9-1/files/lib/wine/x86_64-windows -> 
+d src/Named Game/runners/GE-Proton9-1/files/share -> 
+d src/Named Game/runners/GE-Proton9-1/files/share/wine -> 
+d src/Old32.wine -> 
+d src/Old32.wine/drive_c -> 
+d src/Old32.wine/drive_c/game -> 
+d src/Old32.wine/drive_c/windows -> 
+d src/Old32.wine/drive_c/windows/system32 -> 
+d src/Pre Fail Game -> 
+d src/Pre Fail Game/game -> 
+d src/Proton Game.wine -> 
+d src/Proton Game.wine/drive_c -> 
+d src/Proton Game.wine/drive_c/pg -> 
+d src/Proton Game.wine/drive_c/windows -> 
+d src/Proton Game.wine/drive_c/windows/system32 -> 
+d src/Relative Runner Game -> 
+d src/Relative Runner Game/game -> 
+d src/Solo Game -> 
+d src/Solo Game/game -> 
+d src/Two Runners Game -> 
+d src/Two Runners Game/game -> 
+d src/Two Runners Game/runners -> 
+d src/Two Runners Game/runners/A-Proton -> 
+d src/Two Runners Game/runners/A-Proton/files -> 
+d src/Two Runners Game/runners/A-Proton/files/bin -> 
+d src/Two Runners Game/runners/A-Proton/files/lib -> 
+d src/Two Runners Game/runners/A-Proton/files/lib/wine -> 
+d src/Two Runners Game/runners/A-Proton/files/lib/wine/i386-unix -> 
+d src/Two Runners Game/runners/A-Proton/files/lib/wine/i386-windows -> 
+d src/Two Runners Game/runners/A-Proton/files/lib/wine/x86_64-windows -> 
+d src/Two Runners Game/runners/A-Proton/files/share -> 
+d src/Two Runners Game/runners/A-Proton/files/share/wine -> 
+d src/Two Runners Game/runners/B-Proton -> 
+d src/Two Runners Game/runners/B-Proton/files -> 
+d src/Two Runners Game/runners/B-Proton/files/bin -> 
+d src/Two Runners Game/runners/B-Proton/files/lib -> 
+d src/Two Runners Game/runners/B-Proton/files/lib/wine -> 
+d src/Two Runners Game/runners/B-Proton/files/lib/wine/i386-unix -> 
+d src/Two Runners Game/runners/B-Proton/files/lib/wine/i386-windows -> 
+d src/Two Runners Game/runners/B-Proton/files/lib/wine/x86_64-windows -> 
+d src/Two Runners Game/runners/B-Proton/files/share -> 
+d src/Two Runners Game/runners/B-Proton/files/share/wine -> 
+d src/Wine Joint Game -> 
+d src/Wine Joint Game/game -> 
+d src/Wine Joint Game/runners -> 
+d src/Wine Joint Game/runners/wine-mine -> 
+d src/Wine Joint Game/runners/wine-mine/bin -> 
+d src/Wine Joint Game/runners/wine-mine/lib -> 
+d src/Wine Joint Game/runners/wine-mine/lib/wine -> 
+d src/Wine Joint Game/runners/wine-mine/lib/wine/i386-unix -> 
+d src/Wine Joint Game/runners/wine-mine/lib/wine/i386-windows -> 
+d src/Wine Joint Game/runners/wine-mine/lib/wine/x86_64-windows -> 
+d src/Wine Joint Game/runners/wine-mine/share -> 
+d src/Wine Joint Game/runners/wine-mine/share/wine -> 
+d userdata -> 
+d userdata/roms -> 
+d userdata/roms/windows -> 
+d userdata/saves -> 
+d userdata/saves/windows -> 
+d userdata/saves/windows/Arcade Game -> 
+f cache/locks/Arcade Game.lock -> 
+f cache/locks/Old32.lock -> 
+f cache/locks/Proton Game.lock -> 
+f cache/locks/Solo Game.lock -> 
+f saves/.images/Arcade Game -> 
+f saves/.images/Old32 -> 
+f saves/.images/Proton Game -> 
+f saves/.images/Solo Game -> 
+f saves/Arcade Game/drive_c/users/steamuser/Music/.wh..wh..opq -> 
+f saves/Arcade Game/drive_c/users/wsqtest/.wh..wh..opq -> 
+f saves/Old32/drive_c/users/.wh..wh..opq -> 
+f saves/Old32/drive_c/users/wsqtest/.wh..wh..opq -> 
+f saves/Solo Game/drive_c/.wh..wh..opq -> 
+f saves/Solo Game/drive_c/users/.wh..wh..opq -> 
+f saves/Solo Game/drive_c/users/wsqtest/.wh..wh..opq -> 
+f saves/Solo Game/drive_c/windows/.wh..wh..opq -> 
+f saves/Solo Game/drive_c/windows/system32/.wh..wh..opq -> 
+f saves/Solo Game/drive_c/windows/system32/explorer.exe -> 
+f saves/Solo Game/system.reg -> 
+f src/Arcade Game.wine/autorun.cmd -> 
+f src/Arcade Game.wine/drive_c/Game Dir/Bin/Config.exe -> 
+f src/Arcade Game.wine/drive_c/Game Dir/Bin/Game.EXE -> 
+f src/Arcade Game.wine/drive_c/Game Dir/Saves/slot1 -> 
+f src/Arcade Game.wine/drive_c/windows/system32/d3dx9_42.dll -> 
+f src/Arcade Game.wine/drive_c/windows/system32/explorer.exe -> 
+f src/Arcade Game.wine/drive_c/windows/system32/kernel32.dll -> 
+f src/Arcade Game.wine/regs/a.reg -> 
+f src/Arcade Game.wine/system.reg -> 
+f src/Hook Game/autorun.cmd -> 
+f src/Hook Game/game/attach.sh -> 
+f src/Hook Game/game/hook.exe -> 
+f src/Hook Game/game/pre.sh -> 
+f src/Joint Game/autorun.cmd -> 
+f src/Joint Game/game/game.exe -> 
+f src/Joint Game/runners/Joint-Proton/files/bin/wine -> 
+f src/Joint Game/runners/Joint-Proton/files/lib/wine/i386-windows/ddraw.dll -> 
+f src/Joint Game/runners/Joint-Proton/files/lib/wine/i386-windows/kernel32.dll -> 
+f src/Joint Game/runners/Joint-Proton/files/lib/wine/x86_64-windows/explorer.exe -> 
+f src/Joint Game/runners/Joint-Proton/files/lib/wine/x86_64-windows/kernel32.dll -> 
+f src/Joint Game/runners/Joint-Proton/files/share/wine/wine.inf -> 
+f src/Joint Game/runners/Joint-Proton/proton -> 
+f src/Joint Game/runners/Joint-Proton/version -> 
+f src/Loader Game/autorun.cmd -> 
+f src/Loader Game/game/attach me.sh -> 
+f src/Loader Game/game/loader.exe -> 
+f src/Missing Runner Game/autorun.cmd -> 
+f src/Missing Runner Game/game/game.exe -> 
+f src/Named Game/autorun.cmd -> 
+f src/Named Game/game/game.exe -> 
+f src/Named Game/runners/GE-Proton9-1/files/bin/wine -> 
+f src/Named Game/runners/GE-Proton9-1/files/lib/wine/i386-windows/ddraw.dll -> 
+f src/Named Game/runners/GE-Proton9-1/files/lib/wine/i386-windows/kernel32.dll -> 
+f src/Named Game/runners/GE-Proton9-1/files/lib/wine/x86_64-windows/explorer.exe -> 
+f src/Named Game/runners/GE-Proton9-1/files/lib/wine/x86_64-windows/kernel32.dll -> 
+f src/Named Game/runners/GE-Proton9-1/files/share/wine/wine.inf -> 
+f src/Named Game/runners/GE-Proton9-1/proton -> 
+f src/Named Game/runners/GE-Proton9-1/version -> 
+f src/Old32.wine/autorun.cmd -> 
+f src/Old32.wine/drive_c/game/start.bat -> 
+f src/Old32.wine/drive_c/windows/system32/explorer.exe -> 
+f src/Old32.wine/system.reg -> 
+f src/Pre Fail Game/autorun.cmd -> 
+f src/Pre Fail Game/game/hook.exe -> 
+f src/Proton Game.wine/autorun.cmd -> 
+f src/Proton Game.wine/config_info -> 
+f src/Proton Game.wine/drive_c/pg/pg.exe -> 
+f src/Proton Game.wine/system.reg -> 
+f src/Relative Runner Game/autorun.cmd -> 
+f src/Relative Runner Game/game/game.exe -> 
+f src/Solo Game/autorun.cmd -> 
+f src/Solo Game/game/run me.exe -> 
+f src/Two Runners Game/autorun.cmd -> 
+f src/Two Runners Game/game/game.exe -> 
+f src/Two Runners Game/runners/A-Proton/files/bin/wine -> 
+f src/Two Runners Game/runners/A-Proton/files/lib/wine/i386-windows/ddraw.dll -> 
+f src/Two Runners Game/runners/A-Proton/files/lib/wine/i386-windows/kernel32.dll -> 
+f src/Two Runners Game/runners/A-Proton/files/lib/wine/x86_64-windows/explorer.exe -> 
+f src/Two Runners Game/runners/A-Proton/files/lib/wine/x86_64-windows/kernel32.dll -> 
+f src/Two Runners Game/runners/A-Proton/files/share/wine/wine.inf -> 
+f src/Two Runners Game/runners/A-Proton/proton -> 
+f src/Two Runners Game/runners/A-Proton/version -> 
+f src/Two Runners Game/runners/B-Proton/files/bin/wine -> 
+f src/Two Runners Game/runners/B-Proton/files/lib/wine/i386-windows/ddraw.dll -> 
+f src/Two Runners Game/runners/B-Proton/files/lib/wine/i386-windows/kernel32.dll -> 
+f src/Two Runners Game/runners/B-Proton/files/lib/wine/x86_64-windows/explorer.exe -> 
+f src/Two Runners Game/runners/B-Proton/files/lib/wine/x86_64-windows/kernel32.dll -> 
+f src/Two Runners Game/runners/B-Proton/files/share/wine/wine.inf -> 
+f src/Two Runners Game/runners/B-Proton/proton -> 
+f src/Two Runners Game/runners/B-Proton/version -> 
+f src/Wine Joint Game/autorun.cmd -> 
+f src/Wine Joint Game/game/game.exe -> 
+f src/Wine Joint Game/runners/wine-mine/bin/wine -> 
+f src/Wine Joint Game/runners/wine-mine/lib/wine/i386-windows/ddraw.dll -> 
+f src/Wine Joint Game/runners/wine-mine/lib/wine/i386-windows/kernel32.dll -> 
+f src/Wine Joint Game/runners/wine-mine/lib/wine/x86_64-windows/explorer.exe -> 
+f src/Wine Joint Game/runners/wine-mine/lib/wine/x86_64-windows/kernel32.dll -> 
+f src/Wine Joint Game/runners/wine-mine/share/wine/wine.inf -> 
+f userdata/roms/windows/Arcade Game.wsquashfs -> 
+f userdata/roms/windows/Old32.wsquashfs -> 
+f userdata/roms/windows/Proton Game.wsquashfs -> 
+f userdata/roms/windows/Solo Game.wsquashfs -> 
+f userdata/saves/windows/Arcade Game/slot1 -> 
+l saves/Arcade Game/drive_c/Game Dir/Saves -> ROOT/userdata/saves/windows/Arcade Game
+l saves/Arcade Game/drive_c/windows/system32/d3d11.dll -> ROOT/dxvk/x64/d3d11.dll
+l saves/Arcade Game/drive_c/windows/system32/d3d12.dll -> ROOT/vkd3d/x64/d3d12.dll
+l saves/Arcade Game/drive_c/windows/system32/d3d9.dll -> ROOT/dxvk/x64/d3d9.dll
+l saves/Arcade Game/drive_c/windows/system32/dxgi.dll -> ROOT/dxvk/x64/dxgi.dll
+l saves/Arcade Game/drive_c/windows/system32/kernel32.dll -> ROOT/home/.local/share/Steam/compatibilitytools.d/GE-Proton9-1/files/lib/wine/x86_64-windows/kernel32.dll
+l saves/Arcade Game/drive_c/windows/syswow64/d3d11.dll -> ROOT/dxvk/x32/d3d11.dll
+l saves/Arcade Game/drive_c/windows/syswow64/d3d12.dll -> ROOT/vkd3d/x86/d3d12.dll
+l saves/Arcade Game/drive_c/windows/syswow64/d3d9.dll -> ROOT/dxvk/x32/d3d9.dll
+l saves/Arcade Game/drive_c/windows/syswow64/ddraw.dll -> ROOT/d7vk/x32/ddraw.dll
+l saves/Arcade Game/drive_c/windows/syswow64/ddraw_.dll -> ROOT/home/.local/share/Steam/compatibilitytools.d/GE-Proton9-1/files/lib/wine/i386-windows/ddraw.dll
+l saves/Arcade Game/drive_c/windows/syswow64/dxgi.dll -> ROOT/dxvk/x32/dxgi.dll
+l saves/Arcade Game/drive_c/windows/syswow64/kernel32.dll -> ROOT/home/.local/share/Steam/compatibilitytools.d/GE-Proton9-1/files/lib/wine/i386-windows/kernel32.dll
+l saves/Old32/drive_c/windows/system32/d3d12.dll -> ROOT/vkd3d/x86/d3d12.dll
+l saves/Old32/drive_c/windows/system32/ddraw.dll -> ROOT/d7vk/x32/ddraw.dll
+l saves/Old32/drive_c/windows/system32/ddraw_.dll -> ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/lib/wine/i386-windows/ddraw.dll
+l saves/Old32/drive_c/windows/system32/kernel32.dll -> ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/lib/wine/i386-windows/kernel32.dll
+l saves/Solo Game/drive_c/windows/system32/d3d11.dll -> ROOT/dxvk/x64/d3d11.dll
+l saves/Solo Game/drive_c/windows/system32/d3d12.dll -> ROOT/vkd3d/x64/d3d12.dll
+l saves/Solo Game/drive_c/windows/system32/d3d9.dll -> ROOT/dxvk/x64/d3d9.dll
+l saves/Solo Game/drive_c/windows/system32/dxgi.dll -> ROOT/dxvk/x64/dxgi.dll
+l saves/Solo Game/drive_c/windows/system32/kernel32.dll -> ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/lib/wine/x86_64-windows/kernel32.dll
+l saves/Solo Game/drive_c/windows/syswow64/d3d11.dll -> ROOT/dxvk/x32/d3d11.dll
+l saves/Solo Game/drive_c/windows/syswow64/d3d12.dll -> ROOT/vkd3d/x86/d3d12.dll
+l saves/Solo Game/drive_c/windows/syswow64/d3d9.dll -> ROOT/dxvk/x32/d3d9.dll
+l saves/Solo Game/drive_c/windows/syswow64/ddraw.dll -> ROOT/d7vk/x32/ddraw.dll
+l saves/Solo Game/drive_c/windows/syswow64/ddraw_.dll -> ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/lib/wine/i386-windows/ddraw.dll
+l saves/Solo Game/drive_c/windows/syswow64/dxgi.dll -> ROOT/dxvk/x32/dxgi.dll
+l saves/Solo Game/drive_c/windows/syswow64/kernel32.dll -> ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/lib/wine/i386-windows/kernel32.dll
+l src/Arcade Game.wine/drive_c/users/steamuser/Music -> /userdata/system/Music
+l src/Arcade Game.wine/drive_c/windows/system32/dxgi.dll -> /userdata/system/wine/dxvk/x64/dxgi.dll
+################ gpu-nvidia-fsr4
+=========================================
+WSquashFS Launcher
+=========================================
+Environnement : ENV
+Jeu           : Solo Game
+Fichier       : ROOT/userdata/roms/windows/Solo Game.wsquashfs
+Mode          : overlay (squashfuse + fuse-overlayfs)
+✓ Préfixe Wine détecté (structure Batocera)
+Préfixe       : mise à jour pour wine-9.0 (fake)
+-----------------------------------------
+Exécutable    : ROOT/cache/wine/Solo Game/game/run me.exe
+Arguments     : --arg
+Wine          : ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/bin/wine (win64)
+Version Wine  : wine-9.0 (fake)
+Préfixe       : ROOT/cache/wine/Solo Game
+Sauvegardes   : ROOT/saves/Solo Game
+Manettes      : XInput, manette Xbox
+DXVK          : activé
+VKD3D         : activé
+D7VK          : activé (DirectDraw → Vulkan)
+Bureau virtuel: 1280x720
+=========================================
+
+
+=========================================
+Jeu terminé (code : 0)
+=========================================
+-- stderr
+Attention : prefix Wine déjà créé dans les sauvegardes, gardé sous wine-tkg-fake — supprimer ROOT/saves/Solo Game (sauvegardes du jeu comprises) pour passer sous Proton
+Attention : FSR4=1 ignoré : aucune carte AMD détectée
+== rc=0
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Solo Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
+  __GL_SHADER_DISK_CACHE_PATH=ROOT/cache/shaders/nvidia
+WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
+  WINEPREFIX=ROOT/cache/wine/Solo Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
+  WINEDEBUG=-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
+  __GL_SHADER_DISK_CACHE_PATH=ROOT/cache/shaders/nvidia
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Services\winebus] [/v] [DisableHidraw] [/t] [REG_DWORD] [/d] [1] [/f]
+  WINEPREFIX=ROOT/cache/wine/Solo Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  GAMEID=
+  PROTONPATH=
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
+  __GL_SHADER_DISK_CACHE_PATH=ROOT/cache/shaders/nvidia
+WINESERVER -k
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Solo Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
+  __GL_SHADER_DISK_CACHE_PATH=ROOT/cache/shaders/nvidia
+WINE wine-tkg-fake cwd=ROOT/cache/wine/Solo Game args: [explorer] [/desktop=Solo_Game,1280x720] [ROOT/cache/wine/Solo Game/game/run me.exe] [--arg]
+  WINEPREFIX=ROOT/cache/wine/Solo Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
+  __GL_SHADER_DISK_CACHE_PATH=ROOT/cache/shaders/nvidia
 WINESERVER -w
 WINESERVER -k
 WINESERVER -w
@@ -1645,17 +2952,26 @@ WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
   WINEARCH=win64
   WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -w
 WINE wine-tkg-fake cwd=ROOT args: [--version]
   WINEPREFIX=ROOT/cache/wine/Hook Game
   WINEARCH=win64
   WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
   WINEPREFIX=ROOT/cache/wine/Hook Game
   WINEARCH=win64
   WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
   WINEDEBUG=-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -w
 WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Services\winebus] [/v] [DisableHidraw] [/t] [REG_DWORD] [/d] [1] [/f]
   WINEPREFIX=ROOT/cache/wine/Hook Game
@@ -1664,6 +2980,9 @@ WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Ser
   WINEDEBUG=fixme-all
   GAMEID=
   PROTONPATH=
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -k
 WINESERVER -w
 WINE wine-tkg-fake cwd=ROOT args: [--version]
@@ -1671,11 +2990,17 @@ WINE wine-tkg-fake cwd=ROOT args: [--version]
   WINEARCH=win64
   WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINE wine-tkg-fake cwd=ROOT/cache/wine/Hook Game/game args: [ROOT/cache/wine/Hook Game/game/hook.exe]
   WINEPREFIX=ROOT/cache/wine/Hook Game
   WINEARCH=win64
   WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -w
 WINESERVER -k
 WINESERVER -w
@@ -2024,17 +3349,26 @@ WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
   WINEARCH=win64
   WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -w
 WINE wine-tkg-fake cwd=ROOT args: [--version]
   WINEPREFIX=ROOT/cache/wine/Pre Fail Game
   WINEARCH=win64
   WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
   WINEPREFIX=ROOT/cache/wine/Pre Fail Game
   WINEARCH=win64
   WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
   WINEDEBUG=-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -w
 WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Services\winebus] [/v] [DisableHidraw] [/t] [REG_DWORD] [/d] [1] [/f]
   WINEPREFIX=ROOT/cache/wine/Pre Fail Game
@@ -2043,6 +3377,9 @@ WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Ser
   WINEDEBUG=fixme-all
   GAMEID=
   PROTONPATH=
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -k
 WINESERVER -w
 WINE wine-tkg-fake cwd=ROOT args: [--version]
@@ -2050,6 +3387,9 @@ WINE wine-tkg-fake cwd=ROOT args: [--version]
   WINEARCH=win64
   WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -k
 WINESERVER -w
 ################ hook-noproc
@@ -2089,11 +3429,17 @@ WINE wine-tkg-fake cwd=ROOT args: [--version]
   WINEARCH=win64
   WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
   WINEPREFIX=ROOT/cache/wine/Hook Game
   WINEARCH=win64
   WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
   WINEDEBUG=-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -w
 WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Services\winebus] [/v] [DisableHidraw] [/t] [REG_DWORD] [/d] [1] [/f]
   WINEPREFIX=ROOT/cache/wine/Hook Game
@@ -2102,6 +3448,9 @@ WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Ser
   WINEDEBUG=fixme-all
   GAMEID=
   PROTONPATH=
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -k
 WINESERVER -w
 WINE wine-tkg-fake cwd=ROOT args: [--version]
@@ -2109,11 +3458,17 @@ WINE wine-tkg-fake cwd=ROOT args: [--version]
   WINEARCH=win64
   WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINE wine-tkg-fake cwd=ROOT/cache/wine/Hook Game/game args: [ROOT/cache/wine/Hook Game/game/hook.exe]
   WINEPREFIX=ROOT/cache/wine/Hook Game
   WINEARCH=win64
   WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -w
 WINESERVER -k
 WINESERVER -w
@@ -2153,11 +3508,17 @@ WINE wine-tkg-fake cwd=ROOT args: [--version]
   WINEARCH=win64
   WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
   WINEPREFIX=ROOT/cache/wine/Hook Game
   WINEARCH=win64
   WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
   WINEDEBUG=-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -w
 WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Services\winebus] [/v] [DisableHidraw] [/t] [REG_DWORD] [/d] [1] [/f]
   WINEPREFIX=ROOT/cache/wine/Hook Game
@@ -2166,6 +3527,9 @@ WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Ser
   WINEDEBUG=fixme-all
   GAMEID=
   PROTONPATH=
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -k
 WINESERVER -w
 WINE wine-tkg-fake cwd=ROOT args: [--version]
@@ -2173,11 +3537,17 @@ WINE wine-tkg-fake cwd=ROOT args: [--version]
   WINEARCH=win64
   WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINE wine-tkg-fake cwd=ROOT/cache/wine/Hook Game/game args: [ROOT/cache/wine/Hook Game/game/hook.exe]
   WINEPREFIX=ROOT/cache/wine/Hook Game
   WINEARCH=win64
   WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -w
 WINESERVER -k
 WINESERVER -w
@@ -2224,17 +3594,26 @@ WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
   WINEARCH=win64
   WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -w
 WINE wine-tkg-fake cwd=ROOT args: [--version]
   WINEPREFIX=ROOT/cache/wine/Loader Game
   WINEARCH=win64
   WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
   WINEPREFIX=ROOT/cache/wine/Loader Game
   WINEARCH=win64
   WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
   WINEDEBUG=-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -w
 WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Services\winebus] [/v] [DisableHidraw] [/t] [REG_DWORD] [/d] [1] [/f]
   WINEPREFIX=ROOT/cache/wine/Loader Game
@@ -2243,6 +3622,9 @@ WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Ser
   WINEDEBUG=fixme-all
   GAMEID=
   PROTONPATH=
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -k
 WINESERVER -w
 WINE wine-tkg-fake cwd=ROOT args: [--version]
@@ -2250,11 +3632,17 @@ WINE wine-tkg-fake cwd=ROOT args: [--version]
   WINEARCH=win64
   WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINE wine-tkg-fake cwd=ROOT/cache/wine/Loader Game/game args: [ROOT/cache/wine/Loader Game/game/loader.exe]
   WINEPREFIX=ROOT/cache/wine/Loader Game
   WINEARCH=win64
   WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -w
 WINESERVER -k
 WINESERVER -w
@@ -2418,17 +3806,26 @@ WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
   WINEARCH=win64
   WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -w
 WINE wine-tkg-fake cwd=ROOT args: [--version]
   WINEPREFIX=ROOT/cache/wine/Named Game
   WINEARCH=win64
   WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
   WINEPREFIX=ROOT/cache/wine/Named Game
   WINEARCH=win64
   WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
   WINEDEBUG=-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -w
 WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Services\winebus] [/v] [DisableHidraw] [/t] [REG_DWORD] [/d] [1] [/f]
   WINEPREFIX=ROOT/cache/wine/Named Game
@@ -2437,6 +3834,9 @@ WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Ser
   WINEDEBUG=fixme-all
   GAMEID=
   PROTONPATH=
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -k
 WINESERVER -w
 WINE wine-tkg-fake cwd=ROOT args: [--version]
@@ -2444,11 +3844,17 @@ WINE wine-tkg-fake cwd=ROOT args: [--version]
   WINEARCH=win64
   WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINE wine-tkg-fake cwd=ROOT/cache/wine/Named Game args: [ROOT/cache/wine/Named Game/game/game.exe]
   WINEPREFIX=ROOT/cache/wine/Named Game
   WINEARCH=win64
   WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -w
 WINESERVER -k
 WINESERVER -w
@@ -2485,17 +3891,26 @@ WINE wine-mine cwd=ROOT args: [wineboot] [-u]
   WINEARCH=win64
   WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -w
 WINE wine-mine cwd=ROOT args: [--version]
   WINEPREFIX=ROOT/cache/wine/Wine Joint Game
   WINEARCH=win64
   WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINE wine-mine cwd=ROOT args: [wineboot] [-u]
   WINEPREFIX=ROOT/cache/wine/Wine Joint Game
   WINEARCH=win64
   WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
   WINEDEBUG=-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -w
 WINE wine-mine cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Services\winebus] [/v] [DisableHidraw] [/t] [REG_DWORD] [/d] [1] [/f]
   WINEPREFIX=ROOT/cache/wine/Wine Joint Game
@@ -2504,6 +3919,9 @@ WINE wine-mine cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Service
   WINEDEBUG=fixme-all
   GAMEID=
   PROTONPATH=
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -k
 WINESERVER -w
 WINE wine-mine cwd=ROOT args: [--version]
@@ -2511,11 +3929,17 @@ WINE wine-mine cwd=ROOT args: [--version]
   WINEARCH=win64
   WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINE wine-mine cwd=ROOT/cache/wine/Wine Joint Game args: [ROOT/cache/wine/Wine Joint Game/game/game.exe]
   WINEPREFIX=ROOT/cache/wine/Wine Joint Game
   WINEARCH=win64
   WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -w
 WINESERVER -k
 WINESERVER -w
@@ -2581,17 +4005,26 @@ WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
   WINEARCH=win64
   WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -w
 WINE wine-tkg-fake cwd=ROOT args: [--version]
   WINEPREFIX=ROOT/cache/wine/Missing Runner Game
   WINEARCH=win64
   WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
   WINEPREFIX=ROOT/cache/wine/Missing Runner Game
   WINEARCH=win64
   WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
   WINEDEBUG=-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -w
 WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Services\winebus] [/v] [DisableHidraw] [/t] [REG_DWORD] [/d] [1] [/f]
   WINEPREFIX=ROOT/cache/wine/Missing Runner Game
@@ -2600,6 +4033,9 @@ WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Ser
   WINEDEBUG=fixme-all
   GAMEID=
   PROTONPATH=
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -k
 WINESERVER -w
 WINE wine-tkg-fake cwd=ROOT args: [--version]
@@ -2607,11 +4043,17 @@ WINE wine-tkg-fake cwd=ROOT args: [--version]
   WINEARCH=win64
   WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINE wine-tkg-fake cwd=ROOT/cache/wine/Missing Runner Game args: [ROOT/cache/wine/Missing Runner Game/game/game.exe]
   WINEPREFIX=ROOT/cache/wine/Missing Runner Game
   WINEARCH=win64
   WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -w
 WINESERVER -k
 WINESERVER -w
@@ -2648,17 +4090,26 @@ WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
   WINEARCH=win64
   WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -w
 WINE wine-tkg-fake cwd=ROOT args: [--version]
   WINEPREFIX=ROOT/cache/wine/Relative Runner Game
   WINEARCH=win64
   WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
   WINEPREFIX=ROOT/cache/wine/Relative Runner Game
   WINEARCH=win64
   WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
   WINEDEBUG=-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -w
 WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Services\winebus] [/v] [DisableHidraw] [/t] [REG_DWORD] [/d] [1] [/f]
   WINEPREFIX=ROOT/cache/wine/Relative Runner Game
@@ -2667,6 +4118,9 @@ WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Ser
   WINEDEBUG=fixme-all
   GAMEID=
   PROTONPATH=
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -k
 WINESERVER -w
 WINE wine-tkg-fake cwd=ROOT args: [--version]
@@ -2674,11 +4128,17 @@ WINE wine-tkg-fake cwd=ROOT args: [--version]
   WINEARCH=win64
   WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINE wine-tkg-fake cwd=ROOT/cache/wine/Relative Runner Game args: [ROOT/cache/wine/Relative Runner Game/game/game.exe]
   WINEPREFIX=ROOT/cache/wine/Relative Runner Game
   WINEARCH=win64
   WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -w
 WINESERVER -k
 WINESERVER -w
@@ -2718,17 +4178,26 @@ WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
   WINEARCH=win64
   WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -w
 WINE wine-tkg-fake cwd=ROOT args: [--version]
   WINEPREFIX=ROOT/cache/wine/Two Runners Game
   WINEARCH=win64
   WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
   WINEPREFIX=ROOT/cache/wine/Two Runners Game
   WINEARCH=win64
   WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
   WINEDEBUG=-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -w
 WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Services\winebus] [/v] [DisableHidraw] [/t] [REG_DWORD] [/d] [1] [/f]
   WINEPREFIX=ROOT/cache/wine/Two Runners Game
@@ -2737,6 +4206,9 @@ WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Ser
   WINEDEBUG=fixme-all
   GAMEID=
   PROTONPATH=
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -k
 WINESERVER -w
 WINE wine-tkg-fake cwd=ROOT args: [--version]
@@ -2744,11 +4216,17 @@ WINE wine-tkg-fake cwd=ROOT args: [--version]
   WINEARCH=win64
   WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINE wine-tkg-fake cwd=ROOT/cache/wine/Two Runners Game args: [ROOT/cache/wine/Two Runners Game/game/game.exe]
   WINEPREFIX=ROOT/cache/wine/Two Runners Game
   WINEARCH=win64
   WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -w
 WINESERVER -k
 WINESERVER -w
@@ -2860,11 +4338,17 @@ WINE wine-tkg-fake cwd=ROOT args: [--version]
   WINEARCH=win64
   WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
   WINEPREFIX=ROOT/cache/wine/Solo Game
   WINEARCH=win64
   WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
   WINEDEBUG=-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -w
 WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Services\winebus] [/v] [DisableHidraw] [/t] [REG_DWORD] [/d] [1] [/f]
   WINEPREFIX=ROOT/cache/wine/Solo Game
@@ -2873,6 +4357,9 @@ WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Ser
   WINEDEBUG=fixme-all
   GAMEID=
   PROTONPATH=
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -k
 WINESERVER -w
 WINE wine-tkg-fake cwd=ROOT args: [--version]
@@ -2880,11 +4367,17 @@ WINE wine-tkg-fake cwd=ROOT args: [--version]
   WINEARCH=win64
   WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINE wine-tkg-fake cwd=ROOT/cache/wine/Solo Game args: [explorer] [/desktop=Solo_Game,1280x720] [ROOT/cache/wine/Solo Game/game/run me.exe] [--arg]
   WINEPREFIX=ROOT/cache/wine/Solo Game
   WINEARCH=win64
   WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -w
 WINESERVER -k
 WINESERVER -w
@@ -2959,6 +4452,9 @@ WINE wine-tkg-fake cwd=ROOT args: [--version]
   WINEESYNC=1
   LC_ALL=fr_FR.UTF-8
   FOO=bar
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
   WINEPREFIX=ROOT/installed/Arcade Game
   WINEARCH=win64
@@ -2968,6 +4464,9 @@ WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
   WINEESYNC=1
   LC_ALL=fr_FR.UTF-8
   FOO=bar
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -w
 WINE wine-tkg-fake cwd=ROOT args: [regedit] [//?/unixROOT/installed/Arcade Game/regs/a.reg]
   WINEPREFIX=ROOT/installed/Arcade Game
@@ -2980,6 +4479,9 @@ WINE wine-tkg-fake cwd=ROOT args: [regedit] [//?/unixROOT/installed/Arcade Game/
   GAMEID=
   PROTONPATH=
   FOO=bar
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Services\winebus] [/v] [DisableHidraw] [/t] [REG_DWORD] [/d] [1] [/f]
   WINEPREFIX=ROOT/installed/Arcade Game
   WINEARCH=win64
@@ -2991,6 +4493,9 @@ WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Ser
   GAMEID=
   PROTONPATH=
   FOO=bar
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -k
 WINESERVER -w
 WINE wine-tkg-fake cwd=ROOT args: [--version]
@@ -3002,6 +4507,9 @@ WINE wine-tkg-fake cwd=ROOT args: [--version]
   WINEESYNC=1
   LC_ALL=fr_FR.UTF-8
   FOO=bar
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINE wine-tkg-fake cwd=ROOT/installed/Arcade Game/drive_c/Game Dir/Bin args: [ROOT/installed/Arcade Game/drive_c/Game Dir/Bin/Game.EXE] [-fullscreen] [-w] [1]
   WINEPREFIX=ROOT/installed/Arcade Game
   WINEARCH=win64
@@ -3011,6 +4519,9 @@ WINE wine-tkg-fake cwd=ROOT/installed/Arcade Game/drive_c/Game Dir/Bin args: [RO
   WINEESYNC=1
   LC_ALL=fr_FR.UTF-8
   FOO=bar
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -w
 ################ mount-dir
 -- stderr
@@ -4543,6 +6054,9 @@ WINE wine-tkg-fake cwd=ROOT args: [--version]
   WINEESYNC=1
   LC_ALL=fr_FR.UTF-8
   FOO=bar
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
   WINEPREFIX=ROOT/cache/wine/Arcade Game
   WINEARCH=win64
@@ -4552,6 +6066,9 @@ WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
   WINEESYNC=1
   LC_ALL=fr_FR.UTF-8
   FOO=bar
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -w
 WINE wine-tkg-fake cwd=ROOT args: [regedit] [//?/unixROOT/cache/wine/Arcade Game/regs/a.reg]
   WINEPREFIX=ROOT/cache/wine/Arcade Game
@@ -4564,6 +6081,9 @@ WINE wine-tkg-fake cwd=ROOT args: [regedit] [//?/unixROOT/cache/wine/Arcade Game
   GAMEID=
   PROTONPATH=
   FOO=bar
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Services\winebus] [/v] [DisableHidraw] [/t] [REG_DWORD] [/d] [1] [/f]
   WINEPREFIX=ROOT/cache/wine/Arcade Game
   WINEARCH=win64
@@ -4575,6 +6095,9 @@ WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Ser
   GAMEID=
   PROTONPATH=
   FOO=bar
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -k
 WINESERVER -w
 WINE wine-tkg-fake cwd=ROOT args: [--version]
@@ -4586,6 +6109,9 @@ WINE wine-tkg-fake cwd=ROOT args: [--version]
   WINEESYNC=1
   LC_ALL=fr_FR.UTF-8
   FOO=bar
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINE wine-tkg-fake cwd=ROOT/cache/wine/Arcade Game/drive_c/Game Dir/Bin args: [ROOT/cache/wine/Arcade Game/drive_c/Game Dir/Bin/Game.EXE] [-fullscreen] [-w] [1]
   WINEPREFIX=ROOT/cache/wine/Arcade Game
   WINEARCH=win64
@@ -4595,6 +6121,9 @@ WINE wine-tkg-fake cwd=ROOT/cache/wine/Arcade Game/drive_c/Game Dir/Bin args: [R
   WINEESYNC=1
   LC_ALL=fr_FR.UTF-8
   FOO=bar
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -w
 WINESERVER -k
 WINESERVER -w
@@ -4978,6 +6507,9 @@ WINE wine-tkg-fake cwd=ROOT args: [--version]
   WINEESYNC=1
   LC_ALL=fr_FR.UTF-8
   FOO=bar
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
   WINEPREFIX=ROOT/cache/wine/Arcade Game
   WINEARCH=win64
@@ -4987,6 +6519,9 @@ WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
   WINEESYNC=1
   LC_ALL=fr_FR.UTF-8
   FOO=bar
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -w
 WINE wine-tkg-fake cwd=ROOT args: [regedit] [//?/unixROOT/cache/wine/Arcade Game/regs/a.reg]
   WINEPREFIX=ROOT/cache/wine/Arcade Game
@@ -4999,6 +6534,9 @@ WINE wine-tkg-fake cwd=ROOT args: [regedit] [//?/unixROOT/cache/wine/Arcade Game
   GAMEID=
   PROTONPATH=
   FOO=bar
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Services\winebus] [/v] [DisableHidraw] [/t] [REG_DWORD] [/d] [1] [/f]
   WINEPREFIX=ROOT/cache/wine/Arcade Game
   WINEARCH=win64
@@ -5010,6 +6548,9 @@ WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Ser
   GAMEID=
   PROTONPATH=
   FOO=bar
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -k
 WINESERVER -w
 WINE wine-tkg-fake cwd=ROOT args: [--version]
@@ -5021,6 +6562,9 @@ WINE wine-tkg-fake cwd=ROOT args: [--version]
   WINEESYNC=1
   LC_ALL=fr_FR.UTF-8
   FOO=bar
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINE wine-tkg-fake cwd=ROOT/cache/wine/Arcade Game/drive_c/Game Dir/Bin args: [ROOT/cache/wine/Arcade Game/drive_c/Game Dir/Bin/Game.EXE] [-fullscreen] [-w] [1]
   WINEPREFIX=ROOT/cache/wine/Arcade Game
   WINEARCH=win64
@@ -5030,6 +6574,9 @@ WINE wine-tkg-fake cwd=ROOT/cache/wine/Arcade Game/drive_c/Game Dir/Bin args: [R
   WINEESYNC=1
   LC_ALL=fr_FR.UTF-8
   FOO=bar
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -w
 WINESERVER -k
 WINESERVER -w
@@ -5122,17 +6669,26 @@ WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
   WINEARCH=win64
   WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -w
 WINE wine-tkg-fake cwd=ROOT args: [--version]
   WINEPREFIX=ROOT/cache/wine/Solo Game
   WINEARCH=win64
   WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
   WINEPREFIX=ROOT/cache/wine/Solo Game
   WINEARCH=win64
   WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
   WINEDEBUG=-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -w
 WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Services\winebus] [/v] [DisableHidraw] [/t] [REG_DWORD] [/d] [1] [/f]
   WINEPREFIX=ROOT/cache/wine/Solo Game
@@ -5141,6 +6697,9 @@ WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Ser
   WINEDEBUG=fixme-all
   GAMEID=
   PROTONPATH=
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -k
 WINESERVER -w
 WINE wine-tkg-fake cwd=ROOT args: [--version]
@@ -5148,11 +6707,17 @@ WINE wine-tkg-fake cwd=ROOT args: [--version]
   WINEARCH=win64
   WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINE wine-tkg-fake cwd=ROOT/cache/wine/Solo Game args: [explorer] [/desktop=Solo_Game,1280x720] [ROOT/cache/wine/Solo Game/game/run me.exe] [--arg]
   WINEPREFIX=ROOT/cache/wine/Solo Game
   WINEARCH=win64
   WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -w
 WINESERVER -k
 WINESERVER -w
@@ -5229,11 +6794,17 @@ WINE wine-tkg-fake cwd=ROOT args: [--version]
   WINEARCH=win64
   WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
   WINEPREFIX=ROOT/cache/wine/Solo Game
   WINEARCH=win64
   WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
   WINEDEBUG=-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -w
 WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Services\winebus] [/v] [DisableHidraw] [/t] [REG_DWORD] [/d] [1] [/f]
   WINEPREFIX=ROOT/cache/wine/Solo Game
@@ -5242,6 +6813,9 @@ WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Ser
   WINEDEBUG=fixme-all
   GAMEID=
   PROTONPATH=
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -k
 WINESERVER -w
 WINE wine-tkg-fake cwd=ROOT args: [--version]
@@ -5249,11 +6823,17 @@ WINE wine-tkg-fake cwd=ROOT args: [--version]
   WINEARCH=win64
   WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINE wine-tkg-fake cwd=ROOT/cache/wine/Solo Game args: [explorer] [/desktop=Solo_Game,1280x720] [ROOT/cache/wine/Solo Game/game/run me.exe] [--arg]
   WINEPREFIX=ROOT/cache/wine/Solo Game
   WINEARCH=win64
   WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -w
 WINESERVER -k
 WINESERVER -w
@@ -5302,11 +6882,17 @@ WINE wine-tkg-fake cwd=ROOT args: [--version]
   WINEARCH=win64
   WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
   WINEPREFIX=ROOT/cache/wine/Solo Game
   WINEARCH=win64
   WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
   WINEDEBUG=-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -w
 WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Services\winebus] [/v] [DisableHidraw] [/t] [REG_DWORD] [/d] [1] [/f]
   WINEPREFIX=ROOT/cache/wine/Solo Game
@@ -5315,6 +6901,9 @@ WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Ser
   WINEDEBUG=fixme-all
   GAMEID=
   PROTONPATH=
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -k
 WINESERVER -w
 WINE wine-tkg-fake cwd=ROOT args: [--version]
@@ -5322,11 +6911,17 @@ WINE wine-tkg-fake cwd=ROOT args: [--version]
   WINEARCH=win64
   WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINE wine-tkg-fake cwd=ROOT/cache/wine/Solo Game args: [explorer] [/desktop=Solo_Game,1280x720] [ROOT/cache/wine/Solo Game/game/run me.exe] [--arg]
   WINEPREFIX=ROOT/cache/wine/Solo Game
   WINEARCH=win64
   WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -w
 WINESERVER -k
 WINESERVER -w
@@ -5379,11 +6974,17 @@ WINE wine-tkg-fake cwd=ROOT args: [--version]
   WINEARCH=win32
   WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
   WINEPREFIX=ROOT/cache/wine/Old32
   WINEARCH=win32
   WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
   WINEDEBUG=-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -w
 WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Services\winebus] [/v] [DisableHidraw] [/t] [REG_DWORD] [/d] [1] [/f]
   WINEPREFIX=ROOT/cache/wine/Old32
@@ -5392,6 +6993,9 @@ WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Ser
   WINEDEBUG=fixme-all
   GAMEID=
   PROTONPATH=
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -k
 WINESERVER -w
 WINE wine-tkg-fake cwd=ROOT args: [--version]
@@ -5399,11 +7003,17 @@ WINE wine-tkg-fake cwd=ROOT args: [--version]
   WINEARCH=win32
   WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINE wine-tkg-fake cwd=ROOT/cache/wine/Old32/drive_c/game args: [cmd] [/c] [ROOT/cache/wine/Old32/drive_c/game/start.bat]
   WINEPREFIX=ROOT/cache/wine/Old32
   WINEARCH=win32
   WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -w
 WINESERVER -k
 WINESERVER -w
@@ -5456,11 +7066,17 @@ WINE wine-tkg-fake cwd=ROOT args: [--version]
   WINEARCH=win32
   WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
   WINEPREFIX=ROOT/cache/wine/Old32
   WINEARCH=win32
   WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
   WINEDEBUG=-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -w
 WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Services\winebus] [/v] [DisableHidraw] [/t] [REG_DWORD] [/d] [1] [/f]
   WINEPREFIX=ROOT/cache/wine/Old32
@@ -5469,6 +7085,9 @@ WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Ser
   WINEDEBUG=fixme-all
   GAMEID=
   PROTONPATH=
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -k
 WINESERVER -w
 WINE wine-tkg-fake cwd=ROOT args: [--version]
@@ -5476,11 +7095,17 @@ WINE wine-tkg-fake cwd=ROOT args: [--version]
   WINEARCH=win32
   WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINE wine-tkg-fake cwd=ROOT/cache/wine/Old32/drive_c/game args: [cmd] [/c] [ROOT/cache/wine/Old32/drive_c/game/start.bat]
   WINEPREFIX=ROOT/cache/wine/Old32
   WINEARCH=win32
   WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -w
 WINESERVER -k
 WINESERVER -w
@@ -5535,11 +7160,17 @@ WINE wine-tkg-fake cwd=ROOT args: [--version]
   WINEARCH=win32
   WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
   WINEPREFIX=ROOT/cache/wine/Old32
   WINEARCH=win32
   WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
   WINEDEBUG=-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -w
 WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Services\winebus] [/v] [DisableHidraw] [/t] [REG_DWORD] [/d] [1] [/f]
   WINEPREFIX=ROOT/cache/wine/Old32
@@ -5548,6 +7179,9 @@ WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Ser
   WINEDEBUG=fixme-all
   GAMEID=
   PROTONPATH=
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -k
 WINESERVER -w
 WINE wine-tkg-fake cwd=ROOT args: [--version]
@@ -5555,11 +7189,17 @@ WINE wine-tkg-fake cwd=ROOT args: [--version]
   WINEARCH=win32
   WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINE wine-tkg-fake cwd=ROOT/cache/wine/Old32/drive_c/game args: [cmd] [/c] [ROOT/cache/wine/Old32/drive_c/game/start.bat]
   WINEPREFIX=ROOT/cache/wine/Old32
   WINEARCH=win32
   WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -w
 WINESERVER -k
 WINESERVER -w
@@ -5610,11 +7250,17 @@ WINE wine-tkg-fake cwd=ROOT args: [--version]
   WINEARCH=win32
   WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
   WINEPREFIX=ROOT/cache/wine/Old32
   WINEARCH=win32
   WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
   WINEDEBUG=-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -w
 WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Services\winebus] [/v] [DisableHidraw] [/t] [REG_DWORD] [/d] [1] [/f]
   WINEPREFIX=ROOT/cache/wine/Old32
@@ -5623,6 +7269,9 @@ WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Ser
   WINEDEBUG=fixme-all
   GAMEID=
   PROTONPATH=
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -k
 WINESERVER -w
 WINE wine-tkg-fake cwd=ROOT args: [--version]
@@ -5630,11 +7279,17 @@ WINE wine-tkg-fake cwd=ROOT args: [--version]
   WINEARCH=win32
   WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINE wine-tkg-fake cwd=ROOT/cache/wine/Old32/drive_c/game args: [cmd] [/c] [ROOT/cache/wine/Old32/drive_c/game/start.bat] [-path] [C:\Mon Jeu\x] [-n] [] [fin]
   WINEPREFIX=ROOT/cache/wine/Old32
   WINEARCH=win32
   WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -w
 WINESERVER -k
 WINESERVER -w
@@ -5687,12 +7342,18 @@ WINE wine-tkg-fake cwd=ROOT args: [--version]
   WINEDLLOVERRIDES=d3d8,d3d9,d3d10core,d3d11,dxgi=b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
   WINEDEBUG=fixme-all
   WINEFSYNC=1
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
   WINEPREFIX=ROOT/cache/wine/Old32
   WINEARCH=win32
   WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
   WINEDEBUG=-all
   WINEFSYNC=1
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -w
 WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Services\winebus] [/v] [DisableHidraw] [/t] [REG_DWORD] [/d] [1] [/f]
   WINEPREFIX=ROOT/cache/wine/Old32
@@ -5702,6 +7363,9 @@ WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Ser
   WINEFSYNC=1
   GAMEID=
   PROTONPATH=
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -k
 WINESERVER -w
 WINE wine-tkg-fake cwd=ROOT args: [--version]
@@ -5710,12 +7374,18 @@ WINE wine-tkg-fake cwd=ROOT args: [--version]
   WINEDLLOVERRIDES=d3d8,d3d9,d3d10core,d3d11,dxgi=b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
   WINEDEBUG=fixme-all
   WINEFSYNC=1
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINE wine-tkg-fake cwd=ROOT/cache/wine/Old32/drive_c/game args: [cmd] [/c] [ROOT/cache/wine/Old32/drive_c/game/start.bat]
   WINEPREFIX=ROOT/cache/wine/Old32
   WINEARCH=win32
   WINEDLLOVERRIDES=d3d8,d3d9,d3d10core,d3d11,dxgi=b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
   WINEDEBUG=fixme-all
   WINEFSYNC=1
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -w
 WINESERVER -k
 WINESERVER -w
@@ -6089,11 +7759,17 @@ WINE files cwd=ROOT args: [--version]
   WINEARCH=win64
   WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINE files cwd=ROOT args: [wineboot] [-u]
   WINEPREFIX=ROOT/cache/wine/Solo Game
   WINEARCH=win64
   WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
   WINEDEBUG=-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -w
 WINE files cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Services\winebus] [/v] [DisableHidraw] [/t] [REG_DWORD] [/d] [1] [/f]
   WINEPREFIX=ROOT/cache/wine/Solo Game
@@ -6102,6 +7778,9 @@ WINE files cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Services\wi
   WINEDEBUG=fixme-all
   GAMEID=
   PROTONPATH=
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -k
 WINESERVER -w
 WINE files cwd=ROOT/cache/wine/Solo Game args: [explorer] [/desktop=Solo_Game,1280x720] [ROOT/cache/wine/Solo Game/game/run me.exe] [--arg]
@@ -6109,6 +7788,9 @@ WINE files cwd=ROOT/cache/wine/Solo Game args: [explorer] [/desktop=Solo_Game,12
   WINEARCH=win64
   WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -w
 WINESERVER -k
 WINESERVER -w
@@ -6148,11 +7830,17 @@ WINE wine-tkg-fake cwd=ROOT args: [--version]
   WINEARCH=win64
   WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
   WINEPREFIX=ROOT/cache/wine/Solo Game
   WINEARCH=win64
   WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
   WINEDEBUG=-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -w
 WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Services\winebus] [/v] [DisableHidraw] [/t] [REG_DWORD] [/d] [1] [/f]
   WINEPREFIX=ROOT/cache/wine/Solo Game
@@ -6161,6 +7849,9 @@ WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Ser
   WINEDEBUG=fixme-all
   GAMEID=
   PROTONPATH=
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -k
 WINESERVER -w
 WINE wine-tkg-fake cwd=ROOT args: [--version]
@@ -6168,11 +7859,17 @@ WINE wine-tkg-fake cwd=ROOT args: [--version]
   WINEARCH=win64
   WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINE wine-tkg-fake cwd=ROOT/cache/wine/Solo Game args: [explorer] [/desktop=Solo_Game,1280x720] [ROOT/cache/wine/Solo Game/game/run me.exe] [--arg]
   WINEPREFIX=ROOT/cache/wine/Solo Game
   WINEARCH=win64
   WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -w
 WINESERVER -k
 WINESERVER -w
@@ -6237,11 +7934,17 @@ WINE wine-classic cwd=ROOT args: [--version]
   WINEARCH=win32
   WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINE wine-classic cwd=ROOT args: [wineboot] [-u]
   WINEPREFIX=ROOT/cache/wine/Old32
   WINEARCH=win32
   WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
   WINEDEBUG=-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -w
 WINE wine-classic cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Services\winebus] [/v] [DisableHidraw] [/t] [REG_DWORD] [/d] [1] [/f]
   WINEPREFIX=ROOT/cache/wine/Old32
@@ -6250,6 +7953,9 @@ WINE wine-classic cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Serv
   WINEDEBUG=fixme-all
   GAMEID=
   PROTONPATH=
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -k
 WINESERVER -w
 WINE wine-classic cwd=ROOT args: [--version]
@@ -6257,11 +7963,17 @@ WINE wine-classic cwd=ROOT args: [--version]
   WINEARCH=win32
   WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINE wine-classic cwd=ROOT/cache/wine/Old32/drive_c/game args: [cmd] [/c] [ROOT/cache/wine/Old32/drive_c/game/start.bat]
   WINEPREFIX=ROOT/cache/wine/Old32
   WINEARCH=win32
   WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
   WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
 WINESERVER -w
 WINESERVER -k
 WINESERVER -w

@@ -101,6 +101,9 @@ NVAPI_ON=0              # 1 : NVAPI réellement posée (carte NVIDIA + dxvk-nvap
 VKREFLEX=""             # VKREFLEX=1 : couche Reflex de dxvk-nvapi (force NVAPI)
 VKREFLEX_ON=0           # 1 : couche chargée (dxvk-nvapi/layer présent)
 HAS_NVIDIA=0 HAS_AMD=0  # fournisseurs GPU présents (detect_gpus)
+FSR=""                  # FSR=1 : FSR de Wine en plein écran (WINE_FULLSCREEN_FSR), comme batocera-wine
+FSR4=""                 # FSR4=1 : amdxcffx64.dll dans le prefix (AMD seulement, le jeu décide de s'en servir)
+FSR4_ON=0               # 1 : DLL FSR4 réellement posée (carte AMD + DLL trouvée)
 PRE_CMD="" ATTACH_CMD="" ATTACH_PROCESS="" ATTACH_PID=""
 
 # ── Exécutable (resolve_executable) ────────────────────────────────────
@@ -1593,6 +1596,43 @@ link_runner_components() {
 
 # NVAPI (dxvk-nvapi) et DLSS (nvngx.dll du pilote NVIDIA), comme dxvk_install()
 # de batocera-wine. Appelé seulement si NVAPI_ON=1.
+# FSR4 (amdxcffx64.dll) : dans $WSQUASHFS_FSR4_DIR ou ~/.local/share/wsquashfs/fsr4
+# (copie par install.sh depuis proton-cachyos). Seulement si FSR4_ON=1.
+find_fsr4_dll() {
+    local d
+    for d in "${WSQUASHFS_FSR4_DIR:-}" "$HOME/.local/share/wsquashfs/fsr4"; do
+        [[ -n "$d" && -f "${d}/amdxcffx64.dll" ]] && echo "${d}/amdxcffx64.dll" && return
+    done
+}
+
+# FSR4 n'est posée que si FSR4=1, qu'une carte AMD est présente et que la DLL
+# existe. Sinon elle est coupée (rien n'est lié) et un avertissement est donné.
+resolve_fsr4() {
+    FSR4_ON=0
+    [[ "$FSR4" == "1" ]] || return 0
+    if [[ "$HAS_AMD" != "1" ]]; then
+        warn "FSR4=1 ignoré : aucune carte AMD détectée"
+    elif [[ -z "$(find_fsr4_dll)" ]]; then
+        warn "FSR4=1 ignoré : amdxcffx64.dll introuvable (install.sh propose de la copier depuis proton-cachyos)"
+    else
+        FSR4_ON=1
+    fi
+}
+
+# Lien FSR4 posé par un lancement précédent : retiré quand FSR4 n'est plus
+# demandé. Seul un lien est touché, jamais un vrai fichier.
+install_fsr4() {
+    local target_root="$1" dll link="${target_root}/drive_c/windows/system32/amdxcffx64.dll"
+    if [[ "$FSR4_ON" != "1" ]]; then
+        [[ -L "$link" ]] && rm -f "$link" 2>/dev/null || true
+        return 0
+    fi
+    dll=$(find_fsr4_dll)
+    [[ -n "$dll" ]] || return 0
+    mkdir -p "${target_root}/drive_c/windows/system32" 2>/dev/null || true
+    ln -sfn "$dll" "$link" 2>/dev/null || true
+}
+
 install_nvapi() {
     local target_root="$1" nvapi sub32=syswow64 ngx="${SYSROOT}/usr/lib/nvidia/wine" f
     nvapi=$(find_nvapi_dir)
@@ -1623,6 +1663,7 @@ link_runtime_dlls() {
     [[ "$VKD3D" == "1" ]] && install_vkd3d "$target_root"
     [[ "$D7VK" == "1" ]] && install_d7vk "$target_root"
     [[ "$NVAPI_ON" == "1" ]] && install_nvapi "$target_root"
+    install_fsr4 "$target_root"
     return 0
 }
 
@@ -1651,6 +1692,9 @@ configure_gpu_env() {
     export DXVK_LOG_LEVEL="${DXVK_LOG_LEVEL:-none}"
     export VKD3D_DEBUG="${VKD3D_DEBUG:-none}"
     export WINE_MONO_OVERRIDES="Microsoft.Xna.Framework.*,Gac=n"
+    # FSR de Wine (plein écran) : désactivé sauf FSR=1, comme batocera-wine
+    # (WINE_FULLSCREEN_FSR=0 par défaut). Tous les GPU, pas seulement AMD.
+    if [[ "$FSR" == "1" ]]; then export WINE_FULLSCREEN_FSR=1; else export WINE_FULLSCREEN_FSR=0; fi
     # Couche Reflex. Sous Proton (umu), Proton charge sa propre couche (testé sur
     # proton-cachyos : seule DXVK_NVAPI_VKREFLEX=1 suffit). Wine direct : notre
     # couche est ajoutée au chemin des layers ; DISABLE_ coupe un manifeste trouvé
@@ -2024,6 +2068,9 @@ Variables d'environnement :
   WSQUASHFS_VKREFLEX=auto|0|1  Couche Reflex de dxvk-nvapi. auto (défaut) : active si NVAPI
                              est active et la couche installée ; 1 force NVAPI ; 0 coupe.
                              Aussi par jeu : VKREFLEX= dans autorun.cmd
+  WSQUASHFS_FSR=0|1          FSR de Wine en plein écran (défaut 0). Aussi par jeu : FSR=1 dans autorun.cmd
+  WSQUASHFS_FSR4=0|1         FSR4 (amdxcffx64.dll, carte AMD, DLL d'install.sh) : la DLL est posée dans le
+                             prefix, le jeu décide de l'utiliser. Défaut 0. Aussi par jeu : FSR4=1
 HELP
 }
 
@@ -2466,6 +2513,15 @@ cmd_doctor() {
         else
             doctor_note "couche Reflex absente : VKREFLEX sans effet"
         fi
+    fi
+    if [[ "$HAS_AMD" == "1" ]]; then
+        if ls "${WSQUASHFS_VK_ICD_DIR:-/usr/share/vulkan/icd.d}"/radeon_icd*.json >/dev/null 2>&1; then
+            doctor_ok "RADV (pilote Vulkan Mesa) présent"
+        else
+            doctor_note "RADV absent : vulkan-radeon (Arch) ou mesa-vulkan-drivers (Debian)"
+        fi
+        dir=$(find_fsr4_dll)
+        if [[ -n "$dir" ]]; then doctor_ok "FSR4 : ${dir} (FSR4=1 pour l'activer, défaut désactivé)"; else doctor_note "FSR4 : amdxcffx64.dll absente (install.sh peut la copier depuis proton-cachyos)"; fi
     fi
 
     echo "Manettes"
@@ -2915,6 +2971,8 @@ read_autorun() {
     FSYNC=$(autorun_var FSYNC "0")
     NVAPI=$(autorun_var NVAPI "${WSQUASHFS_NVAPI:-auto}")
     VKREFLEX=$(autorun_var VKREFLEX "${WSQUASHFS_VKREFLEX:-auto}")
+    FSR=$(autorun_var FSR "${WSQUASHFS_FSR:-0}")
+    FSR4=$(autorun_var FSR4 "${WSQUASHFS_FSR4:-0}")
     WINE_LANG=$(autorun_var LANG "")
     WINE_ENV=$(autorun_var ENV "")
     # Commandes autour du jeu (run_game) : PRE avant, ATTACH pendant. Des
@@ -3226,6 +3284,7 @@ configure_wine() {
     detect_gpus
     resolve_nvapi
     resolve_vkreflex
+    resolve_fsr4
     configure_gpu_env
 
     # Outils Wine lancés sur le prefix (regedit, reg) : par umu pour un prefix
