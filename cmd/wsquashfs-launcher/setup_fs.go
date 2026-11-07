@@ -9,6 +9,8 @@ package main
 import (
 	"archive/zip"
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -91,6 +93,61 @@ func githubLatestTag(repo, fallback string) string {
 	return rel.TagName
 }
 
+// fileSHA256 : empreinte SHA-256 d'un fichier, en hexadécimal minuscule.
+func fileSHA256(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// githubAssetSHA256 : empreinte SHA-256 qu'affiche GitHub pour un fichier
+// d'une version publiée (champ digest de l'API), "" si inconnue (API
+// injoignable, version publiée avant que GitHub ne les calcule).
+func githubAssetSHA256(repo, tag, file string) string {
+	body, err := downloadBytes("https://api.github.com/repos/" + repo + "/releases/tags/" + tag)
+	if err != nil {
+		return ""
+	}
+	var rel struct {
+		Assets []struct {
+			Name   string `json:"name"`
+			Digest string `json:"digest"`
+		} `json:"assets"`
+	}
+	if json.Unmarshal(body, &rel) != nil {
+		return ""
+	}
+	for _, a := range rel.Assets {
+		if a.Name == file && strings.HasPrefix(a.Digest, "sha256:") {
+			return strings.ToLower(strings.TrimPrefix(a.Digest, "sha256:"))
+		}
+	}
+	return ""
+}
+
+// verifyGithubAsset : archive conforme à l'empreinte publiée par GitHub.
+// Faux si elle diffère ; vrai avec un avertissement si GitHub n'en donne pas.
+func verifyGithubAsset(archive, repo, tag, file string) bool {
+	want := githubAssetSHA256(repo, tag, file)
+	if want == "" {
+		printInfo(file + " : empreinte non publiée par GitHub, archive non vérifiée")
+		return true
+	}
+	got, err := fileSHA256(archive)
+	if err != nil || got != want {
+		printError(file + " : somme de contrôle SHA-256 incorrecte, archive ignorée")
+		return false
+	}
+	return true
+}
+
 // fetch : téléchargement de label depuis url dans dest ; en simulation, seul
 // le lien est vérifié.
 func fetch(url, dest, label string) error {
@@ -132,7 +189,7 @@ func runCmd(name string, args ...string) error {
 
 // cmdOK : vrai si la commande réussit (sortie ignorée).
 func cmdOK(name string, args ...string) bool {
-	return exec.Command(name, args...).Run() == nil
+	return execQuiet(name, args...) == nil
 }
 
 // extract : archive (zip, tar, tar.zst, tar.xz...) dans dest.
@@ -207,15 +264,32 @@ func topDirOf(dir string) string {
 }
 
 // installTree remplace dst par src. Copie locale, sans liens durs : les
-// systèmes de fichiers réseau (shfs Unraid, CIFS…) ne les prennent pas.
+// systèmes de fichiers réseau (shfs Unraid, CIFS…) ne les prennent pas. La
+// copie se fait dans dst.new : l'ancienne version n'est retirée qu'une fois
+// la nouvelle complète (une copie ratée laisse dst intact).
 func installTree(src, dst string) error {
-	if err := os.RemoveAll(dst); err != nil {
-		return err
-	}
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return err
 	}
-	return runCmd("cp", "-rp", src, dst)
+	fresh, old := dst+".new", dst+".old"
+	_ = os.RemoveAll(fresh)
+	if err := runCmd("cp", "-rp", src, fresh); err != nil {
+		_ = os.RemoveAll(fresh)
+		return err
+	}
+	_ = os.RemoveAll(old)
+	if pathExists(dst) {
+		if err := os.Rename(dst, old); err != nil {
+			_ = os.RemoveAll(fresh)
+			return err
+		}
+	}
+	if err := os.Rename(fresh, dst); err != nil {
+		_ = os.Rename(old, dst)
+		_ = os.RemoveAll(fresh)
+		return err
+	}
+	return os.RemoveAll(old)
 }
 
 // copyFile copie src dans dst avec le mode donné.

@@ -20,10 +20,15 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 )
 
 const doctorTTL = 5 * time.Minute
+
+// trialStopDelay : temps laissé à --trial interrompu pour arrêter le jeu
+// (5 s pour les processus, 30 s pour le démontage, marge).
+const trialStopDelay = 60 * time.Second
 
 type agentServer struct {
 	cfg    agentConfig
@@ -55,6 +60,9 @@ func (s *agentServer) httpServer() *http.Server {
 	if s.logOn {
 		h = s.logged(mux)
 	}
+	// ReadTimeout borne la lecture de la requête seulement : net/http lève le
+	// délai en lançant sa lecture de fond, un essai long garde son contexte
+	// (TestReadTimeoutKeepsLongRequestAlive).
 	return &http.Server{
 		Handler:           h,
 		ReadHeaderTimeout: 20 * time.Second,
@@ -235,7 +243,12 @@ func (s *agentServer) trialRoute(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), time.Duration(req.Duration+180)*time.Second)
 	defer cancel()
 	args := []string{"--trial", image, fmt.Sprint(req.Duration), "--session", s.cfg.Session, "--screenshot", shot.Name()}
-	out, err := exec.CommandContext(ctx, launcherExe(), args...).Output()
+	cmd := exec.CommandContext(ctx, launcherExe(), args...)
+	// Interruption (délai, client parti) : SIGTERM, pour que --trial arrête
+	// le jeu et démonte ; SIGKILL seulement s'il ne s'est pas arrêté à temps.
+	cmd.Cancel = func() error { return cmd.Process.Signal(syscall.SIGTERM) }
+	cmd.WaitDelay = trialStopDelay
+	out, err := cmd.Output()
 	if ctx.Err() != nil {
 		writeDetail(w, http.StatusGatewayTimeout, fmt.Sprintf("essai trop long (%d s)", req.Duration))
 		return

@@ -16,7 +16,8 @@ import (
 
 // installWineArchive : télécharge et installe un runner Wine dans
 // wineInstallDir. Vrai si le binaire wine est en place.
-func installWineArchive(url, file, label, name string) bool {
+func installWineArchive(repo, tag, file, label, name string) bool {
+	url := "https://github.com/" + repo + "/releases/download/" + tag + "/" + file
 	tmp, err := mkTempDir()
 	if err != nil {
 		return false
@@ -26,7 +27,7 @@ func installWineArchive(url, file, label, name string) bool {
 		return true
 	}
 	archive := filepath.Join(tmp, file)
-	if isFile(archive) && os.MkdirAll(filepath.Join(tmp, "x"), 0o755) == nil &&
+	if isFile(archive) && verifyGithubAsset(archive, repo, tag, file) && os.MkdirAll(filepath.Join(tmp, "x"), 0o755) == nil &&
 		extract(archive, filepath.Join(tmp, "x")) == nil {
 		top := topDirOf(filepath.Join(tmp, "x"))
 		if top != "" {
@@ -60,15 +61,13 @@ func isWineBin(sub string) func(string) bool {
 func downloadWineTkg() bool {
 	version := githubLatestTag("Kron4ek/Wine-Builds", "11.19")
 	file := fmt.Sprintf("wine-%s-staging-tkg-amd64.tar.xz", version)
-	url := "https://github.com/Kron4ek/Wine-Builds/releases/download/" + version + "/" + file
-	return installWineArchive(url, file, "wine-tkg "+version+" (~100 Mo)", "")
+	return installWineArchive("Kron4ek/Wine-Builds", version, file, "wine-tkg "+version+" (~100 Mo)", "")
 }
 
 func downloadWineGE() bool {
 	tag := githubLatestTag("GloriousEggroll/wine-ge-custom", "GE-Proton8-26")
 	file := "wine-lutris-" + tag + "-x86_64.tar.xz"
-	url := "https://github.com/GloriousEggroll/wine-ge-custom/releases/download/" + tag + "/" + file
-	return installWineArchive(url, file, "wine-ge "+tag+" (~234 Mo)", "wine-ge-"+tag)
+	return installWineArchive("GloriousEggroll/wine-ge-custom", tag, file, "wine-ge "+tag+" (~234 Mo)", "wine-ge-"+tag)
 }
 
 var geRe = regexp.MustCompile(`(?i)ge-|lutris|wine-proton`)
@@ -162,7 +161,8 @@ func downloadUmu() bool {
 		return true
 	}
 	archive := filepath.Join(tmp, file)
-	if isFile(archive) && runCmd("tar", "-xf", archive, "-C", tmp) == nil && isFile(filepath.Join(tmp, "umu/umu-run")) {
+	if isFile(archive) && verifyGithubAsset(archive, "Open-Wine-Components/umu-launcher", tag, file) &&
+		runCmd("tar", "-xf", archive, "-C", tmp) == nil && isFile(filepath.Join(tmp, "umu/umu-run")) {
 		os.RemoveAll(umuInstallDir)
 		link := filepath.Join(installDir, "umu-run")
 		target := filepath.Join(umuInstallDir, "umu-run")
@@ -288,7 +288,7 @@ func installDllPack(label, repo, fallback, pattern, dest, probe string) bool {
 	}
 	archive := filepath.Join(tmp, file)
 	x := filepath.Join(tmp, "x")
-	if isFile(archive) && os.MkdirAll(x, 0o755) == nil && extract(archive, x) == nil {
+	if isFile(archive) && verifyGithubAsset(archive, repo, tag, file) && os.MkdirAll(x, 0o755) == nil && extract(archive, x) == nil {
 		// Archive sans dossier racine (dxvk-nvapi) : la sonde est à la racine.
 		top := x
 		if !isFile(filepath.Join(top, probe)) {

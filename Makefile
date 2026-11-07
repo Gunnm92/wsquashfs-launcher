@@ -25,7 +25,8 @@ help:
 build:
 	@command -v go >/dev/null || { echo "go absent (Go 1.22 ou plus récent)"; exit 1; }
 	@cd cmd/wsquashfs-launcher && CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w" -o ../../wsquashfs-launcher .
-	@echo "✓ wsquashfs-launcher compilé"
+	@sha256sum wsquashfs-launcher > wsquashfs-launcher.sha256
+	@echo "✓ wsquashfs-launcher compilé (empreinte : wsquashfs-launcher.sha256, à committer avec lui)"
 
 install:
 	@chmod +x install.sh

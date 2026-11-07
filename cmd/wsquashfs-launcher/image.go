@@ -166,10 +166,10 @@ func detectImagePrefix() {
 		}
 		return
 	}
-	if execDiscard("unsquashfs", "-cat", wsquashfsFile, "system.reg") == nil {
+	if execQuiet("unsquashfs", "-cat", wsquashfsFile, "system.reg") == nil {
 		packagedPrefix = true
 	}
-	if execDiscard("unsquashfs", "-cat", wsquashfsFile, "config_info") == nil {
+	if execQuiet("unsquashfs", "-cat", wsquashfsFile, "config_info") == nil {
 		protonPrefix = true
 	}
 }
@@ -203,7 +203,7 @@ func tryOverlayMount() bool {
 		}
 		mountMode = "overlay"
 		overlayKind = "fuse"
-		mounted = true
+		mounted.Store(true)
 		fmt.Println("Mode          : overlay (dossier .pc + fuse-overlayfs, dossier non modifié)")
 		return true
 	}
@@ -216,11 +216,11 @@ func tryOverlayMount() bool {
 	if _, err := exec.LookPath("fuse-overlayfs"); err == nil && mountOverlay("") {
 		mountMode = "overlay"
 		overlayKind = "fuse"
-		mounted = true
+		mounted.Store(true)
 		fmt.Println("Mode          : overlay (squashfuse + fuse-overlayfs)")
 		return true
 	}
-	doUmount(squashfsPoint)
+	fuseUmount(squashfsPoint)
 	return false
 }
 
@@ -240,15 +240,15 @@ func extractImage() {
 	_, sqErr := exec.LookPath("squashfuse")
 	if sqErr == nil && mountSquashfs(wsquashfsFile, squashfsPoint) {
 		fmt.Println("Mode          : copy (squashfuse)")
-		_ = os.RemoveAll(winePoint)
+		removeCopy()
 		_ = os.MkdirAll(winePoint, 0o755)
 		if err := runCmd("cp", "-a", squashfsPoint+"/.", winePoint+"/"); err != nil {
 			die("échec de la copie depuis squashfuse")
 		}
-		doUmount(squashfsPoint)
+		fuseUmount(squashfsPoint)
 	} else if _, err := exec.LookPath("unsquashfs"); err == nil {
 		fmt.Println("Mode          : copy (unsquashfs)")
-		_ = os.RemoveAll(winePoint)
+		removeCopy()
 		if err := runCmd("unsquashfs", "-d", winePoint, wsquashfsFile); err != nil {
 			die("échec de l'extraction unsquashfs")
 		}
@@ -261,6 +261,20 @@ func extractImage() {
 	chownToTarget(winePoint)
 }
 
+// removeCopy : supprime l'ancienne copie de travail. Jamais à travers un
+// montage resté en place (démontage raté) : la suppression atteindrait
+// l'image ou, en overlay, les sauvegardes.
+func removeCopy() {
+	if isMountPoint(winePoint) {
+		fuseUmount(winePoint)
+		if isMountPoint(winePoint) {
+			die(winePoint+" est encore monté (démontage impossible) : copie annulée",
+				"  → "+os.Args[0]+" --umount \""+wsquashfsFile+"\"")
+		}
+	}
+	_ = os.RemoveAll(winePoint)
+}
+
 // useCopyMode : copie de travail en cache, réextraite si l'image a changé.
 func useCopyMode() {
 	cacheInfo := winePoint + "/.wsquashfs_cache"
@@ -268,13 +282,13 @@ func useCopyMode() {
 		if st, err := os.Stat(winePoint); err == nil && st.IsDir() {
 			fmt.Println("Mode          : copy (cache valide, extraction ignorée)")
 			mountMode = "copy"
-			mounted = true
+			mounted.Store(true)
 			return
 		}
 	}
 	extractImage()
 	mountMode = "copy"
-	mounted = true
+	mounted.Store(true)
 }
 
 // mountImage : préparation et montage du jeu (overlay, sinon copie).
@@ -289,21 +303,29 @@ func mountImage() {
 	runInKernelOverlay()
 	if folderOverlay {
 		// Jamais de copie : le dossier entier serait recopié.
-		if !tryOverlayMount() {
+		if !tryOverlayMountGated() {
 			die("montage fuse-overlayfs impossible pour "+wsquashfsFile,
 				"  → renommer le dossier en .wine pour le lancer sur place (il sera modifié)")
 		}
 		return
 	}
-	if !tryOverlayMount() {
+	if !tryOverlayMountGated() {
 		useCopyMode()
 	}
+}
+
+// tryOverlayMountGated : tryOverlayMount sans signal traité en cours de
+// route (cleanup verrait un montage fait mais pas encore marqué).
+func tryOverlayMountGated() bool {
+	signalGate.Lock()
+	defer signalGate.Unlock()
+	return tryOverlayMount()
 }
 
 // reportMountAndExit : --mount laisse le jeu monté pour une modification à la
 // main.
 func reportMountAndExit() {
-	mounted = false
+	mounted.Store(false)
 	fmt.Println("-----------------------------------------")
 	fmt.Println("Monté dans    : " + winePoint)
 	if mountMode == "overlay" {
@@ -422,7 +444,7 @@ func unmountAllStale() {
 		prefix := filepath.Join(realCache, sub) + "/"
 		for _, m := range mountedPaths() {
 			if strings.HasPrefix(m, prefix) && !gameRunning(filepath.Base(m)) {
-				doUmount(m)
+				fuseUmount(m)
 			}
 		}
 	}

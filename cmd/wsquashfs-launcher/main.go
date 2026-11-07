@@ -1,7 +1,6 @@
 // wsquashfs-launcher : lance un jeu Windows .wsquashfs (format Batocera) sur
-// n'importe quel Linux. Réécriture en Go du script bash, sans dépendance
-// tierce. Le script bash reste la référence tant que la parité n'est pas
-// atteinte (tests/run-tests.sh).
+// n'importe quel Linux. Binaire Go sans dépendance tierce, issu de la
+// réécriture du script bash ; tests/run-tests.sh en vérifie le comportement.
 package main
 
 import (
@@ -10,6 +9,8 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"sync"
+	"sync/atomic"
 	"syscall"
 )
 
@@ -70,8 +71,12 @@ func launcherMain() int {
 		os.Unsetenv("WSQUASHFS_NS_DIR")
 		os.Unsetenv("WSQUASHFS_NS_LOCK_FD")
 	}
-	installSignals()
+	// cleanupHook avant le gestionnaire : la goroutine le lit sans verrou.
 	cleanupHook = cleanup
+	// --trial gère lui-même SIGTERM (arrêt du jeu qu'il a lancé, puis rapport).
+	if action != "trial" {
+		installSignals()
+	}
 
 	fixOwnership(cacheDir)
 	fixOwnership(savesDir)
@@ -87,36 +92,46 @@ func launcherMain() int {
 
 // installSignals : SIGINT / SIGTERM passent par cleanup. Pendant un namespace
 // de l'overlay noyau, le signal est transmis au lanceur du namespace, qui
-// arrête Wine et démonte (le retour de l'hôte fait le nettoyage).
+// arrête Wine et démonte (le retour de l'hôte fait le nettoyage) ; chaque
+// signal suivant est transmis de même.
 // signalExiting : un signal arrête le lanceur ; le thread principal se bloque.
-var signalExiting bool
+var signalExiting atomic.Bool
+
+// signalGate : tenu par le thread principal pendant un montage ; le
+// gestionnaire de signaux le prend avant cleanup, qui voit ainsi un état
+// complet (montage fini et mounted à jour), jamais un montage à moitié fait.
+var signalGate sync.Mutex
 
 func installSignals() {
 	ch := make(chan os.Signal, 1)
 	signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
-		sig := <-ch
-		if nsPID != 0 {
-			_ = syscall.Kill(nsPID, syscall.SIGTERM)
-			return
+		for sig := range ch {
+			if pid := nsPID.Load(); pid != 0 {
+				_ = syscall.Kill(int(pid), syscall.SIGTERM)
+				continue
+			}
+			code := 128 + 15
+			if sig == syscall.SIGINT {
+				code = 128 + 2
+			}
+			// Le thread principal ne doit plus rien faire : bash quittait sur le trap.
+			signalExiting.Store(true)
+			signalGate.Lock() // jamais rendu : la sortie suit
+			exitNow(code)
 		}
-		code := 128 + 15
-		if sig == syscall.SIGINT {
-			code = 128 + 2
-		}
-		// Le thread principal ne doit plus rien faire : bash quittait sur le trap.
-		signalExiting = true
-		exitNow(code)
 	}()
 }
 
 // cleanup : fin du lanceur (normale, erreur ou signal) : arrêt de ATTACH, du
 // pont DualSense, de Wine, puis démontage (copie et dossier non concernés).
+// Ne doit jamais appeler exitNow ni die : exitNow l'exécute sous sync.Once,
+// un appel imbriqué bloquerait la sortie.
 func cleanup() {
 	_ = os.Chdir("/")
 	stopAttachCommand()
 	stopDualsenseBridge()
-	if mounted {
+	if mounted.Load() {
 		stopWineserver()
 		if mountMode == "overlay" {
 			umountRetry(winePoint)

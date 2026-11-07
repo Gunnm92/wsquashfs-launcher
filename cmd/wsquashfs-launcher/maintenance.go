@@ -146,7 +146,7 @@ func cleanSaves(name string) {
 			root = img
 			isDirImg = true
 		}
-		if isDirImg || execDiscard("squashfuse", img, mnt) == nil {
+		if isDirImg || execQuiet("squashfuse", img, mnt) == nil {
 			opaqueCache = map[string]string{}
 			_ = filepath.Walk(saves, func(f string, info os.FileInfo, err error) error {
 				if err != nil || !info.Mode().IsRegular() {
@@ -579,7 +579,7 @@ func showInfo(args []string) int {
 		joined = listRunnerDirs(src + "/runners")
 	} else {
 		autorun = squashfsCat(src, "autorun.cmd")
-		if execDiscard("unsquashfs", "-cat", src, "system.reg") == nil {
+		if execQuiet("unsquashfs", "-cat", src, "system.reg") == nil {
 			typ = "prefix"
 		}
 		proton = squashfsFirstLine(src, "config_info")
@@ -845,7 +845,10 @@ func packPrefix(args []string) int {
 		_ = os.Remove(tmp)
 		die("échec de mksquashfs, " + out + " inchangé")
 	}
-	_ = os.Rename(tmp, out)
+	if err := os.Rename(tmp, out); err != nil {
+		_ = os.Remove(tmp)
+		die("remplacement de " + out + " impossible : " + err.Error())
+	}
 	if resetSaves {
 		if os.RemoveAll(saves) == nil {
 			fmt.Println("Sauvegardes réinitialisées : " + saves)
@@ -889,7 +892,10 @@ func installGame(args []string) int {
 		_ = os.RemoveAll(tmp)
 		die("échec de l'extraction, rien n'a été installé")
 	}
-	_ = os.Rename(tmp, dest)
+	if err := os.Rename(tmp, dest); err != nil {
+		_ = os.RemoveAll(tmp)
+		die("installation dans " + dest + " impossible : " + err.Error())
+	}
 	if dropsToTargetUser() {
 		_ = runCmd("chown", "-R", fmt.Sprintf("%d:%d", wineUID, wineGID), dest)
 	}
@@ -1054,13 +1060,27 @@ func cmdSaves(args []string) int {
 
 // ── --agent, --pair, --update ──────────────────────────────────────────
 
-// cmdUpdate : met à jour le lanceur depuis GitHub. Le fichier téléchargé est
-// vérifié (script bash : bash -n ; binaire : en-tête ELF) avant remplacement.
+// cmdUpdate : met à jour le lanceur depuis GitHub. Le binaire publié
+// s'accompagne de wsquashfs-launcher.sha256 (make build) : déjà identique,
+// rien n'est téléchargé ; sinon le fichier téléchargé doit avoir cette
+// empreinte et un en-tête ELF avant de remplacer le lanceur.
 func cmdUpdate() int {
 	base := envOr("WSQUASHFS_UPDATE_URL", "https://raw.githubusercontent.com/Gunnm92/wsquashfs-launcher/main")
 	self, err := os.Executable()
 	if err != nil {
 		die("chemin du lanceur inconnu")
+	}
+	sum, err := downloadBytes(base + "/wsquashfs-launcher.sha256")
+	want := ""
+	if fields := strings.Fields(string(sum)); err == nil && len(fields) > 0 {
+		want = strings.ToLower(fields[0])
+	}
+	if len(want) != 64 || strings.Trim(want, "0123456789abcdef") != "" {
+		die("somme de contrôle du lanceur introuvable sur " + base + " : rien n'a été modifié")
+	}
+	if cur, err := fileSHA256(self); err == nil && cur == want {
+		fmt.Println("✓ Lanceur déjà à jour : " + self)
+		return 0
 	}
 	tmp, err := os.MkdirTemp("", "wsq-update.")
 	if err != nil {
@@ -1072,14 +1092,11 @@ func cmdUpdate() int {
 	if err := downloadTo(base+"/wsquashfs-launcher", fresh); err != nil {
 		die("téléchargement du lanceur impossible")
 	}
+	if got, err := fileSHA256(fresh); err != nil || got != want {
+		die("somme de contrôle du lanceur téléchargé incorrecte : rien n'a été modifié")
+	}
 	data, _ := os.ReadFile(fresh)
-	switch {
-	case bytes.HasPrefix(data, []byte("\x7fELF")):
-	case bytes.HasPrefix(data, []byte("#!")):
-		if runCmd("bash", "-n", fresh) != nil {
-			die("lanceur téléchargé invalide : rien n'a été modifié")
-		}
-	default:
+	if !bytes.HasPrefix(data, []byte("\x7fELF")) {
 		die("lanceur téléchargé invalide : rien n'a été modifié")
 	}
 	if err := os.Chmod(fresh, 0o755); err != nil {

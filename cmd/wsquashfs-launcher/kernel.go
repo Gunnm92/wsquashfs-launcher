@@ -198,9 +198,9 @@ func stageInNamespace() (int, string, bool) {
 	if err := cmd.Start(); err != nil {
 		return 0, "lancement impossible", false
 	}
-	nsPID = cmd.Process.Pid
+	nsPID.Store(int64(cmd.Process.Pid))
 	err := cmd.Wait()
-	nsPID = 0
+	nsPID.Store(0)
 	rc := 0
 	if ee, ok := err.(*exec.ExitError); ok {
 		rc = ee.ExitCode()
@@ -263,7 +263,7 @@ func useKernelOverlay() {
 	writeStatus("ready")
 	mountMode = "overlay"
 	overlayKind = "kernel"
-	mounted = true
+	mounted.Store(true)
 	detectImagePrefix()
 	fmt.Println("Mode          : overlay noyau (squashfuse + overlayfs, namespace utilisateur)")
 }

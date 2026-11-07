@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
 )
 
@@ -47,19 +48,19 @@ var (
 	dirMode         bool   // jeu installé, lancé sur place
 	folderOverlay   bool   // dossier .pc essayé en overlay (lecture seule, comme son image)
 	gameName        string
-	autorunOverride string // <jeu>.wsquashfs.autorun s'il existe
-	mountMode       string // overlay | copy | dir
-	overlayKind     string // kernel | fuse
-	mounted         bool   // cleanup() doit arrêter Wine et démonter
-	squashfsPoint   string // image montée (lowerdir)
-	winePoint       string // prefix vu par Wine
-	savePoint       string // couche de sauvegardes du jeu (upperdir)
-	workPoint       string // workdir de l'overlay
-	nsStage         string // "1" : relancé dans le namespace de l'overlay noyau
-	nsDir           string // dossier d'échange hôte/namespace
-	nsPID           int    // lanceur en namespace démarré par ce processus (hôte)
-	packagedPrefix  bool   // l'image contient un prefix (system.reg)
-	protonPrefix    bool   // prefix créé par Proton (config_info)
+	autorunOverride string       // <jeu>.wsquashfs.autorun s'il existe
+	mountMode       string       // overlay | copy | dir
+	overlayKind     string       // kernel | fuse
+	mounted         atomic.Bool  // cleanup() doit arrêter Wine et démonter (lu par le gestionnaire de signaux)
+	squashfsPoint   string       // image montée (lowerdir)
+	winePoint       string       // prefix vu par Wine
+	savePoint       string       // couche de sauvegardes du jeu (upperdir)
+	workPoint       string       // workdir de l'overlay
+	nsStage         string       // "1" : relancé dans le namespace de l'overlay noyau
+	nsDir           string       // dossier d'échange hôte/namespace
+	nsPID           atomic.Int64 // lanceur en namespace démarré par ce processus (hôte)
+	packagedPrefix  bool         // l'image contient un prefix (system.reg)
+	protonPrefix    bool         // prefix créé par Proton (config_info)
 	lockFile        *os.File
 	lockedGame      string
 )
@@ -248,7 +249,7 @@ func chownTree(root string, uid, gid int) {
 		if os.Geteuid() == 0 {
 			_ = os.Lchown(p, uid, gid)
 		} else {
-			_ = runQuiet("sudo", "-n", "chown", "-h", fmt.Sprintf("%d:%d", uid, gid), p)
+			_ = execQuiet("sudo", "-n", "chown", "-h", fmt.Sprintf("%d:%d", uid, gid), p)
 		}
 	})
 }
@@ -281,8 +282,4 @@ func chownToTarget(path string) {
 			_ = os.Lchown(p, uid, gid)
 		}
 	})
-}
-
-func runQuiet(name string, args ...string) error {
-	return execQuiet(name, args...)
 }

@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -703,10 +704,12 @@ func startAttachCommand() {
 		attachProcess = filepath.Base(execPath)
 	}
 	attachMarker = fmt.Sprintf("WSQUASHFS_ATTACH=%d", os.Getpid())
+	attachMu.Lock()
 	attachStop = make(chan struct{})
 	attachDone = make(chan struct{})
 	// Canal local : la variable globale est remise à nil à l'arrêt.
 	stop, done := attachStop, attachDone
+	attachMu.Unlock()
 	go func() {
 		defer close(done)
 		var pid int
@@ -734,6 +737,7 @@ func startAttachCommand() {
 
 var (
 	attachMarker string
+	attachMu     sync.Mutex    // stopAttachCommand : fin de partie et cleanup concurrents
 	attachStop   chan struct{} // fin de la partie : abandonne la recherche
 	attachDone   chan struct{} // la goroutine ATTACH est terminée
 )
@@ -741,6 +745,10 @@ var (
 // stopAttachCommand : arrête ATTACH et ce qu'elle a lancé (marqueur
 // WSQUASHFS_ATTACH). Une commande lancée a 5 s pour finir seule.
 func stopAttachCommand() {
+	// Un seul arrêt à la fois : le second appel attend la fin du premier puis
+	// trouve attachStop à nil (pas de double close).
+	attachMu.Lock()
+	defer attachMu.Unlock()
 	if attachStop == nil {
 		return
 	}
@@ -768,7 +776,7 @@ func runGame() {
 		startAttachCommand()
 	}
 	code := playGame()
-	if signalExiting {
+	if signalExiting.Load() {
 		select {} // sortie sur signal en cours : cleanup puis os.Exit
 	}
 	_ = runWineserver(winePoint, "-w")

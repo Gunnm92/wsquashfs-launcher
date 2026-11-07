@@ -74,3 +74,25 @@ func TestTextWidthAndPad(t *testing.T) {
 		t.Errorf("pad = %q", p)
 	}
 }
+
+func TestEnvHas(t *testing.T) {
+	env := "HOME=/root\x00WINEPREFIX=/c/wsquashfs/wine/Foo 2\x00WSQUASHFS_ATTACH=1234\x00"
+	cases := []struct {
+		needle string
+		want   bool
+	}{
+		{"WINEPREFIX=/c/wsquashfs/wine/Foo", false},
+		{"WINEPREFIX=/c/wsquashfs/wine/Foo 2", true},
+		{"WSQUASHFS_ATTACH=123", false},
+		{"WSQUASHFS_ATTACH=1234", true},
+		{"HOME=/", false},
+	}
+	for _, c := range cases {
+		if got := envHas(env, c.needle); got != c.want {
+			t.Errorf("envHas(%q) = %v, attendu %v", c.needle, got, c.want)
+		}
+	}
+	if !envHas("WINEPREFIX=/c/wine/Foo/\x00", "WINEPREFIX=/c/wine/Foo") {
+		t.Error("sous-chemin du préfixe non reconnu")
+	}
+}

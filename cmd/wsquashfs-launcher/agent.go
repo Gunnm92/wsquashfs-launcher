@@ -221,10 +221,18 @@ func cmdPair(args []string) int {
 		case "--reset":
 			reset = true
 		case "--roms":
-			roms = append(roms, argAt(args, i+1))
+			dir := argAt(args, i+1)
+			if dir == "" || strings.HasPrefix(dir, "--") {
+				die("--roms attend un dossier")
+			}
+			roms = append(roms, dir)
 			i++
 		case "--port":
-			fmt.Sscanf(argAt(args, i+1), "%d", &port)
+			n, err := strconv.Atoi(argAt(args, i+1))
+			if err != nil || n < 1 || n > 65535 {
+				die("--port attend un numéro de port (1 à 65535)")
+			}
+			port = n
 			i++
 		default:
 			die("option inconnue pour --pair : " + args[i])
@@ -346,7 +354,11 @@ func serveAgent(logOn bool) int {
 	var ln net.Listener
 	socketActivated := false
 	if os.Getenv("LISTEN_PID") == strconv.Itoa(os.Getpid()) && os.Getenv("LISTEN_FDS") != "" {
-		ln, err = net.FileListener(os.NewFile(3, "systemd-socket"))
+		// FileListener duplique le descripteur (close-on-exec) ; le 3 d'origine
+		// est fermé, sinon Wine et les jeux lancés par l'agent en hériteraient.
+		f := os.NewFile(3, "systemd-socket")
+		ln, err = net.FileListener(f)
+		f.Close()
 		socketActivated = err == nil
 	}
 	if ln == nil {

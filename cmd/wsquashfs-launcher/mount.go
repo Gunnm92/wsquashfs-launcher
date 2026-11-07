@@ -29,11 +29,6 @@ func fuseUmount(p string) {
 	_ = execQuiet("umount", p)
 }
 
-// doUmount : démontage simple.
-func doUmount(p string) {
-	fuseUmount(p)
-}
-
 // umountRetry : démontage de fin de partie. Juste après wineserver -k, les
 // processus tiennent encore des fichiers ouverts ; quelques essais, puis
 // démontage différé en dernier recours.
@@ -61,20 +56,28 @@ func mountSquashfs(image, point string) bool {
 		args = append(args, "-o", allowOtherOpt)
 	}
 	args = append(args, image, point)
-	return execDiscard("squashfuse", args...) == nil
+	return execQuiet("squashfuse", args...) == nil
 }
 
 // mountOverlay : overlay fuse-overlayfs, image (lowerdir) et sauvegardes
 // (upperdir). redirect_dir=on cause des ESTALE avec fuse-overlayfs : jamais.
+// Virgule et deux-points séparent les options et les couches : un chemin qui
+// en contient (nom du jeu) est refusé ; le lancement passe alors en copie.
 func mountOverlay(lower string) bool {
 	if lower == "" {
 		lower = squashfsPoint
+	}
+	for _, p := range []string{lower, savePoint, workPoint} {
+		if strings.ContainsAny(p, ",:") {
+			warn("virgule ou deux-points dans " + p + " : fuse-overlayfs impossible")
+			return false
+		}
 	}
 	opts := fmt.Sprintf("lowerdir=%s,upperdir=%s,workdir=%s,%s", lower, savePoint, workPoint, overlaySquashOp)
 	if allowOtherOpt != "" {
 		opts += "," + allowOtherOpt
 	}
-	return execDiscard("fuse-overlayfs", "-o", opts, winePoint) == nil
+	return execQuiet("fuse-overlayfs", "-o", opts, winePoint) == nil
 }
 
 // resetWorkdir : vide le workdir. L'overlay noyau y laisse work/ en mode 000.
@@ -100,7 +103,7 @@ func reloadOverlay(msg string) {
 		}
 		return
 	}
-	doUmount(winePoint)
+	fuseUmount(winePoint)
 	resetWorkdir(workPoint)
 	chownToTarget(workPoint)
 	if !mountOverlay("") {
@@ -166,8 +169,9 @@ func readTrim(p string) string {
 	return strings.TrimSpace(string(data))
 }
 
-// charsToString : chaîne C (octets nuls ignorés).
-func charsToString(b []int8) string {
+// charsToString : chaîne C (octets nuls ignorés). Utsname contient des int8
+// sur x86-64 et des uint8 sur arm64.
+func charsToString[T int8 | uint8](b []T) string {
 	var sb strings.Builder
 	for _, c := range b {
 		if c == 0 {

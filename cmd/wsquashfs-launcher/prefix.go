@@ -67,13 +67,14 @@ func stopWineserver() {
 	killByEnv("WINEPREFIX=" + winePoint)
 }
 
-// killByEnv : kill -9 des processus dont l'environnement contient needle
-// (pgrep -f en bash, ici via /proc).
+// killByEnv : kill -9 des processus dont une variable d'environnement vaut
+// exactement needle (VAR=valeur) ; pour un chemin, un sous-chemin compte
+// aussi (WINEPREFIX=…/Foo/ ou …/Foo/x, jamais …/Foo 2).
 func killByEnv(needle string) {
 	matches, _ := filepath.Glob("/proc/[0-9]*/environ")
 	for _, m := range matches {
 		data, err := os.ReadFile(m)
-		if err != nil || !strings.Contains(string(data), needle) {
+		if err != nil || !envHas(string(data), needle) {
 			continue
 		}
 		var pid int
@@ -82,6 +83,19 @@ func killByEnv(needle string) {
 			_ = syscall.Kill(pid, syscall.SIGKILL)
 		}
 	}
+}
+
+// envHas : environ (/proc/PID/environ, séparé par des octets nuls) contient
+// la variable needle (VAR=valeur), ou un sous-chemin si la valeur est un chemin.
+func envHas(environ, needle string) bool {
+	base := strings.TrimSuffix(needle, "/")
+	isPath := strings.Contains(base, "=/")
+	for _, kv := range strings.Split(environ, "\x00") {
+		if kv == needle || (isPath && (kv == base || strings.HasPrefix(kv, base+"/"))) {
+			return true
+		}
+	}
+	return false
 }
 
 // detectPrefixArch : architecture réelle du prefix (ligne #arch=win32).

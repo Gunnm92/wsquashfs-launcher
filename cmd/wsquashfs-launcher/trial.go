@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -20,7 +21,7 @@ import (
 
 // trialReport : résultat d'un essai (JSON sur la sortie standard).
 type trialReport struct {
-	Error         string     `json:"error,omitempty"` // busy | noimage
+	Error         string     `json:"error,omitempty"` // busy | noimage | interrupted
 	Code          int        `json:"code"`            // code de sortie du lanceur (-1 si arrêté par signal)
 	Elapsed       int        `json:"elapsed"`
 	LauncherAlive bool       `json:"launcher_alive"`
@@ -88,7 +89,8 @@ func allPIDs() []int {
 }
 
 // launcherRunning : un autre lanceur de jeu ou umu-run tourne (montages et
-// préfixes en conflit). L'agent et l'essai lui-même ne comptent pas.
+// préfixes en conflit). L'agent, l'essai lui-même et les actions qui ne
+// lancent pas de jeu (--doctor, --list…) ne comptent pas.
 func launcherRunning() bool {
 	self, parent := os.Getpid(), os.Getppid()
 	for _, pid := range allPIDs() {
@@ -99,12 +101,47 @@ func launcherRunning() bool {
 		if comm == "umu-run" {
 			return true
 		}
-		if strings.HasPrefix("wsquashfs-launcher", comm) && comm != "" &&
-			!strings.Contains(processCmdline(pid), "--agent") {
+		if isLauncherComm(comm) && launchesGame(processArgs(pid)) {
 			return true
 		}
 	}
 	return false
+}
+
+// isLauncherComm : comm d'un wsquashfs-launcher (tronqué à 15 caractères par
+// le noyau : « wsquashfs-launc »).
+func isLauncherComm(comm string) bool {
+	const name = "wsquashfs-launcher"
+	return comm == name || (len(comm) == 15 && strings.HasPrefix(name, comm))
+}
+
+// launchesGame : la ligne de commande d'un lanceur (args sans argv[0]) lance,
+// prépare ou démonte un jeu, au lieu d'une action d'information ou de
+// maintenance sans montage. Ligne illisible : considérée comme un jeu.
+func launchesGame(args []string) bool {
+	o, err := parseArgs(args)
+	if err != nil {
+		return true
+	}
+	switch o.action {
+	case "agent", "pair", "trial", "update", "setup", "help", "doctor", "list",
+		"info", "show", "saves", "clean", "clear", "pack", "install":
+		return false
+	}
+	return true
+}
+
+// processArgs : arguments d'un processus, sans argv[0].
+func processArgs(pid int) []string {
+	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid))
+	if err != nil {
+		return nil
+	}
+	args := strings.Split(strings.TrimRight(string(data), "\x00"), "\x00")
+	if len(args) > 0 {
+		args = args[1:]
+	}
+	return args
 }
 
 // prefixPIDs : processus dont WINEPREFIX est le préfixe du jeu (chemin
@@ -157,24 +194,38 @@ func importSessionEnv(session string) []string {
 	return env
 }
 
-// trialWindows : fenêtres des processus du jeu (xprop, si disponible).
-func trialWindows(pids map[int]bool) []trialWin {
-	if _, err := exec.LookPath("xprop"); err != nil || os.Getenv("DISPLAY") == "" {
+// envValue : valeur de key dans env (la dernière l'emporte, comme os/exec).
+func envValue(env []string, key string) string {
+	val := ""
+	for _, kv := range env {
+		if strings.HasPrefix(kv, key+"=") {
+			val = kv[len(key)+1:]
+		}
+	}
+	return val
+}
+
+// trialWindows : fenêtres des processus du jeu (xprop, si disponible), dans
+// l'environnement de la session graphique (env).
+func trialWindows(pids map[int]bool, env []string) []trialWin {
+	if _, err := exec.LookPath("xprop"); err != nil || envValue(env, "DISPLAY") == "" {
 		return nil
 	}
+	xprop := func(args ...string) string {
+		cmd := exec.Command("xprop", args...)
+		cmd.Env = env
+		out, _ := cmd.Output()
+		return strings.TrimSpace(string(out))
+	}
 	var out []trialWin
-	list, _ := exec.Command("xprop", "-root", "_NET_CLIENT_LIST").Output()
-	for _, id := range regexp.MustCompile(`0x[0-9a-f]+`).FindAllString(string(list), -1) {
-		pidOut, _ := exec.Command("xprop", "-id", id, "_NET_WM_PID").Output()
-		m := regexp.MustCompile(`\d+$`).FindString(strings.TrimSpace(string(pidOut)))
+	for _, id := range regexp.MustCompile(`0x[0-9a-f]+`).FindAllString(xprop("-root", "_NET_CLIENT_LIST"), -1) {
+		m := regexp.MustCompile(`\d+$`).FindString(xprop("-id", id, "_NET_WM_PID"))
 		pid, _ := strconv.Atoi(m)
 		if !pids[pid] {
 			continue
 		}
-		nameOut, _ := exec.Command("xprop", "-id", id, "WM_NAME").Output()
-		name := regexp.MustCompile(`^WM_NAME\([^)]*\) = "(.*)"$`).FindStringSubmatch(strings.TrimSpace(string(nameOut)))
-		state, _ := exec.Command("xprop", "-id", id, "_NET_WM_STATE").Output()
-		w := trialWin{ID: id, State: strings.TrimPrefix(strings.TrimSpace(string(state)), "_NET_WM_STATE: ")}
+		name := regexp.MustCompile(`^WM_NAME\([^)]*\) = "(.*)"$`).FindStringSubmatch(xprop("-id", id, "WM_NAME"))
+		w := trialWin{ID: id, State: strings.TrimPrefix(xprop("-id", id, "_NET_WM_STATE"), "_NET_WM_STATE: ")}
 		if name != nil {
 			w.Name = name[1]
 		}
@@ -183,8 +234,22 @@ func trialWindows(pids map[int]bool) []trialWin {
 	return out
 }
 
+// trialScreenshot : capture Wayland (grim) dans l'environnement de la session.
+func trialScreenshot(shot string, env []string) bool {
+	if shot == "" || envValue(env, "WAYLAND_DISPLAY") == "" {
+		return false
+	}
+	if _, err := exec.LookPath("grim"); err != nil {
+		return false
+	}
+	cmd := exec.Command("grim", shot)
+	cmd.Env = env
+	return cmd.Run() == nil
+}
+
 // runTrial : lance l'image avec ce binaire, observe, arrête, et écrit le rapport.
 // Retourne le code de sortie du processus (0, 3 jeu en cours, 4 image absente).
+// SIGTERM ou SIGINT (agent interrompu) : arrêt immédiat du jeu, puis rapport.
 func runTrial(image string, seconds int, session, shot string) int {
 	report := trialReport{Games: []string{}, Windows: []trialWin{}}
 	emit := func() int {
@@ -215,8 +280,13 @@ func runTrial(image string, seconds int, session, shot string) int {
 	}
 	defer os.Remove(out.Name())
 
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, syscall.SIGTERM, syscall.SIGINT)
+	defer signal.Stop(stop)
+
+	env := importSessionEnv(session)
 	cmd := exec.Command(selfPath, image)
-	cmd.Env = importSessionEnv(session)
+	cmd.Env = env
 	cmd.Stdin = nil
 	cmd.Stdout = out
 	cmd.Stderr = out
@@ -227,6 +297,7 @@ func runTrial(image string, seconds int, session, shot string) int {
 		return emit()
 	}
 	// Fermé à la fin du lanceur : lisible à volonté, contrairement à un envoi.
+	// Après sa fermeture, waitErr et cmd.ProcessState sont lisibles sans course.
 	exited := make(chan struct{})
 	go func() { _ = cmd.Wait(); close(exited) }()
 
@@ -238,9 +309,19 @@ func runTrial(image string, seconds int, session, shot string) int {
 			return true
 		}
 	}
-	// Observation : toutes les 3 s, jusqu'à la durée demandée ou la fin du lanceur.
-	for time.Since(start) < time.Duration(seconds)*time.Second && launcherAlive() {
-		time.Sleep(3 * time.Second)
+	// Observation : toutes les 3 s, jusqu'à la durée demandée, la fin du
+	// lanceur ou une interruption.
+	interrupted := false
+	deadline := start.Add(time.Duration(seconds) * time.Second)
+observe:
+	for time.Now().Before(deadline) && launcherAlive() {
+		select {
+		case <-stop:
+			interrupted = true
+			break observe
+		case <-exited:
+		case <-time.After(3 * time.Second):
+		}
 		if len(gamePIDs(stem)) > 0 {
 			report.GameSeen = true
 		}
@@ -248,47 +329,54 @@ func runTrial(image string, seconds int, session, shot string) int {
 	report.Elapsed = int(time.Since(start).Seconds())
 	report.LauncherAlive = launcherAlive()
 
-	for _, pid := range gamePIDs(stem) {
-		if len(report.Games) < 3 {
-			report.Games = append(report.Games, processCmdline(pid))
-		}
-	}
-	pids := map[int]bool{}
-	for _, pid := range prefixPIDs(stem) {
-		pids[pid] = true
-	}
-	report.Windows = append(report.Windows, trialWindows(pids)...)
-
-	if shot != "" && os.Getenv("WAYLAND_DISPLAY") != "" {
-		if _, err := exec.LookPath("grim"); err == nil {
-			if exec.Command("grim", shot).Run() == nil {
-				report.Screenshot = true
+	if interrupted {
+		report.Error = "interrupted"
+	} else {
+		for _, pid := range gamePIDs(stem) {
+			if len(report.Games) < 3 {
+				report.Games = append(report.Games, processCmdline(pid))
 			}
 		}
+		pids := map[int]bool{}
+		for _, pid := range prefixPIDs(stem) {
+			pids[pid] = true
+		}
+		report.Windows = append(report.Windows, trialWindows(pids, env)...)
+		report.Screenshot = trialScreenshot(shot, env)
 	}
 
-	// Arrêt : TERM aux processus du préfixe, puis KILL après 5 s, puis le lanceur.
+	// Arrêt : TERM aux processus du préfixe, puis KILL après 5 s, puis le
+	// lanceur (TERM : il arrête Wine et démonte), attendu jusqu'à sa fin.
 	for _, pid := range prefixPIDs(stem) {
 		_ = syscall.Kill(pid, syscall.SIGTERM)
 	}
-	time.Sleep(5 * time.Second)
+	select {
+	case <-exited:
+	case <-time.After(5 * time.Second):
+	}
 	for _, pid := range prefixPIDs(stem) {
 		_ = syscall.Kill(pid, syscall.SIGKILL)
 	}
-	for i := 0; i < 30 && launcherAlive(); i++ {
-		time.Sleep(time.Second)
+	// Interrompu : l'agent n'attend pas, le lanceur est arrêté tout de suite.
+	if !interrupted {
+		select {
+		case <-exited:
+		case <-time.After(30 * time.Second):
+		}
 	}
 	if launcherAlive() {
 		_ = cmd.Process.Signal(syscall.SIGTERM)
+		select {
+		case <-exited:
+		case <-time.After(20 * time.Second):
+			_ = cmd.Process.Kill()
+			<-exited
+		}
 	}
 	report.Left.Procs = len(prefixPIDs(stem))
 	report.Left.Mounts = countMounts(stem)
+	report.Code = cmd.ProcessState.ExitCode() // -1 si arrêté par un signal
 
-	if st := cmd.ProcessState; st != nil {
-		report.Code = st.ExitCode()
-	} else {
-		report.Code = -1
-	}
 	if data, err := os.ReadFile(out.Name()); err == nil {
 		if len(data) > 60000 {
 			data = data[len(data)-60000:]

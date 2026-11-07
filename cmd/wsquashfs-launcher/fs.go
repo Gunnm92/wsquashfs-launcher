@@ -75,9 +75,3 @@ func squashfsCat(image, file string) string {
 	}
 	return string(out)
 }
-
-// execDiscard : exécute une commande, sorties ignorées (2>/dev/null).
-func execDiscard(name string, args ...string) error {
-	cmd := exec.Command(name, args...)
-	return cmd.Run()
-}

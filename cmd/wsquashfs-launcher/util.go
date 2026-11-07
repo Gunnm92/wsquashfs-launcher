@@ -10,19 +10,26 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 )
 
-// cleanupHook : cleanup() du lanceur, appelé une fois avant chaque sortie.
+// cleanupHook : cleanup() du lanceur, appelé une fois avant la sortie. Fixé
+// avant le démarrage du gestionnaire de signaux, jamais modifié ensuite.
 var cleanupHook func()
 
-// exitNow : sortie du lanceur, avec cleanup (équivalent du trap EXIT).
+var exitOnce sync.Once
+
+// exitNow : sortie du lanceur, avec cleanup (équivalent du trap EXIT). Une
+// seule sortie : un second appel (signal pendant une sortie du thread
+// principal, ou l'inverse) attend que la première termine le processus.
 func exitNow(code int) {
-	if cleanupHook != nil {
-		h := cleanupHook
-		cleanupHook = nil
-		h()
-	}
-	os.Exit(code)
+	exitOnce.Do(func() {
+		if cleanupHook != nil {
+			cleanupHook()
+		}
+		os.Exit(code)
+	})
+	select {}
 }
 
 // die : affiche l'erreur (et ses lignes de détail) et quitte (code 1).
@@ -55,9 +62,13 @@ func confirm(question string) bool {
 	return strings.HasPrefix(reply, "o") || strings.HasPrefix(reply, "y")
 }
 
+// stdinReader : un seul tampon pour l'entrée standard : un nouveau à chaque
+// question perdrait les lignes déjà lues d'avance (réponses par un tube).
+var stdinReader = bufio.NewReader(os.Stdin)
+
 // readLine : une ligne de l'entrée standard, sans fin de ligne.
 func readLine() string {
-	line, _ := bufio.NewReader(os.Stdin).ReadString('\n')
+	line, _ := stdinReader.ReadString('\n')
 	return strings.TrimRight(line, "\r\n")
 }
 

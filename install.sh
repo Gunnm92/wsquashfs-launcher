@@ -53,6 +53,13 @@ elif [[ ! -x "$BIN" ]]; then
         mkdir -p "$BIN_DIR" || exit 1
         tmp="${BIN}.new.$$"
         curl -fsSL "${REPO_RAW}/wsquashfs-launcher" -o "$tmp" || { rm -f "$tmp"; echo "Erreur : téléchargement impossible" >&2; exit 1; }
+        want="$(curl -fsSL "${REPO_RAW}/wsquashfs-launcher.sha256" | cut -d' ' -f1)"
+        if [[ ! "$want" =~ ^[0-9a-f]{64}$ ]] || ! command -v sha256sum >/dev/null 2>&1 \
+            || [[ "$(sha256sum "$tmp" | cut -d' ' -f1)" != "$want" ]]; then
+            rm -f "$tmp"
+            echo "Erreur : somme de contrôle du lanceur absente ou incorrecte" >&2
+            exit 1
+        fi
         if [[ "$(head -c 4 "$tmp")" != $'\x7fELF' ]]; then
             rm -f "$tmp"
             echo "Erreur : fichier téléchargé invalide (binaire attendu)" >&2
