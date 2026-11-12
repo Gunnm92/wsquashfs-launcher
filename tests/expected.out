@@ -306,6 +306,7 @@ Création de ROOT/userdata/roms/windows/Arcade Game.wsquashfs depuis ROOT/src/Ar
 ✓ ROOT/userdata/roms/windows/Arcade Game.wsquashfs (SIZE)
   Version : 1.2.3
 == rc=0
+## options de --pack : Compression zstd Block size 131072
 ################ pack-exist
 -- stderr
 Erreur : ROOT/userdata/roms/windows/Arcade Game.wsquashfs existe déjà (jamais écrasé sans confirmation au terminal)

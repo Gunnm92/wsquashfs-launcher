@@ -430,6 +430,7 @@ step exec-usage    "$L" --exec "$ROMS/x.wsquashfs"
 
 # --pack / --info
 step pack1         "$L" --pack "$P" "$ROMS/Arcade Game.wsquashfs"
+note "options de --pack : $(unsquashfs -s "$ROMS/Arcade Game.wsquashfs" | grep -E '^(Compression|Block size)' | paste -sd ' ')"
 step pack-exist    "$L" --pack "$P" "$ROMS/Arcade Game.wsquashfs"
 step pack2         "$L" --pack "$S" "$ROMS/Solo Game.wsquashfs"
 step pack3         "$L" --pack "$W"
