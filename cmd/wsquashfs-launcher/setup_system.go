@@ -5,7 +5,6 @@ package main
 
 import (
 	"bufio"
-	"fmt"
 	"os"
 	"os/exec"
 	"strings"
@@ -69,15 +68,14 @@ func needSudo() bool {
 		return true
 	}
 	if _, err := exec.LookPath("sudo"); err != nil {
-		printError("sudo absent — relancez en root : sudo " + exePath() + " --setup")
+		setupFail("sudo absent — relancez en root : sudo " + exePath() + " --setup")
 		return false
 	}
-	printInfo("Non-root : sudo utilisé pour les paquets système")
+	uiItem(stInfo, "Non-root : sudo utilisé pour les paquets système")
 	return true
 }
 
 func checkDependencies() bool {
-	section("Paquets système (" + distroName + ")")
 	if !needSudo() {
 		return false
 	}
@@ -115,15 +113,15 @@ func aptEnsure(label string, pkgs ...string) error {
 		}
 	}
 	if len(missing) == 0 {
-		printSuccess(label + " : déjà installé (" + strings.Join(pkgs, " ") + ")")
+		setupHave(label + " : déjà installé (" + strings.Join(pkgs, " ") + ")")
 		return nil
 	}
-	printInfo(label + " : installation de " + strings.Join(missing, " ") + "...")
+	uiItem(stInfo, label+" : installation de "+strings.Join(missing, " ")+"...")
 	if err := runRoot(append([]string{"apt-get", "install", "-y"}, missing...)...); err != nil {
-		printError(label + " : échec de l'installation de " + strings.Join(missing, " "))
+		setupFail(label + " : échec de l'installation de " + strings.Join(missing, " "))
 		return err
 	}
-	printSuccess(label + " : " + strings.Join(missing, " ") + " " + doneWord())
+	setupDone(label + " : " + strings.Join(missing, " ") + " " + doneWord())
 	return nil
 }
 
@@ -143,14 +141,14 @@ func depsDebian() bool {
 		ok = false
 	}
 	if aptEnsure("Mode overlay", "fuse-overlayfs") != nil {
-		printInfo("fuse-overlayfs indisponible — mode copy utilisé (fonctionnel)")
+		setupSkip("fuse-overlayfs indisponible — mode copy utilisé (fonctionnel)")
 	}
 	// getfattr : --clean ; zstd : VKD3D-Proton ; unzip : d7vk
 	_ = aptEnsure("Outils (--clean, archives)", "attr", "zstd", "unzip")
 	// MangoHud (optionnel : mangohud wsquashfs-launcher jeu.wsquashfs)
 	if aptEnsure("MangoHud (facultatif)", "mangohud", "mangohud:i386") != nil &&
 		aptEnsure("MangoHud (facultatif)", "mangohud") != nil {
-		printInfo("mangohud indisponible — overlay MangoHud non disponible")
+		setupSkip("mangohud indisponible — overlay MangoHud non disponible")
 	}
 	return ok
 }
@@ -203,24 +201,24 @@ func pacmanEnsure(label string, pkgs ...string) error {
 		}
 	}
 	if len(unknown) > 0 {
-		printInfo(label + " : absents des dépôts, ignorés : " + strings.Join(unknown, " "))
+		setupSkip(label + " : absents des dépôts, ignorés : " + strings.Join(unknown, " "))
 	}
 	if len(missing) == 0 {
 		if len(unknown) == 0 {
-			printSuccess(label + " : déjà installé")
+			setupHave(label + " : déjà installé")
 		}
 		return nil
 	}
-	printInfo(label + " : installation de " + strings.Join(missing, " ") + "...")
+	uiItem(stInfo, label+" : installation de "+strings.Join(missing, " ")+"...")
 	args := []string{"pacman", "-S", "--needed"}
 	if assumeYes || !hasTTY() {
 		args = append(args, "--noconfirm")
 	}
 	if err := runRoot(append(args, missing...)...); err != nil {
-		printError(label + " : échec de l'installation de " + strings.Join(missing, " "))
+		setupFail(label + " : échec de l'installation de " + strings.Join(missing, " "))
 		return err
 	}
-	printSuccess(label + " : " + strings.Join(missing, " ") + " " + doneWord())
+	setupDone(label + " : " + strings.Join(missing, " ") + " " + doneWord())
 	return nil
 }
 
@@ -247,7 +245,7 @@ func archLib32Packages() []string {
 
 func depsArch() bool {
 	if !pacmanSynced() {
-		printError("Bases pacman non synchronisées : lancez d'abord « sudo pacman -Syu »")
+		setupFail("Bases pacman non synchronisées : lancez d'abord « sudo pacman -Syu »")
 		return false
 	}
 	ok := true
@@ -255,7 +253,7 @@ func depsArch() bool {
 		ok = false
 	}
 	if pacmanEnsure("Mode overlay", "fuse-overlayfs") != nil {
-		printInfo("fuse-overlayfs indisponible — mode copy utilisé (fonctionnel)")
+		setupSkip("fuse-overlayfs indisponible — mode copy utilisé (fonctionnel)")
 	}
 	_ = pacmanEnsure("Outils (--clean, archives)", "attr", "zstd", "unzip")
 	if multilibEnabled() {
@@ -264,8 +262,8 @@ func depsArch() bool {
 		}
 		_ = pacmanEnsure("MangoHud (facultatif)", "mangohud", "lib32-mangohud")
 	} else {
-		printError("Dépôt [multilib] désactivé : les jeux 32 bits (arcade Batocera) ne se lanceront pas.")
-		fmt.Println("    Activez-le dans /etc/pacman.conf (section [multilib]), puis relancez l'installation.")
+		setupFail("Dépôt [multilib] désactivé : les jeux 32 bits (arcade Batocera) ne se lanceront pas.")
+		uiNote("Activez-le dans /etc/pacman.conf (section [multilib]), puis relancez l'installation.")
 		ok = false
 		_ = pacmanEnsure("MangoHud (facultatif)", "mangohud")
 	}
@@ -273,9 +271,9 @@ func depsArch() bool {
 }
 
 func depsOther() bool {
-	printError("Distribution non prise en charge pour les paquets système (" + distroName + ").")
-	fmt.Println("    Installez à la main : squashfuse, squashfs-tools, fuse-overlayfs, attr,")
-	fmt.Println("    zstd, unzip, et les bibliothèques 32 bits de Wine (jeux arcade 32 bits).")
+	setupFail("Distribution non prise en charge pour les paquets système (" + distroName + ").")
+	uiNote("Installez à la main : squashfuse, squashfs-tools, fuse-overlayfs, attr,",
+		"zstd, unzip, et les bibliothèques 32 bits de Wine (jeux arcade 32 bits).")
 	return askYesNo("Continuer (runners, DXVK, lanceur) ?", false)
 }
 

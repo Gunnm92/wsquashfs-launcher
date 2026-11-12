@@ -69,7 +69,7 @@ func checkRoot() {
 // voisin renommé ensuite : un lanceur en cours d'exécution garde son fichier.
 func installRepoFile(rel, dest string) error {
 	if dryRun {
-		fmt.Println("    [simulation] " + rel + " → " + dest)
+		simLine(rel + " → " + dest)
 		return nil
 	}
 	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
@@ -78,7 +78,7 @@ func installRepoFile(rel, dest string) error {
 	tmp := fmt.Sprintf("%s.new.%d", dest, os.Getpid())
 	if err := downloadTo("https://raw.githubusercontent.com/Gunnm92/wsquashfs-launcher/main/"+rel, tmp); err != nil {
 		os.Remove(tmp)
-		printError("Téléchargement de " + rel + " impossible")
+		setupErr("Téléchargement de " + rel + " impossible")
 		return err
 	}
 	if err := os.Chmod(tmp, 0o755); err != nil {
@@ -93,7 +93,7 @@ func installRepoFile(rel, dest string) error {
 // en cours d'exécution garde son fichier.
 func installSelf(dest string) error {
 	if dryRun {
-		fmt.Println("    [simulation] " + exePath() + " → " + dest)
+		simLine(exePath() + " → " + dest)
 		return nil
 	}
 	if sameFile(exePath(), dest) {
@@ -126,7 +126,7 @@ func installBridge(dest string) error {
 		return installRepoFile(rel, dest)
 	}
 	if dryRun {
-		fmt.Println("    [simulation] " + local + " → " + dest)
+		simLine(local + " → " + dest)
 		return nil
 	}
 	tmp := fmt.Sprintf("%s.new.%d", dest, os.Getpid())
@@ -141,16 +141,15 @@ func installBridge(dest string) error {
 // la version installée est celle qui tourne, « --update » la met à jour),
 // puis le pont DualSense.
 func installLauncher() bool {
-	section("Lanceur")
 	dest := filepath.Join(installDir, "wsquashfs-launcher")
 	if err := installSelf(dest); err != nil {
-		printError("Installation du lanceur impossible : " + err.Error())
+		setupFail("Installation du lanceur impossible : " + err.Error())
 		return false
 	}
-	printSuccess("Lanceur : " + dest)
+	setupDone("Lanceur : " + dest)
 	bridge := filepath.Join(installDir, "dualsense-usb-bridge")
 	if installBridge(bridge) == nil && !dryRun {
-		printSuccess("Pont DualSense : " + bridge)
+		setupDone("Pont DualSense : " + bridge)
 	}
 	return true
 }
@@ -171,31 +170,32 @@ const mimeXML = `<?xml version="1.0" encoding="UTF-8"?>
 func createMimeType() {
 	mimeDir := filepath.Join(os.Getenv("HOME"), ".local/share/mime")
 	if !askYesNo("Associer les fichiers .wsquashfs au lanceur (double-clic) ?", true) {
+		setupSkip("Association des .wsquashfs non faite")
 		return
 	}
 	if dryRun {
-		fmt.Println("    [simulation] " + filepath.Join(mimeDir, "packages/wsquashfs.xml"))
+		simLine(filepath.Join(mimeDir, "packages/wsquashfs.xml"))
 		return
 	}
 	if err := os.MkdirAll(filepath.Join(mimeDir, "packages"), 0o755); err != nil {
-		printError("Type MIME impossible : " + err.Error())
+		setupFail("Type MIME impossible : " + err.Error())
 		return
 	}
 	if err := os.WriteFile(filepath.Join(mimeDir, "packages/wsquashfs.xml"), []byte(mimeXML), 0o644); err != nil {
-		printError("Type MIME impossible : " + err.Error())
+		setupFail("Type MIME impossible : " + err.Error())
 		return
 	}
 	if _, err := exec.LookPath("update-mime-database"); err == nil {
 		_ = exec.Command("update-mime-database", mimeDir).Run()
 	}
-	printSuccess("Type MIME créé")
+	setupDone("Type MIME créé")
 	createDesktopEntry()
 }
 
 // createDesktopEntry : le double-clic lance le lanceur installé.
 func createDesktopEntry() {
 	if dryRun {
-		fmt.Println("    [simulation] " + desktopFile + " (Exec=" + installDir + "/wsquashfs-launcher %f)")
+		simLine(desktopFile + " (Exec=" + installDir + "/wsquashfs-launcher %f)")
 		return
 	}
 	content := fmt.Sprintf(`[Desktop Entry]
@@ -208,11 +208,11 @@ NoDisplay=true
 Terminal=false
 `, installDir)
 	if err := os.MkdirAll(filepath.Dir(desktopFile), 0o755); err != nil {
-		printError("Entrée du bureau impossible : " + err.Error())
+		setupFail("Entrée du bureau impossible : " + err.Error())
 		return
 	}
 	if err := os.WriteFile(desktopFile, []byte(content), 0o644); err != nil {
-		printError("Entrée du bureau impossible : " + err.Error())
+		setupFail("Entrée du bureau impossible : " + err.Error())
 		return
 	}
 	dir := filepath.Dir(desktopFile)
@@ -225,7 +225,7 @@ Terminal=false
 			_ = exec.Command("xdg-mime", "default", "wsquashfs-launcher.desktop", mime).Run()
 		}
 	}
-	printSuccess("Entrée du bureau : " + desktopFile)
+	setupDone("Entrée du bureau : " + desktopFile)
 }
 
 // shellRcFile : fichier de configuration du shell de connexion.
@@ -246,11 +246,11 @@ func shellRcFile() string {
 func checkPath() {
 	for _, d := range strings.Split(os.Getenv("PATH"), ":") {
 		if d == installDir {
-			printSuccess(installDir + " est dans le PATH")
+			setupHave(installDir + " est dans le PATH")
 			return
 		}
 	}
-	printInfo(installDir + " n'est pas dans le PATH")
+	setupTodo(installDir + " n'est pas dans le PATH")
 	rc := shellRcFile()
 	if rc == "" {
 		rc = filepath.Join(os.Getenv("HOME"), ".profile")
@@ -260,46 +260,35 @@ func checkPath() {
 		line = "fish_add_path " + installDir
 	}
 	if data, err := os.ReadFile(rc); err == nil && strings.Contains(string(data), line) {
-		printSuccess("PATH déjà configuré dans " + rc + " (ouvrir un nouveau terminal)")
+		setupHave("PATH déjà configuré dans " + rc + " (ouvrir un nouveau terminal)")
 		return
 	}
 	// Par défaut oui : sans cela, le lanceur n'est pas trouvé par son nom
 	if !askYesNo("Ajouter "+installDir+" au PATH (dans "+rc+") ?", true) {
-		fmt.Println("    À ajouter à votre shell : " + line)
+		setupSkip("PATH non modifié")
+		uiNote("À ajouter à votre shell :")
+		uiCode(line)
 		return
 	}
 	if dryRun {
-		fmt.Println("    [simulation] " + line + " >> " + rc)
+		simLine(line + " >> " + rc)
 		return
 	}
 	if err := os.MkdirAll(filepath.Dir(rc), 0o755); err != nil {
-		printError("PATH non modifié : " + err.Error())
+		setupFail("PATH non modifié : " + err.Error())
 		return
 	}
 	f, err := os.OpenFile(rc, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
-		printError("PATH non modifié : " + err.Error())
+		setupFail("PATH non modifié : " + err.Error())
 		return
 	}
 	defer f.Close()
 	if _, err := fmt.Fprintf(f, "\n# WSquashFS Launcher\n%s\n", line); err != nil {
-		printError("PATH non modifié : " + err.Error())
+		setupFail("PATH non modifié : " + err.Error())
 		return
 	}
-	printSuccess("PATH mis à jour dans " + rc + " (nouveau terminal pour en profiter)")
-}
-
-func showUsageAfterInstall() {
-	fmt.Println()
-	fmt.Println(cGreen + "╔════════════════════════════════════════╗" + cNC)
-	fmt.Println(cGreen + "║       Installation terminée !          ║" + cNC)
-	fmt.Println(cGreen + "╚════════════════════════════════════════╝" + cNC)
-	fmt.Println()
-	fmt.Println("  wsquashfs-launcher /chemin/jeu.wsquashfs")
-	fmt.Println("  wsquashfs-launcher --doctor        (vérifier l'installation)")
-	fmt.Println("  wsquashfs-launcher --list          (jeux connus et sauvegardes)")
-	fmt.Println("  wsquashfs-launcher --help")
-	fmt.Println()
+	setupDone("PATH mis à jour dans " + rc + " (nouveau terminal pour en profiter)")
 }
 
 // ── Agent pour wsquashfs-manager (section 8b) ──────────────────────────
@@ -354,61 +343,59 @@ ExecStart=%s/wsquashfs-launcher --agent
 // installAgent : initialisation de l'agent (jeton, certificat) par le lanceur
 // installé, puis socket et service systemd utilisateur.
 func installAgent() bool {
-	section("Agent pour wsquashfs-manager")
 	if os.Geteuid() == 0 {
-		printError("L'agent s'installe pour l'utilisateur de la session graphique, pas pour root :")
-		printInfo("relancer l'installeur sans sudo avec --agent")
+		setupFail("L'agent s'installe pour l'utilisateur de la session graphique, pas pour root :")
+		uiNote("relancer l'installeur sans sudo avec --agent")
 		return false
 	}
 	roms := askValue("Dossier roms/ de cette machine", agentDefaultRoms())
 	rawPort := askValue("Port de l'agent (doit être libre sur cette machine)", strconv.Itoa(agentPort))
 	port, err := strconv.Atoi(rawPort)
 	if err != nil || port < 1024 || port > 65535 {
-		printError("Port invalide : " + rawPort)
+		setupFail("Port invalide : " + rawPort)
 		return false
 	}
 	agentPort = port
 	if !portFree(port) {
-		printError(fmt.Sprintf("Port %d déjà utilisé sur cette machine : en choisir un autre (--agent, puis répondre au port)", port))
+		setupFail(fmt.Sprintf("Port %d déjà utilisé sur cette machine : en choisir un autre (--agent, puis répondre au port)", port))
 		return false
 	}
 	launcher := filepath.Join(installDir, "wsquashfs-launcher")
 	if dryRun {
-		fmt.Println("    [simulation] " + launcher + " --pair --roms " + roms + " --port " + strconv.Itoa(port) + "  (jeton, certificat, " + agentDir() + ")")
-		fmt.Println("    [simulation] socket " + agentUnitDir + fmt.Sprintf("/wsquashfs-agent.socket (port %d) et service", port))
-		fmt.Println("    [simulation] systemctl --user enable --now wsquashfs-agent.socket")
+		simLine(launcher + " --pair --roms " + roms + " --port " + strconv.Itoa(port) + "  (jeton, certificat, " + agentDir() + ")")
+		simLine("socket " + agentUnitDir + fmt.Sprintf("/wsquashfs-agent.socket (port %d) et service", port))
+		simLine("systemctl --user enable --now wsquashfs-agent.socket")
 		return true
 	}
 	// Configuration, jeton et certificat : fait par le lanceur lui-même.
 	if err := runCmd(launcher, "--pair", "--roms", roms, "--port", strconv.Itoa(port)); err != nil {
-		printError("Initialisation de l'agent en échec (voir ci-dessus)")
+		setupFail("Initialisation de l'agent en échec (voir ci-dessus)")
 		return false
 	}
-	printSuccess("Agent : " + launcher + " --agent (configuration dans " + agentDir() + ")")
+	setupDone("Agent : " + launcher + " --agent (configuration dans " + agentDir() + ")")
 
 	// Ancien agent (script Python) : son moteur et sa commande ne servent plus
 	removeLegacyAgent()
 	if err := writeAgentUnits(); err != nil {
-		printError("Unités de l'agent impossibles : " + err.Error())
+		setupFail("Unités de l'agent impossibles : " + err.Error())
 		return false
 	}
-	printSuccess("Unités : " + agentUnitDir + "/wsquashfs-agent.{socket,service}")
+	setupDone("Unités : " + agentUnitDir + "/wsquashfs-agent.{socket,service}")
 
 	if cmdOK("systemctl", "--user", "daemon-reload") && cmdOK("systemctl", "--user", "enable", "--now", "wsquashfs-agent.socket") {
-		printSuccess("Socket activée : l'agent démarre à la première connexion du gestionnaire")
+		setupDone("Socket activée : l'agent démarre à la première connexion du gestionnaire")
 		if !assumeYes && askYesNo("Répondre aussi sans session ouverte (loginctl enable-linger) ?", false) {
 			if u, err := user.Current(); err == nil && cmdOK("loginctl", "enable-linger", u.Username) {
-				printSuccess("Linger activé")
+				setupDone("Linger activé")
 			} else {
-				printError("loginctl enable-linger en échec : à faire à la main")
+				setupFail("loginctl enable-linger en échec : à faire à la main")
 			}
 		}
 	} else {
-		printInfo("systemd utilisateur indisponible : lancer « " + launcher + " --agent » à la main")
-		printInfo("(cas d'un conteneur sans systemd, comme SteamBox)")
+		setupSkip("systemd utilisateur indisponible : lancer « "+launcher+" --agent » à la main",
+			"(cas d'un conteneur sans systemd, comme SteamBox)")
 	}
-	fmt.Println()
-	printInfo("Code d'association à coller dans wsquashfs-manager (Réglages → Machine de jeu → Agent réseau) :")
+	uiNote("Code d'association à coller dans wsquashfs-manager (Réglages → Machine de jeu → Agent réseau) :")
 	_ = runCmd(launcher, "--pair")
 	return true
 }
@@ -418,11 +405,11 @@ func installAgent() bool {
 func removeLegacyAgent() {
 	legacy := filepath.Join(wsqData, "agent")
 	if pathExists(legacy) && os.RemoveAll(legacy) == nil {
-		printSuccess("Ancien moteur Python de l'agent retiré : " + legacy)
+		uiItem(stOK, "Ancien moteur Python de l'agent retiré : "+legacy)
 	}
 	stale := filepath.Join(installDir, "wsquashfs-agent")
 	if strings.Contains(readHead(stale, 40), "python3") && os.Remove(stale) == nil {
-		printSuccess("Ancienne commande wsquashfs-agent retirée")
+		uiItem(stOK, "Ancienne commande wsquashfs-agent retirée")
 	}
 }
 
@@ -443,7 +430,7 @@ func readHead(path string, n int) string {
 // removePaths : suppression, seulement affichée en simulation.
 func removePaths(paths ...string) error {
 	if dryRun {
-		fmt.Println("    [simulation] suppression de " + strings.Join(paths, " "))
+		simLine("suppression de " + strings.Join(paths, " "))
 		return nil
 	}
 	for _, p := range paths {
@@ -464,19 +451,18 @@ func updateMimeAndDesktopDatabases() {
 }
 
 func uninstall() {
-	printHeader()
-	printInfo("Désinstallation de WSquashFS Launcher...")
+	sub := ""
 	if dryRun {
-		printInfo("Simulation : rien ne sera supprimé")
+		sub = "simulation : rien n'est supprimé"
 	}
-	fmt.Println()
+	uiTitle("Désinstallation de WSquashFS Launcher", sub)
 	launcher := filepath.Join(installDir, "wsquashfs-launcher")
 	if isFile(launcher) {
 		if removePaths(launcher) == nil {
-			printSuccess("Lanceur supprimé")
+			uiItem(stOK, "Lanceur supprimé")
 		}
 	} else {
-		printInfo("Lanceur absent de " + installDir)
+		uiItem(stSkip, "Lanceur absent de "+installDir)
 	}
 	if bridge := filepath.Join(installDir, "dualsense-usb-bridge"); pathExists(bridge) {
 		_ = removePaths(bridge)
@@ -490,7 +476,7 @@ func uninstall() {
 		if !dryRun {
 			_ = exec.Command("systemctl", "--user", "daemon-reload").Run()
 		}
-		printSuccess("Unités de l'agent supprimées")
+		uiItem(stOK, "Unités de l'agent supprimées")
 	}
 	removeLegacyAgent()
 	stale := filepath.Join(installDir, "wsquashfs-agent")
@@ -500,13 +486,13 @@ func uninstall() {
 	umuLink := filepath.Join(installDir, "umu-run")
 	if target, err := os.Readlink(umuLink); err == nil && target == filepath.Join(umuInstallDir, "umu-run") {
 		if removePaths(umuLink, umuInstallDir) == nil {
-			printSuccess("umu-run supprimé")
+			uiItem(stOK, "umu-run supprimé")
 		}
 	}
 	if isFile(desktopFile) {
 		_ = removePaths(desktopFile)
 		updateMimeAndDesktopDatabases()
-		printSuccess("Entrée du bureau supprimée")
+		uiItem(stOK, "Entrée du bureau supprimée")
 	}
 	mimeFile := filepath.Join(os.Getenv("HOME"), ".local/share/mime/packages/wsquashfs.xml")
 	if isFile(mimeFile) {
@@ -516,20 +502,17 @@ func uninstall() {
 				_ = exec.Command("update-mime-database", filepath.Dir(filepath.Dir(mimeFile))).Run()
 			}
 		}
-		printSuccess("Type MIME supprimé")
+		uiItem(stOK, "Type MIME supprimé")
 	}
-	fmt.Println()
-	printInfo("Conservés (sauvegardes, cache, runners, DXVK/VKD3D/d7vk, archives) :")
-	fmt.Println("  " + wsqData + "/")
-	fmt.Println("  ~/.cache/wsquashfs/")
+	kept := []string{wsqData + "/ (sauvegardes, runners, DXVK/VKD3D/d7vk, archives)", "~/.cache/wsquashfs/ (cache)"}
 	if pathExists(agentDir()) {
-		fmt.Println("  " + agentDir() + "/ (jeton et certificat de l'agent)")
+		kept = append(kept, agentDir()+"/ (jeton et certificat de l'agent)")
 	}
-	fmt.Println("Conservé (partagé avec Steam et Heroic) : " + protonInstallDir + "/")
-	fmt.Println("Paquets système conservés.")
-	fmt.Println()
-	fmt.Println("Pour tout supprimer : rm -rf " + wsqData + "/ ~/.cache/wsquashfs/")
-	fmt.Println()
+	kept = append(kept, protonInstallDir+"/ (partagé avec Steam et Heroic)")
+	uiList("Conservés", kept)
+	uiNote("Paquets système conservés.")
+	uiNote("Pour tout supprimer :")
+	uiCode("rm -rf " + wsqData + "/ ~/.cache/wsquashfs/")
 }
 
 // pathExists : chemin présent, lien cassé compris.
@@ -560,46 +543,105 @@ Ailleurs, la liste des paquets à installer à la main est affichée ; le reste
 
 // installAll : enchaînement de l'installation (install_all de install.sh).
 func installAll() int {
-	printHeader()
 	checkRoot()
 	detectDistro()
-	printInfo("Distribution : " + distroName + " (" + distro + ")")
-	printInfo("Lanceur installé dans : " + installDir)
+	stageTotal = setupPlanTotal()
+	sub := "Distribution : " + distroName + " · lanceur dans " + installDir
 	if dryRun {
-		printInfo("Simulation : rien ne sera installé ni modifié")
+		sub += " · simulation : rien n'est modifié"
 	}
+	uiTitle("Installation de WSquashFS Launcher", sub)
+
+	setupStage("Paquets système (" + distroName + ")")
 	if !checkDependencies() {
-		printError("Paquets système incomplets : voir ci-dessus")
+		setupErr("Paquets système incomplets : voir ci-dessus")
 		if !askYesNo("Continuer malgré tout ?", false) {
-			return 1
+			return setupEnd("Installation interrompue : paquets système incomplets")
 		}
 	}
+	setupStage("Wine pour les jeux arcade Batocera")
 	checkWineRunners()
+	setupStage("Proton et umu (jeux PC récents)")
 	checkProton()
+	setupStage("Rendu : DXVK, VKD3D-Proton, d7vk")
 	checkRendering()
-	checkNvapi()
-	checkAMD()
+	if hasGPU("0x10de") {
+		setupStage("NVIDIA : DXVK-NVAPI (NVAPI, DLSS, couche Reflex)")
+		checkNvapi()
+	}
+	if hasGPU("0x1002") {
+		setupStage("AMD : RADV et FSR4")
+		checkAMD()
+	}
+	setupStage("Lanceur")
 	if !installLauncher() {
-		return 1
+		return setupEnd("Installation interrompue : lanceur non installé")
 	}
+	setupStage("Association des .wsquashfs et entrée de bureau")
 	createMimeType()
-	if agentWanted {
-		if !installAgent() {
-			return 1
-		}
-	} else if !assumeYes && askYesNo("Installer l'agent pour wsquashfs-manager (machine de jeu sur le réseau) ?", false) {
-		if !installAgent() {
-			printError("Agent non installé")
+	if agentWanted || !assumeYes {
+		setupStage("Agent pour wsquashfs-manager")
+		switch {
+		case agentWanted:
+			if !installAgent() {
+				return setupEnd("Installation interrompue : agent non installé")
+			}
+		case askYesNo("Installer l'agent pour wsquashfs-manager (machine de jeu sur le réseau) ?", false):
+			if !installAgent() {
+				setupFail("Agent non installé")
+			}
+		default:
+			setupSkip("Agent non installé")
 		}
 	}
+	setupStage("PATH du shell")
 	checkPath()
-	showUsageAfterInstall()
-	// Bilan réel de ce qui est en place
+	setupStage("Vérification (--doctor)")
 	launcher := filepath.Join(installDir, "wsquashfs-launcher")
-	if !dryRun && isFile(launcher) {
-		section("Vérification (wsquashfs-launcher --doctor)")
+	switch {
+	case dryRun:
+		setupSkip("--doctor non lancé en simulation")
+	case !isFile(launcher):
+		setupErr("lanceur absent de " + installDir + " : --doctor non lancé")
+	default:
 		_ = runCmd(launcher, "--doctor")
 	}
+	return setupEnd("")
+}
+
+// setupEnd : bilan du parcours, puis verdict et commandes utiles. abort : motif
+// d'un arrêt en cours de route (code 1, sans commandes utiles).
+func setupEnd(abort string) int {
+	uiSection("Bilan")
+	installedKey := "Installés"
+	if dryRun {
+		installedKey = "À installer (simulation)"
+	}
+	uiKV(2,
+		kv{installedKey, strconv.Itoa(setupCount.installed)},
+		kv{"Déjà présents", strconv.Itoa(setupCount.present)},
+		kv{"Ignorés", strconv.Itoa(setupCount.skipped)},
+		kv{"Échecs", strconv.Itoa(setupCount.failed)},
+	)
+	if abort != "" {
+		uiVerdict(false, abort)
+		return 1
+	}
+	msg := "Installation terminée"
+	if dryRun {
+		msg = "Simulation terminée"
+	}
+	ok := setupCount.failed == 0
+	if !ok {
+		msg += fmt.Sprintf(" avec %d échec(s)", setupCount.failed)
+	}
+	uiVerdict(ok, msg)
+	uiOut("")
+	uiNote("Commandes utiles :")
+	uiCode("wsquashfs-launcher /chemin/jeu.wsquashfs")
+	uiCode("wsquashfs-launcher --doctor")
+	uiCode("wsquashfs-launcher --list")
+	uiCode("wsquashfs-launcher --help")
 	return 0
 }
 
@@ -619,15 +661,15 @@ func runSetup(args []string) int {
 		case "--help", "-h":
 			action = "help"
 		default:
-			printError("Option inconnue : " + a)
-			fmt.Print(setupUsage)
+			uiError("Option inconnue : " + a)
+			uiHelp(setupUsage)
 			return 1
 		}
 	}
 	setupInit()
 	switch action {
 	case "help":
-		fmt.Print(setupUsage)
+		uiHelp(setupUsage)
 		return 0
 	case "uninstall":
 		checkRoot()

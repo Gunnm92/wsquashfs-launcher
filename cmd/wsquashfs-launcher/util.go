@@ -4,7 +4,6 @@ package main
 
 import (
 	"bufio"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -32,9 +31,10 @@ func exitNow(code int) {
 	select {}
 }
 
-// confirm : vrai si l'utilisateur répond oui (o/y).
+// confirm : vrai si l'utilisateur répond oui (o/y). Question au terminal
+// (forme commune, voir uiPrompt), réponse lue sur l'entrée standard.
 func confirm(question string) bool {
-	fmt.Print(question + " [o/N] ")
+	uiPrompt(question, "[o/N]")
 	reply := strings.ToLower(readLine())
 	return strings.HasPrefix(reply, "o") || strings.HasPrefix(reply, "y")
 }
@@ -167,13 +167,6 @@ func splitCommandLine(line string) []string {
 }
 
 // pad : texte complété d'espaces jusqu'à la largeur (au moins un espace).
-func pad(text string, width int) string {
-	n := width - textWidth(text)
-	if n < 1 {
-		n = 1
-	}
-	return text + strings.Repeat(" ", n)
-}
 
 // addDllOverride : ajoute une règle à WINEDLLOVERRIDES.
 func addDllOverride(rule string) {

@@ -70,7 +70,7 @@ func TestTextWidthAndPad(t *testing.T) {
 	if w := textWidth("Développé"); w != 9 {
 		t.Errorf("textWidth = %d, attendu 9", w)
 	}
-	if p := pad("Développé", 12); p != "Développé   " {
+	if p := padRight("Développé", 12); p != "Développé   " {
 		t.Errorf("pad = %q", p)
 	}
 }

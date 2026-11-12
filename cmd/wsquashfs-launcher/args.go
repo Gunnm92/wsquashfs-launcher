@@ -7,6 +7,15 @@ import (
 	"strings"
 )
 
+// argError : erreur de la ligne de commande. usage : rappel de syntaxe
+// (« Usage : ») au lieu de « Erreur : ».
+type argError struct {
+	msg   string
+	usage bool
+}
+
+func (e *argError) Error() string { return e.msg }
+
 // options : résultat de parse_args (script bash).
 type options struct {
 	action   string
@@ -23,7 +32,7 @@ var setRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*=`)
 // parseSet : --set CLÉ=valeur (parse_set_arg).
 func parseSet(v string) (string, error) {
 	if !setRe.MatchString(v) {
-		return "", fmt.Errorf("Erreur : --set attend CLÉ=valeur (ex. --set NVAPI=0)")
+		return "", &argError{msg: "--set attend CLÉ=valeur (ex. --set NVAPI=0)"}
 	}
 	return v, nil
 }
@@ -63,7 +72,7 @@ func parseArgs(args []string) (*options, error) {
 			return o, nil
 		case "--wine":
 			if i+1 >= len(args) || args[i+1] == "" {
-				return nil, fmt.Errorf("Erreur : --wine attend une version ou un chemin")
+				return nil, &argError{msg: "--wine attend une version ou un chemin"}
 			}
 			o.wineOver = args[i+1]
 			i += 2
@@ -90,15 +99,15 @@ func parseArgs(args []string) (*options, error) {
 				o.execCmd = args[i+2:]
 			}
 			if o.gameArg == "" || len(o.execCmd) == 0 {
-				return nil, fmt.Errorf("Usage : %s --exec <jeu.wsquashfs> <programme> [arguments...]", os.Args[0])
+				return nil, &argError{msg: fmt.Sprintf("%s --exec <jeu.wsquashfs> <programme> [arguments...]", os.Args[0]), usage: true}
 			}
 			return o, nil
 		default:
 			if strings.HasPrefix(a, "-") {
-				return nil, fmt.Errorf("Erreur : option inconnue : %s  (voir %s --help)", a, os.Args[0])
+				return nil, &argError{msg: fmt.Sprintf("option inconnue : %s  (voir %s --help)", a, os.Args[0])}
 			}
 			if o.gameArg != "" {
-				return nil, fmt.Errorf("Erreur : un seul jeu attendu (voir %s --help)", os.Args[0])
+				return nil, &argError{msg: fmt.Sprintf("un seul jeu attendu (voir %s --help)", os.Args[0])}
 			}
 			o.gameArg = a
 			i++

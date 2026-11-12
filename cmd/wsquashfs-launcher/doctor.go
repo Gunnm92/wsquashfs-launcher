@@ -231,26 +231,33 @@ func cmdDoctor() int {
 	return 0
 }
 
-// printDoctorText : rendu texte du rapport (sortie humaine).
+// printDoctorText : rendu texte du rapport (sortie humaine, charte de ui.go).
 func printDoctorText(fatal bool) {
+	uiTitle("Diagnostic")
 	for _, sec := range docSections {
 		if sec.Title != "" {
-			fmt.Println(sec.Title)
+			uiSection(sec.Title)
 		}
 		for _, it := range sec.Items {
-			mark := map[string]string{"ok": "✓", "missing": "✗", "optional": "–"}[it.Status]
-			fmt.Println("  " + mark + " " + it.Text)
-			for _, d := range it.Details {
-				fmt.Println("      " + d)
+			st := map[string]uiStatus{"ok": stOK, "missing": stFail, "optional": stSkip}[it.Status]
+			if len(it.Details) == 0 {
+				uiItem(st, it.Text)
+				continue
 			}
+			// Seul le point « runners installés » porte des détails : tableau.
+			uiItem(st, it.Text)
+			var rows [][]string
+			for _, r := range docRunners {
+				rows = append(rows, []string{r.Name, r.Path})
+			}
+			uiTable([]string{"Runner", "Chemin"}, rows, nil, nil)
 		}
 	}
-	fmt.Println()
 	if fatal {
-		fmt.Println("✗ Aucun jeu ne peut être lancé : voir les points ✗ ci-dessus")
+		uiVerdict(false, "Aucun jeu ne peut être lancé : voir les points ✗ ci-dessus")
 		return
 	}
-	fmt.Println("✓ Prêt à lancer des jeux")
+	uiVerdict(true, "Prêt à lancer des jeux")
 }
 
 // doctorJSON : rapport structuré (--doctor --json, route /v1/doctor de l'agent).

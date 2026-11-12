@@ -141,20 +141,20 @@ func githubAssetSHA256(repo, tag, file string) (digest string, reachable bool) {
 func verifyGithubAsset(archive, repo, tag, file string) bool {
 	want, reachable := githubAssetSHA256(repo, tag, file)
 	if !reachable {
-		printError(file + " : empreinte introuvable (API GitHub injoignable ou limite de débit)")
+		setupErr(file + " : empreinte introuvable (API GitHub injoignable ou limite de débit)")
 		if assumeYes || !askYesNo("Installer "+file+" sans vérification ?", false) {
-			printInfo(file + " ignoré : relancer l'installation plus tard")
+			setupSkip(file + " ignoré : relancer l'installation plus tard")
 			return false
 		}
 		return true
 	}
 	if want == "" {
-		printInfo(file + " : empreinte non publiée par GitHub, archive non vérifiée")
+		uiItem(stSkip, file+" : empreinte non publiée par GitHub, archive non vérifiée")
 		return true
 	}
 	got, err := fileSHA256(archive)
 	if err != nil || got != want {
-		printError(file + " : somme de contrôle SHA-256 incorrecte, archive ignorée")
+		setupErr(file + " : somme de contrôle SHA-256 incorrecte, archive ignorée")
 		return false
 	}
 	return true
@@ -165,15 +165,15 @@ func verifyGithubAsset(archive, repo, tag, file string) bool {
 func fetch(url, dest, label string) error {
 	if dryRun {
 		if urlExists(url) {
-			fmt.Println("    [simulation] téléchargement de " + label + " : " + url)
+			simLine("téléchargement de " + label + " : " + url)
 			return nil
 		}
-		printError(label + " introuvable : " + url)
+		setupErr(label + " introuvable : " + url)
 		return fmt.Errorf("lien introuvable : %s", url)
 	}
-	printInfo("Téléchargement de " + label + "...")
+	uiItem(stInfo, "Téléchargement de "+label+"...")
 	if err := downloadTo(url, dest); err != nil {
-		printError("Téléchargement échoué : " + url)
+		setupErr("Téléchargement échoué : " + url)
 		return err
 	}
 	return nil
@@ -184,7 +184,7 @@ func fetch(url, dest, label string) error {
 func runRoot(args ...string) error {
 	full := append(append([]string{}, sudoCmd...), args...)
 	if dryRun {
-		fmt.Println("    [simulation] " + strings.Join(full, " "))
+		simLine(strings.Join(full, " "))
 		return nil
 	}
 	return runCmd(full[0], full[1:]...)

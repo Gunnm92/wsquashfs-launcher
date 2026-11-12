@@ -263,21 +263,21 @@ func cmdPair(args []string) int {
 	} else if h, err := os.Hostname(); err == nil {
 		host = h
 	}
-	fmt.Println("Code d'association (à coller dans wsquashfs-manager, Réglages → Machine de jeu) :")
-	fmt.Println()
-	fmt.Println("  " + pairCode(cfg, host, fp))
-	fmt.Println()
-	fmt.Println("Autres adresses : " + strings.Join(localAddresses(), ", "))
-	fmt.Println("Dossiers roms/  : " + strings.Join(cfg.Roms, ", "))
+	uiTitle("Association avec wsquashfs-manager")
+	uiNote("Code d'association à coller dans wsquashfs-manager (Réglages → Machine de jeu) :")
+	uiOut("")
+	uiCode(pairCode(cfg, host, fp))
+	uiOut("")
+	uiKV(0, kv{"Autres adresses", strings.Join(localAddresses(), ", ")}, kv{"Dossiers roms/", strings.Join(cfg.Roms, ", ")})
 	// Le manager doit pouvoir joindre l'agent tout de suite : --pair le lance
 	// s'il ne tourne pas (socket systemd : elle accepte déjà la connexion).
 	if agentListening(cfg.Port) {
-		fmt.Printf("Agent           : déjà en marche sur le port %d\n", cfg.Port)
+		uiKV(0, kv{"Agent", fmt.Sprintf("déjà en marche sur le port %d", cfg.Port)})
 	} else if pid, err := startAgentDetached(); err != nil {
-		fmt.Println("Agent           : lancement impossible : " + err.Error() + " (lancer « wsquashfs-launcher --agent »)")
+		uiKV(0, kv{"Agent", "lancement impossible : " + err.Error() + " (lancer « wsquashfs-launcher --agent »)"})
 	} else {
-		fmt.Printf("Agent           : lancé (pid %d, port %d), journal : %s\n", pid, cfg.Port, agentLogPath())
-		fmt.Println("                  redémarrage du PC : « --setup --agent » l'installe avec systemd.")
+		uiKV(0, kv{"Agent", fmt.Sprintf("lancé (pid %d, port %d), journal : %s", pid, cfg.Port, agentLogPath())})
+		uiNote("redémarrage du PC : « --setup --agent » l'installe avec systemd.")
 	}
 	return 0
 }
@@ -340,12 +340,12 @@ func agentOwner() string {
 func serveAgent(logOn bool) int {
 	cfg := loadAgentConfig()
 	if cfg.Token == "" || !isFile(filepath.Join(agentDir(), "cert.pem")) {
-		fmt.Fprintln(os.Stderr, "Agent non initialisé : « wsquashfs-launcher --pair » d'abord")
+		uiError("Agent non initialisé : « wsquashfs-launcher --pair » d'abord")
 		return 1
 	}
 	cert, err := tls.LoadX509KeyPair(filepath.Join(agentDir(), "cert.pem"), filepath.Join(agentDir(), "key.pem"))
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "certificat illisible : "+err.Error())
+		uiError("certificat illisible : " + err.Error())
 		return 1
 	}
 	tlsConf := &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS13}
@@ -364,17 +364,17 @@ func serveAgent(logOn bool) int {
 	if ln == nil {
 		ln, err = net.Listen("tcp", fmt.Sprintf(":%d", cfg.Port))
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "écoute impossible : "+err.Error())
+			uiError("écoute impossible : " + err.Error())
 			return 1
 		}
-		fmt.Fprintf(os.Stderr, "wsquashfs-agent en écoute sur le port %d\n", cfg.Port)
+		uiErr(stOK.mark() + fmt.Sprintf(" wsquashfs-agent en écoute sur le port %d", cfg.Port))
 	}
 	httpSrv := srv.httpServer()
 	if socketActivated {
 		go srv.idleWatchdog(httpSrv)
 	}
 	if err := httpSrv.Serve(tls.NewListener(ln, tlsConf)); err != nil && err != http.ErrServerClosed {
-		fmt.Fprintln(os.Stderr, "arrêt : "+err.Error())
+		uiError("arrêt : " + err.Error())
 		return 1
 	}
 	return 0

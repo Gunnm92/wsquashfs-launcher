@@ -137,7 +137,7 @@ func runInKernelOverlay() {
 			die("overlay noyau impossible : " + reason)
 		}
 		if overlayPref != "fuse" {
-			fmt.Println("Overlay noyau : indisponible, " + reason)
+			uiKVLine("Overlay noyau", "indisponible, "+reason)
 		}
 		return
 	}
@@ -157,7 +157,7 @@ func runInKernelOverlay() {
 	if overlayPref == "kernel" {
 		die("overlay noyau impossible : " + reason)
 	}
-	fmt.Println("Overlay noyau : échec, " + reason)
+	uiKVLine("Overlay noyau", "échec, "+reason)
 }
 
 // lastField : dernier élément après « : » d'un message d'erreur, première ligne.
@@ -265,7 +265,7 @@ func useKernelOverlay() {
 	overlayKind = "kernel"
 	mounted.Store(true)
 	detectImagePrefix()
-	fmt.Println("Mode          : overlay noyau (squashfuse + overlayfs, namespace utilisateur)")
+	uiKVLine("Mode", "overlay noyau (squashfuse + overlayfs, namespace utilisateur)")
 }
 
 // nsLauncherPID : PID du lanceur d'un jeu dans son namespace, pour --umount.

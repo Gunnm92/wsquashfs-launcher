@@ -1,20 +1,13 @@
 package main
 
-// Affichage et questions de l'installeur (install.sh, sections 1 et 2).
+// Affichage et questions de l'installeur (install.sh, sections 1 et 2). Tout
+// passe par ui.go : étapes numérotées (uiStage), résultats (uiItem), questions
+// (uiPrompt / uiAuto) et bilan.
 
 import (
 	"bufio"
-	"fmt"
 	"os"
 	"strings"
-)
-
-const (
-	cRed    = "\033[0;31m"
-	cGreen  = "\033[0;32m"
-	cYellow = "\033[1;33m"
-	cBlue   = "\033[0;34m"
-	cNC     = "\033[0m"
 )
 
 // État de l'installeur (install.sh, section 1).
@@ -28,21 +21,70 @@ var (
 	distroName  string
 )
 
-func printHeader() {
-	fmt.Println(cBlue + "╔════════════════════════════════════════╗" + cNC)
-	fmt.Println(cBlue + "║    WSquashFS Launcher - Installation   ║" + cNC)
-	fmt.Println(cBlue + "╚════════════════════════════════════════╝" + cNC)
-	fmt.Println()
+// Parcours : numéro de l'étape courante, nombre total (setupPlanTotal) et
+// compte des résultats du bilan.
+var (
+	stageN     int
+	stageTotal int
+	setupCount struct{ installed, present, skipped, failed int }
+)
+
+// setupPlanTotal : nombre d'étapes du parcours, calculé avant le premier
+// affichage. Les étapes NVIDIA et AMD existent seulement si la carte est là,
+// l'agent seulement s'il est demandé ou proposé.
+func setupPlanTotal() int {
+	n := 8 // paquets, Wine, Proton, rendu, lanceur, association, PATH, vérification
+	if hasGPU("0x10de") {
+		n++
+	}
+	if hasGPU("0x1002") {
+		n++
+	}
+	if agentWanted || !assumeYes {
+		n++
+	}
+	return n
 }
 
-func section(title string) {
-	fmt.Println()
-	fmt.Println(cBlue + "── " + title + cNC)
+// setupStage : étape suivante du parcours.
+func setupStage(title string) {
+	stageN++
+	uiStage(stageN, stageTotal, title)
 }
 
-func printSuccess(msg string) { fmt.Println(cGreen + "✓" + cNC + " " + msg) }
-func printInfo(msg string)    { fmt.Println(cYellow + "→" + cNC + " " + msg) }
-func printError(msg string)   { fmt.Fprintln(os.Stderr, cRed+"✗"+cNC+" "+msg) }
+// setupDone : élément installé (ou à installer en simulation).
+func setupDone(msg string, details ...string) {
+	setupCount.installed++
+	uiItem(stOK, msg, details...)
+}
+
+// setupHave : élément déjà présent.
+func setupHave(msg string, details ...string) {
+	setupCount.present++
+	uiItem(stOK, msg, details...)
+}
+
+// setupSkip : élément ignoré (choix, facultatif absent).
+func setupSkip(msg string, details ...string) {
+	setupCount.skipped++
+	uiItem(stSkip, msg, details...)
+}
+
+// setupFail : échec d'un élément. Un échec secondaire (un téléchargement qui
+// rate, suivi de l'échec de l'élément) s'affiche avec setupErr, sans compte.
+func setupFail(msg string, details ...string) {
+	setupCount.failed++
+	uiItem(stFail, msg, details...)
+}
+
+// setupErr : constat d'échec sans compte (voir setupFail).
+func setupErr(msg string, details ...string) { uiItem(stFail, msg, details...) }
+
+// setupTodo : élément manquant, à installer.
+func setupTodo(msg string, details ...string) { uiItem(stInfo, msg, details...) }
+
+// simLine : ligne de simulation (rien n'est fait).
+func simLine(text string) { uiNote("[simulation] " + text) }
 
 // doneWord : « installé(s) », ou « à installer » en simulation.
 func doneWord() string {
@@ -74,6 +116,14 @@ func readTTY() string {
 	return strings.TrimRight(line, "\r\n")
 }
 
+// autoReason : raison d'une réponse automatique.
+func autoReason() string {
+	if assumeYes {
+		return "--yes"
+	}
+	return "pas de terminal"
+}
+
 // askYesNo : vrai pour oui. --yes : oui ; sans terminal : la réponse par défaut.
 func askYesNo(question string, def bool) bool {
 	hint := "[o/N]"
@@ -83,14 +133,14 @@ func askYesNo(question string, def bool) bool {
 		defWord = "o"
 	}
 	if assumeYes {
-		fmt.Printf("  %s %s o (--yes)\n", question, hint)
+		uiAuto(question, hint, "o", "--yes")
 		return true
 	}
 	if !hasTTY() {
-		fmt.Printf("  %s %s %s (pas de terminal)\n", question, hint, defWord)
+		uiAuto(question, hint, defWord, "pas de terminal")
 		return def
 	}
-	fmt.Printf("  %s %s ", question, hint)
+	uiPrompt(question, hint)
 	reply := strings.ToLower(strings.TrimSpace(readTTY()))
 	if reply == "" {
 		return def
@@ -99,12 +149,12 @@ func askYesNo(question string, def bool) bool {
 }
 
 // askChoice : une réponse ; --yes ou sans terminal : le défaut.
-func askChoice(question, def string) string {
+func askChoice(question, hint, def string) string {
 	if assumeYes || !hasTTY() {
-		fmt.Printf("  %s %s\n", question, def)
+		uiAuto(question, hint, def, autoReason())
 		return def
 	}
-	fmt.Printf("  %s ", question)
+	uiPrompt(question, hint)
 	reply := strings.TrimSpace(readTTY())
 	if reply == "" {
 		return def
@@ -114,10 +164,12 @@ func askChoice(question, def string) string {
 
 // askValue : saisie sur le terminal ; le défaut avec --yes ou sans terminal.
 func askValue(question, def string) string {
+	hint := "[" + def + "]"
 	if assumeYes || !hasTTY() {
+		uiAuto(question, hint, def, autoReason())
 		return def
 	}
-	fmt.Printf("%s [%s] : ", question, def)
+	uiPrompt(question, hint)
 	if answer := strings.TrimSpace(readTTY()); answer != "" {
 		return answer
 	}

@@ -5,6 +5,7 @@ package main
 
 import (
 	_ "embed"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -26,12 +27,17 @@ func run(args []string) int {
 	origArgs = append([]string{}, args...)
 	opts, err := parseArgs(args)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		var ae *argError
+		if errors.As(err, &ae) && ae.usage {
+			uiUsage(ae.msg)
+		} else {
+			uiError(err.Error())
+		}
 		return 1
 	}
 	switch opts.action {
 	case "help":
-		fmt.Print(usageText)
+		uiHelp(usageText)
 		return 0
 	case "setup":
 		return runSetup(opts.cmdArgs)

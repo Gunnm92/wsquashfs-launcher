@@ -258,6 +258,37 @@ var (
 	cellPlain = lipgloss.NewStyle()
 )
 
+// uiStateCell : colonne d'état de --list (en cours, monté ou verrouillé, -)
+// et colonne d'image introuvable, colorées selon la valeur.
+func uiStateCell(stateCol, imageCol int) uiCell {
+	return func(_, col int, v string) lipgloss.Style {
+		switch {
+		case col == stateCol:
+			switch v {
+			case "en cours":
+				return cellOK
+			case "monté", "verrouillé":
+				return cellWarn
+			case "-":
+				return cellMuted
+			}
+		case col == imageCol && strings.HasPrefix(v, "introuvable"):
+			return cellErr
+		}
+		return cellPlain
+	}
+}
+
+// uiBoldRow : ligne de total (row, indice de données) en gras.
+func uiBoldRow(row int) uiCell {
+	return func(r, _ int, _ string) lipgloss.Style {
+		if r == row {
+			return sBold
+		}
+		return cellPlain
+	}
+}
+
 // ── Texte ──────────────────────────────────────────────────────────────
 
 // uiNote : explication, simulation, astuce (retrait 2, discrète). Les
@@ -331,9 +362,12 @@ func die(msg string, details ...string) {
 	exitNow(1)
 }
 
+// uiUsage : rappel de syntaxe, sans quitter.
+func uiUsage(syntax string) { uiErr(sErr.Render("Usage :") + " " + syntax) }
+
 // usageError : rappel de syntaxe, puis code 1.
 func usageError(syntax string) {
-	uiErr(sErr.Render("Usage :") + " " + syntax)
+	uiUsage(syntax)
 	exitNow(1)
 }
 

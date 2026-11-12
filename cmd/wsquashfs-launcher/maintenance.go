@@ -269,54 +269,6 @@ func removeDuplicates(name, saves string) (skip string, n int, bytesFreed int64)
 	return skip, n, bytesFreed
 }
 
-// ── Affichage des commandes de maintenance ─────────────────────────────
-
-// gameColWidth : largeur de la colonne des noms de jeux (gameLine).
-var gameColWidth int
-
-// maxGameCol : au-delà, le nom est abrégé.
-const maxGameCol = 48
-
-// setGameCol : colonne des noms dimensionnée sur les jeux à afficher.
-func setGameCol(names []string) {
-	gameColWidth = 3
-	for _, n := range names {
-		gameColWidth = max(gameColWidth, textWidth(shortName(n)))
-	}
-	gameColWidth += 2
-}
-
-// shortName : nom de jeu abrégé à maxGameCol caractères.
-func shortName(n string) string {
-	if r := []rune(n); len(r) > maxGameCol {
-		return string(r[:maxGameCol-1]) + "…"
-	}
-	return n
-}
-
-// gameLine : une ligne par jeu, noms alignés en colonne.
-func gameLine(name, msg string) {
-	fmt.Println("  " + pad(shortName(name), gameColWidth) + msg)
-}
-
-// title : titre d'une commande de maintenance, souligné.
-func title(text string) {
-	fmt.Println(text)
-	fmt.Println(strings.Repeat("─", textWidth(text)))
-}
-
-// nameList : rubrique suivie de ses jeux, un par ligne (rien si aucun).
-func nameList(heading string, names []string) {
-	if len(names) == 0 {
-		return
-	}
-	fmt.Println()
-	fmt.Printf("%s (%d) :\n", heading, len(names))
-	for _, n := range names {
-		fmt.Println("  " + n)
-	}
-}
-
 // isDirPath : chemin existant et dossier.
 func isDirPath(p string) bool {
 	st, err := os.Stat(p)
@@ -406,7 +358,7 @@ func pruneBackups() (n int, size int64) {
 		}
 	}
 	if n > 0 {
-		fmt.Printf("✓ Anciennes archives supprimées : %d (%s)\n", n, dir)
+		uiStatusLine(stOK, fmt.Sprintf("Anciennes archives supprimées : %d (%s)", n, dir))
 	}
 	return n, size
 }
@@ -463,7 +415,6 @@ func visibleDirs(d string) []string {
 // Retourne la place libérée (fichiers des copies supprimées).
 func cleanCache() (freed int64) {
 	unmountAllStale()
-	kept := map[string]bool{}
 	dirs, _ := filepath.Glob(cacheDir + "/mnt/*")
 	more, _ := filepath.Glob(cacheDir + "/wine/*")
 	dirs = append(dirs, more...)
@@ -481,10 +432,6 @@ func cleanCache() (freed int64) {
 			if lock != nil {
 				lock.Close()
 			}
-			if !kept[g] {
-				fmt.Println("  " + g + " : en cours, copie de travail gardée")
-			}
-			kept[g] = true
 			continue
 		}
 		// Mode copy : les sauvegardes de partie sont dans la copie.
@@ -498,7 +445,7 @@ func cleanCache() (freed int64) {
 			lock.Close()
 		}
 	}
-	fmt.Println("✓ Copies de travail supprimées")
+	uiStatusLine(stOK, "Copies de travail supprimées")
 	return freed
 }
 
@@ -515,21 +462,17 @@ func filesSize(dir string) (total int64) {
 
 // cmdClean : --clean. Ménage sans risque : copies de travail, doublons
 // certains des sauvegardes, archives les plus anciennes de --erase. Les jeux
-// nettoyés s'affichent au fur et à mesure (le parcours peut être long), le
-// reste est regroupé à la fin, avec le bilan.
+// sont regroupés par rubrique : doublons retirés (tableau), puis bilan.
 func cmdClean() {
-	title("Nettoyage des copies de travail et des doublons des sauvegardes")
+	uiTitle("Nettoyage", "copies de travail et doublons des sauvegardes")
 	cacheFreed := cleanCache()
 	archives, archivesFreed := pruneBackups()
 
 	games := savedGames()
-	setGameCol(games)
 	var busy, noImage, failed []string
+	var rows [][]string
 	cleaned, untouched, files := 0, 0, 0
 	var freed int64
-	row := func(name, n, size string) {
-		fmt.Printf("  %s%10s%10s\n", pad(shortName(name), gameColWidth), n, size)
-	}
 	for _, g := range games {
 		switch r := cleanSaves(g); {
 		case r.skip == skipBusy:
@@ -541,41 +484,47 @@ func cmdClean() {
 		case r.n == 0:
 			untouched++
 		default:
-			if cleaned == 0 {
-				fmt.Println()
-				fmt.Println("Doublons retirés des sauvegardes :")
-				row("Jeu", "Fichiers", "Libéré")
-			}
-			row(g, strconv.Itoa(r.n), sizeText(r.bytes))
+			rows = append(rows, []string{truncate(g, uiNameMax), strconv.Itoa(r.n), sizeText(r.bytes)})
 			cleaned++
 			files += r.n
 			freed += r.bytes
 		}
 	}
-	nameList("En cours ou montés, ignorés", busy)
-	nameList("Image inconnue, doublons non cherchés (lancer le jeu une fois)", noImage)
-	nameList("Doublons non cherchés", failed)
+	if cleaned > 0 {
+		uiSection("Doublons retirés")
+		var total uiCell
+		if cleaned > 1 {
+			rows = append(rows, []string{"Total", strconv.Itoa(files), sizeText(freed)})
+			total = uiBoldRow(len(rows) - 1)
+		}
+		uiTable([]string{"Jeu", "Fichiers", "Libéré"}, rows, []int{1, 2}, total)
+	}
+	uiList("En cours ou montés, ignorés", busy)
+	uiList("Image inconnue, doublons non cherchés (lancer le jeu une fois)", noImage)
+	uiList("Doublons non cherchés", failed)
 
-	fmt.Println()
-	title("Bilan")
-	line := func(label, text string) { fmt.Println("  " + pad(label, 20) + text) }
-	line("Copies de travail", sizeText(cacheFreed)+" libérés")
+	uiSection("Bilan")
+	placeLibre := cacheFreed + archivesFreed + freed
+	bilan := []kv{{"Copies de travail", sizeText(cacheFreed) + " libérés"}}
 	if archives > 0 {
-		line("Archives", plural(archives, "supprimée", "supprimées")+", "+sizeText(archivesFreed)+" libérés")
+		bilan = append(bilan, kv{"Archives", plural(archives, "supprimée", "supprimées") + ", " + sizeText(archivesFreed) + " libérés"})
 	}
 	if cleaned > 0 {
-		line("Doublons", plural(files, "fichier", "fichiers")+" dans "+plural(cleaned, "jeu", "jeux")+", "+sizeText(freed)+" libérés")
+		bilan = append(bilan, kv{"Doublons", plural(files, "fichier", "fichiers") + " dans " + plural(cleaned, "jeu", "jeux") + ", " + sizeText(freed) + " libérés"})
 	} else {
-		line("Doublons", "aucun à retirer")
+		bilan = append(bilan, kv{"Doublons", "aucun à retirer"})
 	}
 	if untouched > 0 {
-		line("Sans doublon", plural(untouched, "jeu", "jeux"))
+		bilan = append(bilan, kv{"Sans doublon", plural(untouched, "jeu", "jeux")})
 	}
 	if skipped := len(busy) + len(noImage) + len(failed); skipped > 0 {
-		line("Non traités", plural(skipped, "jeu", "jeux")+" (voir ci-dessus)")
+		bilan = append(bilan, kv{"Non traités", plural(skipped, "jeu", "jeux") + " (voir ci-dessus)"})
 	}
-	line("Place libérée", sizeText(cacheFreed+archivesFreed+freed))
-	line("Sauvegardes", savesDir+" ("+duHuman(savesDir)+" au total)")
+	bilan = append(bilan,
+		kv{"Place libérée", sizeText(placeLibre)},
+		kv{"Sauvegardes", savesDir + " (" + duHuman(savesDir) + " au total)"})
+	uiKV(2, bilan...)
+	uiVerdict(true, "Nettoyage terminé : "+sizeText(placeLibre)+" libérés")
 }
 
 // ── --clear (01/10) et --erase (12/11) ─────────────────────────────────
@@ -583,31 +532,31 @@ func cmdClean() {
 // clearSaves : --clear pour un jeu. Ne garde que drive_c/users (les
 // sauvegardes de partie) : prefix, registre et fichiers écrits ailleurs sont
 // retirés et recréés au lancement suivant.
-func clearSaves(name string) {
+func clearSaves(name string, g uiGames) {
 	saves := savesDir + "/" + name
 	lock, idle := lockIdleGame(name)
 	if !idle {
-		gameLine(name, "monté ou en cours, ignoré")
+		g.line(stSkip, name, "monté ou en cours, ignoré")
 		return
 	}
 	if lock != nil {
 		defer lock.Close()
 	}
 	if keepOnlyUsers(saves) {
-		gameLine(name, "gardé "+duHuman(saves)+" (drive_c/users)")
+		g.line(stOK, name, "gardé "+duHuman(saves)+" (drive_c/users)")
 	} else {
-		gameLine(name, "rien à garder, supprimé")
+		g.line(stOK, name, "rien à garder, supprimé")
 	}
 }
 
 // eraseSaves : --erase pour un jeu. Archive drive_c/users, puis supprime
 // toute la couche de sauvegardes : le jeu repart de son image. Rien n'est
 // supprimé si l'archive échoue.
-func eraseSaves(name string) {
+func eraseSaves(name string, g uiGames) {
 	saves := savesDir + "/" + name
 	lock, idle := lockIdleGame(name)
 	if !idle {
-		gameLine(name, "monté ou en cours, ignoré")
+		g.line(stSkip, name, "monté ou en cours, ignoré")
 		return
 	}
 	if lock != nil {
@@ -626,16 +575,16 @@ func eraseSaves(name string) {
 	if parent != "" {
 		var err error
 		if archive, err = archiveUsers(name, parent, member); err != nil {
-			gameLine(name, "archive impossible ("+err.Error()+"), sauvegardes gardées")
+			g.line(stFail, name, "archive impossible ("+err.Error()+"), sauvegardes gardées")
 			return
 		}
 	}
 	_ = os.RemoveAll(saves)
 	_ = os.RemoveAll(stash)
 	if archive != "" {
-		gameLine(name, "supprimé, archive : "+filepath.Base(archive)+" ("+duHuman(archive)+")")
+		g.line(stOK, name, "supprimé, archive : "+filepath.Base(archive)+" ("+duHuman(archive)+")")
 	} else {
-		gameLine(name, "supprimé (pas de drive_c/users à archiver)")
+		g.line(stOK, name, "supprimé (pas de drive_c/users à archiver)")
 	}
 }
 
@@ -647,7 +596,7 @@ func saveTargetsOf(args []string) ([]string, bool) {
 	}
 	name := gameNameOf(args[0])
 	if !isDirPath(savesDir+"/"+name) && !isDirPath(copyUsersStash(name)) {
-		fmt.Println("Aucune sauvegarde pour " + name)
+		uiStatusLine(stSkip, "Aucune sauvegarde pour "+name)
 		return nil, false
 	}
 	return []string{name}, true
@@ -659,19 +608,19 @@ func cmdClear(args []string) int {
 	if !ok {
 		return 0
 	}
-	title("Sauvegardes réduites à drive_c/users : " + plural(len(targets), "jeu", "jeux"))
-	fmt.Println("Scores et réglages enregistrés ailleurs (jeux arcade, dossier du jeu,")
-	fmt.Println("registre) seront perdus. Aucune archive n'est faite (tout effacer, avec")
-	fmt.Println("archive : --erase).")
+	uiTitle("Sauvegardes réduites à drive_c/users", plural(len(targets), "jeu", "jeux"))
+	uiNote("Scores et réglages enregistrés ailleurs (jeux arcade, dossier du jeu,",
+		"registre) seront perdus. Aucune archive n'est faite (tout effacer, avec",
+		"archive : --erase).")
 	if isTerminal() && !confirm("Continuer ?") {
-		fmt.Println("Abandon.")
+		uiStatusLine(stSkip, "Abandon : rien n'a été modifié")
 		return 1
 	}
-	fmt.Println()
+	uiOut("")
 	cleanCache()
-	setGameCol(targets)
-	for _, g := range targets {
-		clearSaves(g)
+	g := newUIGames(targets)
+	for _, name := range targets {
+		clearSaves(name, g)
 	}
 	return 0
 }
@@ -682,19 +631,19 @@ func cmdErase(args []string) int {
 	if !ok {
 		return 0
 	}
-	title("Sauvegardes effacées : " + plural(len(targets), "jeu", "jeux"))
-	fmt.Println("Chaque jeu repart de son image. drive_c/users est archivé avant dans")
-	fmt.Println("  " + backupDir())
-	fmt.Println("Restauration : tar -xf <archive> -C " + savesDir + "/<jeu>/")
+	uiTitle("Effacement des sauvegardes", plural(len(targets), "jeu", "jeux"))
+	uiNote("Chaque jeu repart de son image. drive_c/users est archivé avant dans", backupDir())
+	uiNote("Restauration :")
+	uiCode("tar -xf <archive> -C " + savesDir + "/<jeu>/")
 	if isTerminal() && !confirm("Continuer ?") {
-		fmt.Println("Abandon.")
+		uiStatusLine(stSkip, "Abandon : rien n'a été modifié")
 		return 1
 	}
-	fmt.Println()
+	uiOut("")
 	cleanCache()
-	setGameCol(targets)
-	for _, g := range targets {
-		eraseSaves(g)
+	g := newUIGames(targets)
+	for _, name := range targets {
+		eraseSaves(name, g)
 	}
 	return 0
 }
@@ -749,52 +698,37 @@ func gameState(name string) string {
 func cmdList() {
 	games := knownGames()
 	if len(games) == 0 {
-		fmt.Println("Aucun jeu connu (aucun lancement enregistré dans " + savesDir + ")")
+		uiStatusLine(stSkip, "Aucun jeu connu (aucun lancement enregistré dans "+savesDir+")")
 		return
 	}
-	type row struct{ name, state, version, size, image string }
-	var rows []row
-	wn, ws, wv, wz := 4, 10, 10, 11
+	var rows [][]string
 	for _, g := range games {
-		r := row{version: "-", size: "aucune"}
+		version, size, image := "-", "aucune", ""
 		img := ""
 		if data, err := os.ReadFile(savesDir + "/.images/" + g); err == nil {
 			img = strings.TrimRight(string(data), "\n")
 		}
 		switch {
 		case img == "":
-			r.image = "inconnue"
+			image = "inconnue"
 		case pathExists(img):
-			r.image = img
-			r.version = gameVersion(img)
-			if r.version == "" {
-				r.version = "-"
+			image = img
+			version = gameVersion(img)
+			if version == "" {
+				version = "-"
 			}
 		default:
-			r.image = "introuvable : " + img
+			image = "introuvable : " + img
 		}
 		if isDirPath(savesDir + "/" + g) {
-			r.size = duHuman(savesDir + "/" + g)
+			size = duHuman(savesDir + "/" + g)
 		}
-		r.name = g
-		if len(r.name) > 32 {
-			r.name = r.name[:31] + "…"
-		}
-		r.state = gameState(g)
-		rows = append(rows, r)
-		// ${#…} du script : longueur en octets (locale C du harnais).
-		wn = max(wn, len(r.name))
-		ws = max(ws, len(r.state))
-		wv = max(wv, len(r.version))
-		wz = max(wz, len(r.size))
+		rows = append(rows, []string{truncate(g, uiNameMax), gameState(g), version, size, image})
 	}
-	wn, ws, wv, wz = wn+2, ws+2, wv+2, wz+2
-	fmt.Println(pad("Jeu", wn) + pad("État", ws) + pad("Version", wv) + pad("Sauvegardes", wz) + "Image")
-	for _, r := range rows {
-		fmt.Println(pad(r.name, wn) + pad(r.state, ws) + pad(r.version, wv) + pad(r.size, wz) + r.image)
-	}
-	fmt.Println()
-	fmt.Println("Sauvegardes : " + savesDir + " (" + duHuman(savesDir) + " au total)")
+	uiTitle("Jeux connus", plural(len(games), "jeu", "jeux")+", "+duHuman(savesDir)+" de sauvegardes")
+	uiTable([]string{"Jeu", "État", "Version", "Sauvegardes", "Image"}, rows, []int{3}, uiStateCell(1, 4))
+	uiOut("")
+	uiKVLine("Sauvegardes", savesDir+" ("+duHuman(savesDir)+" au total)")
 }
 
 // ── --info (29/09) et --show (06/11) ───────────────────────────────────
@@ -896,25 +830,25 @@ func showInfo(args []string) int {
 	default:
 		typ = "jeu seul (prefix créé au premier lancement)"
 	}
-	fmt.Println("Jeu           : " + gameNameOf(src))
+	uiTitle(gameNameOf(src))
 	if version == "" {
 		version = "non renseignée (GAME_VERSION= dans l'autorun.cmd)"
 	}
-	fmt.Println("Version       : " + version)
-	fmt.Println("Type          : " + typ)
+	pairs := []kv{{"Version", version}, {"Type", typ}}
 	if cmdLine, ok := overrideVar(strings.TrimSuffix(src, "/")+".autorun", "CMD"); ok {
-		fmt.Println("Commande      : " + cmdLine)
+		pairs = append(pairs, kv{"Commande", cmdLine})
 	} else if autorun != "" {
-		fmt.Println("Commande      : " + keyLine(autorun, "CMD"))
+		pairs = append(pairs, kv{"Commande", keyLine(autorun, "CMD")})
 	} else {
-		fmt.Println("Commande      : aucun autorun.cmd")
+		pairs = append(pairs, kv{"Commande", "aucun autorun.cmd"})
 	}
-	fmt.Println("Runner        : " + infoRunner(autorun, joined))
+	pairs = append(pairs, kv{"Runner", infoRunner(autorun, joined)})
 	if isFile(strings.TrimSuffix(src, "/") + ".autorun") {
 		override := strings.TrimSuffix(src, "/") + ".autorun"
-		fmt.Println("Surcharge     : " + filepath.Base(override) + " (" + overrideKeys(override) + ") — non lue par Batocera")
+		pairs = append(pairs, kv{"Surcharge", filepath.Base(override) + " (" + overrideKeys(override) + ") — non lue par Batocera"})
 	}
-	fmt.Println("Taille        : " + duHuman(src))
+	pairs = append(pairs, kv{"Taille", duHuman(src)})
+	uiKV(0, pairs...)
 	return 0
 }
 
@@ -1002,29 +936,26 @@ func cmdShow(args []string) int {
 	}
 	loadLayers(imageAutorun(src))
 
-	fmt.Println("Jeu           : " + gameName)
-	fmt.Println("Couches (de la plus faible à la plus forte) :")
+	uiTitle(gameName)
 	machine := machineLayer
 	if machine == "" {
 		machine = machineLayerFile() + " (absent)"
 	}
-	fmt.Println("  machine     : " + machine)
 	folder := folderLayer
 	if folder == "" {
 		folder = filepath.Dir(src) + "/_defaults.autorun (absent)"
 	}
-	fmt.Println("  dossier     : " + folder)
-	fmt.Println("  image       : autorun.cmd")
 	surcharge := strings.TrimSuffix(src, "/") + ".autorun"
 	if autorunOverride == "" {
 		surcharge += " (absent)"
 	}
-	fmt.Println("  surcharge   : " + surcharge)
+	couches := []kv{{"machine", machine}, {"dossier", folder}, {"image", "autorun.cmd"}, {"surcharge", surcharge}}
 	if len(setArgs) > 0 {
-		fmt.Println("  --set       : " + strings.Join(setArgs, " "))
+		couches = append(couches, kv{"--set", strings.Join(setArgs, " ")})
 	}
-	fmt.Println()
-	fmt.Println("Réglages :")
+	uiSection("Couches (de la plus faible à la plus forte)")
+	uiKV(2, couches...)
+
 	shown := map[string]bool{}
 	for _, k := range showKeys {
 		shown[k] = true
@@ -1042,41 +973,50 @@ func cmdShow(args []string) int {
 	}
 	sort.Strings(extra)
 	extra = uniqueSorted(extra)
+	var reglages [][]string
 	for _, key := range append(append([]string{}, showKeys...), extra...) {
 		layerLookup(key, "")
 		if lookupVal == "" && lookupSrc == "défaut" {
 			continue
 		}
-		fmt.Printf("  %-16s = %-28s (%s)\n", key, lookupVal, lookupSrc)
+		reglages = append(reglages, []string{key, lookupVal, lookupSrc})
 	}
+	uiSection("Réglages")
+	uiTable([]string{"Réglage", "Valeur", "Couche"}, reglages, nil, nil)
+
 	if envLayers > 0 {
-		fmt.Println("  ENV :")
+		uiSection("ENV")
 		if mergedEnv() == "" {
-			fmt.Println("    (aucune variable : ENV= vide)")
+			uiNote("aucune variable : ENV= vide")
 		}
+		var env [][]string
 		seen := map[string]bool{}
 		for _, n := range envOrder {
 			if _, ok := envVal[n]; !ok || seen[n] {
 				continue
 			}
 			seen[n] = true
-			fmt.Printf("    %-42s (%s)\n", envVal[n], envSrc[n])
+			env = append(env, []string{envVal[n], envSrc[n]})
+		}
+		if len(env) > 0 {
+			uiTable([]string{"Variable", "Couche"}, env, nil, nil)
 		}
 	}
-	fmt.Println()
-	fmt.Println("Overlay       : " + savesDir + "/" + gameName)
+
 	layerLookup("SAVEDIR", "")
 	key := lookupVal
 	layerLookup("SAVEFILES", "")
 	sysdir, ok := batoceraSavesDir()
+	overlay := kv{"Overlay", savesDir + "/" + gameName}
+	sauvegardes := kv{"Sauvegardes", "dans l'overlay ; --saves les copie dans " + sysdir}
 	switch {
 	case !ok:
-		fmt.Println("Sauvegardes   : hors d'un dossier roms/<système>/ (WSQUASHFS_BATOCERA_SAVES)")
+		sauvegardes.v = "hors d'un dossier roms/<système>/ (WSQUASHFS_BATOCERA_SAVES)"
 	case key+lookupVal != "":
-		fmt.Println("Sauvegardes   : " + sysdir + " (SAVEDIR/SAVEFILES)")
-	default:
-		fmt.Println("Sauvegardes   : dans l'overlay ; --saves les copie dans " + sysdir)
+		sauvegardes.v = sysdir + " (SAVEDIR/SAVEFILES)"
 	}
+	uiSection("Sauvegardes")
+	uiKV(2, overlay, sauvegardes)
 	return 0
 }
 
@@ -1129,7 +1069,7 @@ func packPrefix(args []string) int {
 		}
 		st, _ := os.Stat(out)
 		if !confirm(fmt.Sprintf("%s existe déjà (%s, %s). L'écraser ?", out, duHuman(out), st.ModTime().Format("02/01 15:04"))) {
-			fmt.Println("Abandon.")
+			uiStatusLine(stSkip, "Abandon : rien n'a été modifié")
 			return 1
 		}
 		if isDirPath(saves) && confirm("Réinitialiser aussi ses sauvegardes ("+saves+") ?") {
@@ -1141,7 +1081,7 @@ func packPrefix(args []string) int {
 	}
 	tmp := out + ".part"
 	_ = os.Remove(tmp)
-	fmt.Println("Création de " + out + " depuis " + src + "...")
+	uiStatusLine(stInfo, "Création de "+out+" depuis "+src+"...")
 	if err := runCmd("mksquashfs", src, tmp, "-comp", "zstd", "-noappend", "-quiet"); err != nil {
 		_ = os.Remove(tmp)
 		die("échec de mksquashfs, " + out + " inchangé")
@@ -1152,14 +1092,14 @@ func packPrefix(args []string) int {
 	}
 	if resetSaves {
 		if os.RemoveAll(saves) == nil {
-			fmt.Println("Sauvegardes réinitialisées : " + saves)
+			uiStatusLine(stOK, "Sauvegardes réinitialisées : "+saves)
 		}
 	}
-	fmt.Println("✓ " + out + " (" + duHuman(out) + ")")
+	uiStatusLine(stOK, out+" ("+duHuman(out)+")")
 	if v := gameVersion(src); v != "" {
-		fmt.Println("  Version : " + v)
+		uiKV(2, kv{"Version", v})
 	} else if isFile(src + "/autorun.cmd") {
-		fmt.Println("  Version non renseignée (GAME_VERSION=... dans l'autorun.cmd, voir --info)")
+		uiKV(2, kv{"Version", "non renseignée (GAME_VERSION=... dans l'autorun.cmd, voir --info)"})
 	}
 	return 0
 }
@@ -1188,7 +1128,7 @@ func installGame(args []string) int {
 	}
 	tmp := dest + ".part"
 	_ = os.RemoveAll(tmp)
-	fmt.Println("Installation de " + name + " dans " + dest + "...")
+	uiStatusLine(stInfo, "Installation de "+name+" dans "+dest+"...")
 	if err := runCmd("unsquashfs", "-no-xattrs", "-d", tmp, img); err != nil {
 		_ = os.RemoveAll(tmp)
 		die("échec de l'extraction, rien n'a été installé")
@@ -1200,11 +1140,13 @@ func installGame(args []string) int {
 	if dropsToTargetUser() {
 		_ = runCmd("chown", "-R", fmt.Sprintf("%d:%d", wineUID, wineGID), dest)
 	}
-	fmt.Println("✓ " + dest + " (" + duHuman(dest) + ")")
+	uiStatusLine(stOK, dest+" ("+duHuman(dest)+")")
+	pairs := []kv{}
 	if v := gameVersion(dest); v != "" {
-		fmt.Println("  Version : " + v)
+		pairs = append(pairs, kv{"Version", v})
 	}
-	fmt.Println("  Lancement : " + os.Args[0] + " \"" + dest + "\"")
+	pairs = append(pairs, kv{"Lancement", os.Args[0] + " \"" + dest + "\""})
+	uiKV(2, pairs...)
 	return 0
 }
 
@@ -1225,21 +1167,21 @@ var saveProfileDirs = []string{"Documents", "Saved Games", "AppData/Roaming", "A
 
 // copyGameSaves : copie les sauvegardes de partie de l'overlay dans la
 // ludothèque (saves/<système>/<jeu>/), sens unique.
-func copyGameSaves(name string) {
+func copyGameSaves(name string, g uiGames) {
 	saves := savesDir + "/" + name
 	img := ""
 	if data, err := os.ReadFile(savesDir + "/.images/" + name); err == nil {
 		img = strings.TrimRight(string(data), "\n")
 	}
 	if img == "" {
-		fmt.Println("  " + name + " : image inconnue (aucun lancement enregistré), ignoré")
+		g.line(stSkip, name, "image inconnue (aucun lancement enregistré), ignoré")
 		return
 	}
 	wsquashfsFile = img
 	gameName = name
 	dest, ok := batoceraSavesDir()
 	if !ok {
-		fmt.Println("  " + name + " : hors d'un dossier roms/<système>/ (définir WSQUASHFS_BATOCERA_SAVES), ignoré")
+		g.line(stSkip, name, "hors d'un dossier roms/<système>/ (définir WSQUASHFS_BATOCERA_SAVES), ignoré")
 		return
 	}
 	autorunOverride = strings.TrimSuffix(img, "/") + ".autorun"
@@ -1255,12 +1197,12 @@ func copyGameSaves(name string) {
 	savedir := lookupVal
 	layerLookup("SAVEFILES", "")
 	if savedir+lookupVal != "" {
-		fmt.Println("  " + name + " : déjà dans " + dest + " (SAVEDIR/SAVEFILES)")
+		g.line(stSkip, name, "déjà dans "+dest+" (SAVEDIR/SAVEFILES)")
 		return
 	}
 	users := saves + "/drive_c/users"
 	if !isDirPath(users) {
-		fmt.Println("  " + name + " : aucune sauvegarde de partie dans l'overlay")
+		g.line(stSkip, name, "aucune sauvegarde de partie dans l'overlay")
 		return
 	}
 	copied, total, bytesCopied := 0, 0, int64(0)
@@ -1304,12 +1246,12 @@ func copyGameSaves(name string) {
 	}
 	switch {
 	case total == 0:
-		fmt.Println("  " + name + " : aucune sauvegarde de partie dans l'overlay")
+		g.line(stSkip, name, "aucune sauvegarde de partie dans l'overlay")
 	case copied > 0:
 		chownToTarget(dest)
-		fmt.Println("  " + name + " : " + strconv.Itoa(copied) + " fichier(s) copié(s) (" + humanBytes(bytesCopied) + ") dans " + dest)
+		g.line(stOK, name, strconv.Itoa(copied)+" fichier(s) copié(s) ("+humanBytes(bytesCopied)+") dans "+dest)
 	default:
-		fmt.Println("  " + name + " : à jour (" + dest + ")")
+		g.line(stOK, name, "à jour ("+dest+")")
 	}
 }
 
@@ -1343,19 +1285,21 @@ func cmdSaves(args []string) int {
 		targets = savedGames()
 	}
 	if len(targets) == 0 {
-		fmt.Println("Aucune sauvegarde (" + savesDir + ")")
+		uiStatusLine(stSkip, "Aucune sauvegarde ("+savesDir+")")
 		return 0
 	}
-	fmt.Println("Copie des sauvegardes de partie dans la ludothèque...")
-	for _, g := range targets {
-		if gameRunning(g) {
-			fmt.Println("  " + g + " : en cours, ignoré")
+	uiTitle("Copie des sauvegardes de partie", "vers la ludothèque (saves/<système>/<jeu>/)")
+	g := newUIGames(targets)
+	for _, name := range targets {
+		if gameRunning(name) {
+			g.line(stSkip, name, "en cours, ignoré")
 			continue
 		}
-		copyGameSaves(g)
+		copyGameSaves(name, g)
 	}
-	fmt.Println("Restauration (jeu arrêté) : recopier <ludothèque>/saves/<système>/<jeu>/drive_c")
-	fmt.Println("  dans " + savesDir + "/<jeu>/ (cp -a)")
+	uiOut("")
+	uiNote("Restauration (jeu arrêté) : recopier <ludothèque>/saves/<système>/<jeu>/drive_c")
+	uiCode("cp -a <ludothèque>/saves/<système>/<jeu>/drive_c " + savesDir + "/<jeu>/")
 	return 0
 }
 
@@ -1380,7 +1324,7 @@ func cmdUpdate() int {
 		die("somme de contrôle du lanceur introuvable sur " + base + " : rien n'a été modifié")
 	}
 	if cur, err := fileSHA256(self); err == nil && cur == want {
-		fmt.Println("✓ Lanceur déjà à jour : " + self)
+		uiStatusLine(stOK, "Lanceur déjà à jour : "+self)
 		return 0
 	}
 	tmp, err := os.MkdirTemp("", "wsq-update.")
@@ -1388,7 +1332,7 @@ func cmdUpdate() int {
 		die("dossier temporaire impossible")
 	}
 	defer os.RemoveAll(tmp)
-	fmt.Println("Téléchargement depuis " + base + " ...")
+	uiStatusLine(stInfo, "Téléchargement depuis "+base+" ...")
 	fresh := tmp + "/wsquashfs-launcher"
 	if err := downloadTo(base+"/wsquashfs-launcher", fresh); err != nil {
 		die("téléchargement du lanceur impossible")
@@ -1413,7 +1357,7 @@ func cmdUpdate() int {
 		os.Remove(self + ".new")
 		die("remplacement du lanceur impossible : " + err.Error())
 	}
-	fmt.Println("✓ Lanceur mis à jour : " + self)
-	fmt.Println("Vérification : " + os.Args[0] + " --help")
+	uiStatusLine(stOK, "Lanceur mis à jour : "+self)
+	uiKV(0, kv{"Vérification", os.Args[0] + " --help"})
 	return 0
 }

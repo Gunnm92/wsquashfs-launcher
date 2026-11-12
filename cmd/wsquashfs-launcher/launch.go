@@ -421,18 +421,18 @@ func configureWine() {
 func initPrefixIfNeeded() {
 	if umuRun != "" {
 		if !isFile(winePoint + "/system.reg") {
-			fmt.Println("Initialisation du préfixe par Proton au premier lancement...")
+			uiStatusLine(stInfo, "Initialisation du préfixe par Proton au premier lancement...")
 		}
 		return
 	}
 	if isFile(winePoint + "/system.reg") {
 		if st, err := os.Stat(winePoint + "/drive_c"); err == nil && st.IsDir() &&
 			(packagedPrefix || isFile(winePoint+"/drive_c/windows/system32/explorer.exe")) {
-			fmt.Println("✓ Préfixe Wine détecté (structure Batocera)")
+			uiStatusLine(stOK, "Préfixe Wine détecté (structure Batocera)")
 			return
 		}
 	}
-	fmt.Println("Initialisation du préfixe Wine (" + wineArch + ")...")
+	uiStatusLine(stInfo, "Initialisation du préfixe Wine ("+wineArch+")...")
 	// wineboot -u ne réinstalle rien tant que .update-timestamp correspond.
 	_ = os.Remove(winePoint + "/.update-timestamp")
 	_ = runWineboot(os.Getenv("WINEDEBUG"))
@@ -466,13 +466,13 @@ func importRegistryFiles() {
 	if st, err := os.Stat(regs); err != nil || !st.IsDir() {
 		return
 	}
-	fmt.Println("Import des fichiers de registre...")
+	uiStatusLine(stInfo, "Import des fichiers de registre...")
 	files, _ := filepath.Glob(regs + "/*")
 	for _, f := range files {
 		if !strings.EqualFold(filepath.Ext(f), ".reg") {
 			continue
 		}
-		fmt.Println("  → " + filepath.Base(f))
+		uiNote(filepath.Base(f))
 		_ = runWineTool("regedit", "//?/unix"+f)
 	}
 }
@@ -495,66 +495,64 @@ func preparePrefix() {
 
 // printSummary : récapitulatif du lancement.
 func printSummary() {
-	fmt.Println("-----------------------------------------")
-	fmt.Println("Exécutable    : " + execPath)
-	fmt.Println("Arguments     : " + orEmpty(execArgs, "<aucun>"))
+	pairs := []kv{{"Exécutable", execPath}, {"Arguments", orEmpty(execArgs, "<aucun>")}}
 	if umuRun != "" {
 		if protonDir+"/files/bin/wine" == imageRunner {
-			fmt.Println("Proton        : " + filepath.Base(protonDir) + " via umu (" + protonDir + ") — joint à l'image")
+			pairs = append(pairs, kv{"Proton", filepath.Base(protonDir) + " via umu (" + protonDir + ") — joint à l'image"})
 		} else {
-			fmt.Println("Proton        : " + filepath.Base(protonDir) + " via umu (" + protonDir + ")")
+			pairs = append(pairs, kv{"Proton", filepath.Base(protonDir) + " via umu (" + protonDir + ")"})
 		}
 		if v := runnerVersion(protonDir + "/files/bin/wine"); v != "" {
-			fmt.Println("Version Proton: " + v)
+			pairs = append(pairs, kv{"Version Proton", v})
 		}
 	} else {
 		if imageRunner != "" && wineBinary == imageRunner {
-			fmt.Println("Wine          : " + wineBinary + " (" + wineArch + ") — joint à l'image")
+			pairs = append(pairs, kv{"Wine", wineBinary + " (" + wineArch + ") — joint à l'image"})
 		} else {
-			fmt.Println("Wine          : " + wineBinary + " (" + wineArch + ")")
+			pairs = append(pairs, kv{"Wine", wineBinary + " (" + wineArch + ")"})
 		}
 		if v := runnerVersion(wineBinary); v != "" {
-			fmt.Println("Version Wine  : " + v)
+			pairs = append(pairs, kv{"Version Wine", v})
 		}
 	}
-	fmt.Println("Préfixe       : " + os.Getenv("WINEPREFIX"))
+	pairs = append(pairs, kv{"Préfixe", os.Getenv("WINEPREFIX")})
 	if u := os.Getenv("WINEUSERNAME"); u != "" {
-		fmt.Println("Utilisateur   : " + u + " (adapté au prefix)")
+		pairs = append(pairs, kv{"Utilisateur", u + " (adapté au prefix)"})
 	}
 	if runAsRoot {
 		if targetUser != "" {
-			fmt.Println("Privilège     : montage en root, Wine relancé en " + targetUser)
+			pairs = append(pairs, kv{"Privilège", "montage en root, Wine relancé en " + targetUser})
 		} else {
 			warn("lancé en root sans SUDO_USER — l'affichage risque d'échouer (pas de cookie X11)")
 		}
 	}
 	if mountMode == "overlay" {
-		fmt.Println("Sauvegardes   : " + savePoint)
+		pairs = append(pairs, kv{"Sauvegardes", savePoint})
 	}
-	fmt.Println("Manettes      : " + hidrawMsg)
+	pairs = append(pairs, kv{"Manettes", hidrawMsg})
 	if dxvk == "1" {
-		fmt.Println("DXVK          : activé")
+		pairs = append(pairs, kv{"DXVK", "activé"})
 	}
 	if vkd3d == "1" {
-		fmt.Println("VKD3D         : activé")
+		pairs = append(pairs, kv{"VKD3D", "activé"})
 	}
 	if d7vk == "1" {
-		fmt.Println("D7VK          : activé (DirectDraw → Vulkan)")
+		pairs = append(pairs, kv{"D7VK", "activé (DirectDraw → Vulkan)"})
 	}
 	if esync == "1" {
-		fmt.Println("ESYNC         : activé")
+		pairs = append(pairs, kv{"ESYNC", "activé"})
 	}
 	if fsync == "1" {
-		fmt.Println("FSYNC         : activé")
+		pairs = append(pairs, kv{"FSYNC", "activé"})
 	}
 	if wineLang != "" {
-		fmt.Println("Langue        : " + wineLang)
+		pairs = append(pairs, kv{"Langue", wineLang})
 	}
 	if virtualDesktop != "" {
-		fmt.Println("Bureau virtuel: " + virtualDesktop)
+		pairs = append(pairs, kv{"Bureau virtuel", virtualDesktop})
 	}
-	fmt.Println("=========================================")
-	fmt.Println()
+	uiSection("Lancement")
+	uiKV(2, pairs...)
 }
 
 // buildRunCommand : ligne de commande du jeu (wine [explorer /desktop] [cmd /c]
@@ -775,16 +773,15 @@ func runGame() {
 		runPreCommand()
 		startAttachCommand()
 	}
+	uiRule("sortie du jeu")
 	code := playGame()
 	if signalExiting.Load() {
 		select {} // sortie sur signal en cours : cleanup puis os.Exit
 	}
 	_ = runWineserver(winePoint, "-w")
 	stopAttachCommand()
-	fmt.Println()
-	fmt.Println("=========================================")
-	fmt.Printf("Jeu terminé (code : %d)\n", code)
-	fmt.Println("=========================================")
+	uiRule("")
+	uiVerdict(code == 0, fmt.Sprintf("Jeu terminé (code : %d)", code))
 	exitNow(code)
 }
 
@@ -826,7 +823,7 @@ func launchGame() {
 	preparePrefix()
 	if action == "prepare" {
 		applySavedir(savedirKey, savefilesKey)
-		fmt.Println("✓ Prefix préparé : " + gameName + " (jeu non lancé)")
+		uiVerdict(true, "Prefix préparé : "+gameName+" (jeu non lancé)")
 		exitNow(0)
 	}
 	configureControllers()
@@ -837,32 +834,30 @@ func launchGame() {
 
 // printLauncherHeader : en-tête du lancement.
 func printLauncherHeader() {
-	fmt.Println("=========================================")
-	fmt.Println("WSquashFS Launcher")
-	fmt.Println("=========================================")
-	fmt.Println("Environnement : " + detectEnv())
-	fmt.Println("Jeu           : " + gameName)
+	sub := gameName
 	if v := gameVersion(wsquashfsFile); v != "" {
-		fmt.Println("Version       : " + v)
+		sub += " · version " + v
 	}
-	fmt.Println("Fichier       : " + wsquashfsFile)
+	uiTitle("WSquashFS Launcher", sub)
+	uiKVLine("Environnement", detectEnv())
+	uiKVLine("Fichier", wsquashfsFile)
 	if f := machineLayerFile(); isFile(f) {
-		fmt.Println("Réglages mach.: " + f + " (" + overrideKeys(f) + ")")
+		uiKVLine("Réglages machine", f+" ("+overrideKeys(f)+")")
 	}
 	if f := filepath.Dir(strings.TrimSuffix(wsquashfsFile, "/")) + "/_defaults.autorun"; isFile(f) {
-		fmt.Println("Réglages dos. : " + f + " (" + overrideKeys(f) + ")")
+		uiKVLine("Réglages dossier", f+" ("+overrideKeys(f)+")")
 	}
 	if autorunOverride != "" {
-		fmt.Println("Surcharge     : " + filepath.Base(autorunOverride) + " (" + overrideKeys(autorunOverride) + ")")
+		uiKVLine("Surcharge", filepath.Base(autorunOverride)+" ("+overrideKeys(autorunOverride)+")")
 	}
 	if len(setArgs) > 0 {
-		fmt.Println("Options --set : " + strings.Join(setArgs, " "))
+		uiKVLine("Options --set", strings.Join(setArgs, " "))
 	}
 	if action != "run" {
 		name := ""
 		if len(execCmd) > 0 {
 			name = " (" + execCmd[0] + ")"
 		}
-		fmt.Println("Action        : " + action + name)
+		uiKVLine("Action", action+name)
 	}
 }

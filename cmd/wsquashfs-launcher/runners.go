@@ -530,16 +530,16 @@ func applyWineOption() {
 		wineBinary = found
 		return
 	}
-	fmt.Fprintln(os.Stderr, "Erreur : runner Wine introuvable : "+wineOverride)
-	fmt.Fprintln(os.Stderr, "  Runners installés :")
+	details := []string{"  Runners installés :"}
 	for _, r := range listWineRunners() {
-		fmt.Fprintln(os.Stderr, "    "+r)
+		details = append(details, "    "+r)
 	}
 	wineAbs, err := exec.LookPath("wine")
 	if err != nil {
 		wineAbs = "absent"
 	}
-	fmt.Fprintln(os.Stderr, "    system ("+wineAbs+")")
+	details = append(details, "    system ("+wineAbs+")")
+	uiError("runner Wine introuvable : "+wineOverride, details...)
 	exitNow(1)
 }
 

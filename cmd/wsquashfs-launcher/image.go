@@ -47,8 +47,8 @@ func gameNameOf(p string) string {
 // message si le chemin est invalide.
 func resolveGamePath() {
 	if gameArg == "" {
-		die("fichier .wsquashfs ou dossier de jeu requis",
-			"Usage : "+os.Args[0]+" <fichier.wsquashfs | dossier du jeu>  |  "+os.Args[0]+" --help")
+		uiError("fichier .wsquashfs ou dossier de jeu requis")
+		usageError(os.Args[0] + " <fichier.wsquashfs | dossier du jeu>  |  " + os.Args[0] + " --help")
 	}
 	abs, err := filepath.Abs(gameArg)
 	if err != nil {
@@ -135,7 +135,7 @@ func useInstalledDir() {
 		_ = os.Remove(m)
 	}
 	mountMode = "dir"
-	fmt.Println("Mode          : dossier (jeu installé, sans FUSE)")
+	uiKVLine("Mode", "dossier (jeu installé, sans FUSE)")
 }
 
 // prepareMountDirs : dossiers de montage vides et au bon propriétaire.
@@ -209,7 +209,7 @@ func tryOverlayMount() bool {
 		mountMode = "overlay"
 		overlayKind = "fuse"
 		mounted.Store(true)
-		fmt.Println("Mode          : overlay (dossier .pc + fuse-overlayfs, dossier non modifié)")
+		uiKVLine("Mode", "overlay (dossier .pc + fuse-overlayfs, dossier non modifié)")
 		return true
 	}
 	if _, err := exec.LookPath("squashfuse"); err != nil {
@@ -222,7 +222,7 @@ func tryOverlayMount() bool {
 		mountMode = "overlay"
 		overlayKind = "fuse"
 		mounted.Store(true)
-		fmt.Println("Mode          : overlay (squashfuse + fuse-overlayfs)")
+		uiKVLine("Mode", "overlay (squashfuse + fuse-overlayfs)")
 		return true
 	}
 	fuseUmount(squashfsPoint)
@@ -244,7 +244,7 @@ func imageSignature() string {
 func extractImage() {
 	_, sqErr := exec.LookPath("squashfuse")
 	if sqErr == nil && mountSquashfs(wsquashfsFile, squashfsPoint) {
-		fmt.Println("Mode          : copy (squashfuse)")
+		uiKVLine("Mode", "copy (squashfuse)")
 		removeCopy()
 		_ = os.MkdirAll(winePoint, 0o755)
 		if err := runCmd("cp", "-a", squashfsPoint+"/.", winePoint+"/"); err != nil {
@@ -252,7 +252,7 @@ func extractImage() {
 		}
 		fuseUmount(squashfsPoint)
 	} else if _, err := exec.LookPath("unsquashfs"); err == nil {
-		fmt.Println("Mode          : copy (unsquashfs)")
+		uiKVLine("Mode", "copy (unsquashfs)")
 		removeCopy()
 		if err := runCmd("unsquashfs", "-d", winePoint, wsquashfsFile); err != nil {
 			die("échec de l'extraction unsquashfs")
@@ -308,7 +308,7 @@ func restoreCopyUsers() {
 		warn("sauvegardes de la copie non remises en place, gardées dans " + stash)
 		return
 	}
-	fmt.Println("Sauvegardes   : drive_c/users repris de la copie précédente")
+	uiKVLine("Sauvegardes", "drive_c/users repris de la copie précédente")
 }
 
 // removeCopy : supprime l'ancienne copie de travail (drive_c/users mis de
@@ -335,7 +335,7 @@ func useCopyMode() {
 	cacheInfo := winePoint + "/.wsquashfs_cache"
 	if data, err := os.ReadFile(cacheInfo); err == nil && string(data) == imageSignature() {
 		if st, err := os.Stat(winePoint); err == nil && st.IsDir() {
-			fmt.Println("Mode          : copy (cache valide, extraction ignorée)")
+			uiKVLine("Mode", "copy (cache valide, extraction ignorée)")
 			mountMode = "copy"
 			mounted.Store(true)
 			return
@@ -381,17 +381,19 @@ func tryOverlayMountGated() bool {
 // main.
 func reportMountAndExit() {
 	mounted.Store(false)
-	fmt.Println("-----------------------------------------")
-	fmt.Println("Monté dans    : " + winePoint)
+	uiSection("Montage")
+	pairs := []kv{{"Monté dans", winePoint}}
 	if mountMode == "overlay" {
 		kind := "le .wsquashfs"
 		if folderOverlay {
 			kind = "le dossier"
 		}
-		fmt.Println("Modifications : enregistrées dans " + savePoint + " (" + kind + " n'est jamais modifié)")
+		pairs = append(pairs, kv{"Modifications", "enregistrées dans " + savePoint + " (" + kind + " n'est jamais modifié)"})
 	}
-	fmt.Println("Démontage     : " + os.Args[0] + " --umount \"" + wsquashfsFile + "\"")
-	fmt.Println("  (tout lancement d'un autre jeu démonte aussi les montages inutilisés)")
+	pairs = append(pairs, kv{"Démontage", ""})
+	uiKV(2, pairs...)
+	uiCode(os.Args[0] + " --umount \"" + wsquashfsFile + "\"")
+	uiNote("(tout lancement d'un autre jeu démonte aussi les montages inutilisés)")
 	exitNow(0)
 }
 
@@ -538,7 +540,7 @@ func umountGame(name string) {
 		_ = syscall.Kill(pid, syscall.SIGTERM)
 		for i := 0; i < 30; i++ {
 			if syscall.Kill(pid, 0) != nil {
-				fmt.Println("✓ Arrêté et démonté : " + name)
+				uiStatusLine(stOK, "Arrêté et démonté : "+name)
 				return
 			}
 			time.Sleep(500 * time.Millisecond)
@@ -553,5 +555,5 @@ func umountGame(name string) {
 	runWineserver(prefix, "-k")
 	umountRetry(prefix)
 	umountRetry(filepath.Join(cacheDir, "mnt", name))
-	fmt.Println("✓ Démonté : " + name)
+	uiStatusLine(stOK, "Démonté : "+name)
 }

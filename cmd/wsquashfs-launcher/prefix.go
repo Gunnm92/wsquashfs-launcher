@@ -577,7 +577,7 @@ func updatePrefixIfNeeded() {
 	if version == "" {
 		version = filepath.Base(wineRoot)
 	}
-	fmt.Println("Préfixe       : mise à jour pour " + version)
+	uiKVLine("Préfixe", "mise à jour pour "+version)
 	for _, d := range []string{"system32", "syswow64"} {
 		links, _ := filepath.Glob(winePoint + "/drive_c/windows/" + d + "/*")
 		for _, l := range links {
@@ -744,5 +744,5 @@ func applySavedir(savedir, savefiles string) {
 		}
 	}
 	chownToTarget(sysdir)
-	fmt.Println("Sauvegardes   : " + sysdir + " (SAVEDIR/SAVEFILES)")
+	uiKVLine("Sauvegardes", sysdir+" (SAVEDIR/SAVEFILES)")
 }
