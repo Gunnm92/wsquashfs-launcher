@@ -82,7 +82,7 @@ func launcherMain() int {
 	fixOwnership(savesDir)
 
 	switch action {
-	case "clean", "clear", "umount", "pack", "install", "info", "show", "saves",
+	case "clean", "clear", "erase", "umount", "pack", "install", "info", "show", "saves",
 		"list", "doctor", "agent", "pair", "trial", "update":
 		return maintenanceMain()
 	}

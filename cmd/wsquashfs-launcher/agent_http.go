@@ -277,7 +277,7 @@ func (s *agentServer) trialRoute(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"report": report, "screenshot": screenshot})
 }
 
-// maintenanceActions : liste fermée (pas de --clear, --pack, --install).
+// maintenanceActions : liste fermée (pas de --clear, --erase, --pack, --install).
 var maintenanceActions = map[string]bool{"list": true, "umount": true, "clean": true, "saves": true}
 
 type maintenanceRequest struct {
@@ -371,9 +371,8 @@ func (s *agentServer) runnerTar(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/x-tar")
 	w.WriteHeader(http.StatusOK)
 	tw := tar.NewWriter(w)
-	defer tw.Close()
 	top := filepath.Base(real)
-	_ = filepath.WalkDir(real, func(p string, d fs.DirEntry, err error) error {
+	err := filepath.WalkDir(real, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
 		}
@@ -398,17 +397,30 @@ func (s *agentServer) runnerTar(w http.ResponseWriter, r *http.Request) {
 		if info.IsDir() {
 			hdr.Name += "/"
 		}
+		if !info.Mode().IsRegular() {
+			return tw.WriteHeader(hdr)
+		}
+		// Fichier ouvert avant son en-tête : illisible, il est omis sans
+		// fausser la suite de l'archive.
+		f, err := os.Open(p)
+		if err != nil {
+			return nil
+		}
+		defer f.Close()
 		if err := tw.WriteHeader(hdr); err != nil {
 			return err
 		}
-		if info.Mode().IsRegular() {
-			f, err := os.Open(p)
-			if err != nil {
-				return nil
-			}
-			defer f.Close()
-			_, _ = io.Copy(tw, f)
-		}
-		return nil
+		// Taille annoncée dans l'en-tête : un fichier raccourci entre-temps
+		// rendrait toute la suite illisible.
+		_, err = io.CopyN(tw, f, hdr.Size)
+		return err
 	})
+	if err == nil {
+		err = tw.Close()
+	}
+	if err != nil {
+		// Le code 200 est déjà parti : la connexion est coupée, pour que le
+		// client voie un échec et non une archive tronquée.
+		panic(http.ErrAbortHandler)
+	}
 }

@@ -188,7 +188,7 @@ func runDoctorChecks() bool {
 		if d := findFsr4Dll(); d != "" {
 			doctorOK("FSR4 : " + d + " (FSR4=1 pour l'activer, défaut désactivé)")
 		} else {
-			doctorNote("FSR4 : amdxcffx64.dll absente (install.sh peut la copier depuis proton-cachyos)")
+			doctorNote("FSR4 : amdxcffx64.dll absente (--setup peut la copier depuis proton-cachyos)")
 		}
 	}
 

@@ -9,7 +9,7 @@ help:
 	@echo "=================="
 	@echo ""
 	@echo "  make build          Compiler wsquashfs-launcher (binaire Go, sans dépendance)"
-	@echo "  make install        Installer wsquashfs-launcher (lance install.sh)"
+	@echo "  make install        Installer wsquashfs-launcher (wsquashfs-launcher --setup)"
 	@echo "  make uninstall      Désinstaller wsquashfs-launcher"
 	@echo "  make test           Lancer les tests de non-régression (tests/)"
 	@echo "  make test-update    Réécrire la trace attendue des tests"
@@ -28,13 +28,13 @@ build:
 	@sha256sum wsquashfs-launcher > wsquashfs-launcher.sha256
 	@echo "✓ wsquashfs-launcher compilé (empreinte : wsquashfs-launcher.sha256, à committer avec lui)"
 
+# Le binaire du dépôt s'installe lui-même (install.sh ne sert qu'à le
+# télécharger sur une machine qui ne l'a pas encore).
 install:
-	@chmod +x install.sh
-	@./install.sh
+	@./wsquashfs-launcher --setup
 
 uninstall:
-	@chmod +x install.sh
-	@./install.sh --uninstall
+	@./wsquashfs-launcher --setup --uninstall
 
 test:
 	@cd cmd/wsquashfs-launcher && go test ./...

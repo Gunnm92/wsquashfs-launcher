@@ -1,39 +1,40 @@
-# WSquashFS Launcher - Résumé du Projet
+# WSquashFS Launcher - Résumé du projet
 
-## 🎯 Objectif
-Lancer des fichiers .wsquashfs de Batocera sur n'importe quel Linux (Arch, Debian, etc.)
-Compatible avec les launchers frontend comme Pegasus, EmulationStation, etc.
+## Objectif
+Lancer les jeux Windows .wsquashfs de Batocera sur n'importe quel Linux
+(Arch, Debian, SteamOS, conteneur), depuis un terminal ou un frontend
+(Pegasus, EmulationStation...).
 
-## ⭐ Fichier Principal
-wsquashfs-run - Script standalone basé sur le code de Batocera
+## Fichier principal
+wsquashfs-launcher : binaire Go sans dépendance tierce, versionné à la racine
+avec son empreinte (wsquashfs-launcher.sha256). Sources : cmd/wsquashfs-launcher/.
 
-## 🔑 Caractéristiques Clés
-- Utilise OverlayFS comme Batocera (lowerdir + upperdir + workdir)
-- Sauvegardes persistantes séparées du fichier .wsquashfs
-- 100% compatible avec le format autorun.cmd de Batocera
-- Support WINE, DXVK, VKD3D, ESYNC, FSYNC
-- Pas besoin de Docker
+## Caractéristiques
+- Overlay comme Batocera : image en lecture seule + sauvegardes séparées
+  (overlay du noyau en namespace utilisateur, sinon fuse-overlayfs, sinon copie)
+- Compatible avec l'autorun.cmd de Batocera ; réglages par couches
+- Wine (wine-tkg, wine-ge) ou Proton via umu ; DXVK, VKD3D-Proton, d7vk, NVAPI
+- Installeur intégré (--setup), mise à jour (--update), diagnostic (--doctor)
+- Agent HTTPS pour wsquashfs-manager (--agent, --pair)
 
-## 📂 Architecture Données
-~/.local/share/wsquashfs/saves/  - Sauvegardes (upperdir)
-~/.local/share/wsquashfs/prefix/ - Préfixes Wine
-~/.cache/wsquashfs/              - Montages temporaires
+## Données
+~/.local/share/wsquashfs/saves/   sauvegardes (upperdir de l'overlay), par jeu
+~/.cache/wsquashfs/               montages et copies de travail
+~/.config/wsquashfs/              réglages machine, configuration de l'agent
 
-## 🚀 Installation Rapide
-make install
-# ou
-sudo cp wsquashfs-run /usr/local/bin/
+## Installation
+curl -fsSL https://raw.githubusercontent.com/Gunnm92/wsquashfs-launcher/main/install.sh | bash
+(install.sh télécharge le binaire s'il est absent ; le lanceur fait le reste)
+Depuis le dépôt : ./wsquashfs-launcher --setup   (ou make install)
 
-## 💡 Utilisation
-wsquashfs-run game.wsquashfs
+## Utilisation
+wsquashfs-launcher jeu.wsquashfs
+Pegasus : wsquashfs-launcher "{file.path}"
 
-## 🎮 Intégration Pegasus
-Commande: wsquashfs-run "{file.path}"
+## Développement
+make build   compile le binaire et son empreinte (à committer ensemble)
+make lint    go vet, gofmt, shellcheck
+make test    tests Go, puis tests/run-tests.sh (FUSE requis)
 
-## 📖 Documentation
-- QUICKSTART.md       - Démarrage rapide
-- README.md           - Documentation complète
-- autorun.cmd.example - Exemples config
-
-## ✅ Basé sur
-Code source officiel de Batocera (batocera-wine script)
+## Documentation
+README.md, QUICKSTART.md, docs/agent.md, autorun.cmd.example

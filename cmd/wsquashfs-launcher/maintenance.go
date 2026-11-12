@@ -1,7 +1,7 @@
 package main
 
 // Commandes de maintenance (script bash, section 8) : --clean, --clear,
-// --umount, --list, --doctor, --info, --show, --pack, --install, --saves,
+// --erase, --umount, --list, --doctor, --info, --show, --pack, --install, --saves,
 // --agent, --pair, --update.
 
 import (
@@ -11,10 +11,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 	"unsafe"
 )
 
@@ -25,6 +27,8 @@ func maintenanceMain() int {
 		cmdClean()
 	case "clear":
 		return cmdClear(cmdArgs)
+	case "erase":
+		return cmdErase(cmdArgs)
 	case "umount":
 		if len(cmdArgs) > 0 {
 			umountGame(gameNameOf(cmdArgs[0]))
@@ -116,14 +120,51 @@ func hasWineXattr(p string) bool {
 	return err == nil && strings.TrimSpace(string(out)) != ""
 }
 
-// cleanSaves : retire des sauvegardes de chaque jeu les doublons certains :
-// fichiers identiques à l'image, puis DLL que Proton recopie à chaque lancement.
+// cleanSaves : --clean pour un jeu. Ménage sans risque : ne retire des
+// sauvegardes que les doublons certains (fichiers identiques à l'image, DLL
+// que Proton recopie à chaque lancement). Tout ce que le jeu a écrit reste.
 func cleanSaves(name string) {
 	saves := savesDir + "/" + name
-	if savesBusy(name) {
+	lock, idle := lockIdleGame(name)
+	if !idle {
 		fmt.Println("  " + name + " : monté ou en cours, ignoré")
 		return
 	}
+	if lock != nil {
+		defer lock.Close()
+	}
+	removeDuplicates(name, saves)
+}
+
+// keepOnlyUsers : ne laisse dans une couche de sauvegardes que drive_c/users.
+// Faux s'il ne reste rien (dossier supprimé).
+func keepOnlyUsers(saves string) bool {
+	entries, _ := os.ReadDir(saves)
+	for _, e := range entries {
+		if e.Name() != "drive_c" {
+			_ = os.RemoveAll(saves + "/" + e.Name())
+		}
+	}
+	if isDirPath(saves + "/drive_c") {
+		if isDirPath(saves + "/drive_c/users") {
+			_ = os.RemoveAll(saves + "/.users")
+			if os.Rename(saves+"/drive_c/users", saves+"/.users") != nil {
+				return true
+			}
+		}
+		_ = os.RemoveAll(saves + "/drive_c")
+		if isDirPath(saves + "/.users") {
+			_ = os.MkdirAll(saves+"/drive_c", 0o755)
+			_ = os.Rename(saves+"/.users", saves+"/drive_c/users")
+		}
+	}
+	_ = os.Remove(saves)
+	return isDirPath(saves)
+}
+
+// removeDuplicates : retire des sauvegardes les fichiers identiques à l'image
+// du jeu (copiés sans être modifiés), puis les DLL que Proton recopie.
+func removeDuplicates(name, saves string) {
 	img := ""
 	if data, err := os.ReadFile(savesDir + "/.images/" + name); err == nil {
 		img = strings.TrimRight(string(data), "\n")
@@ -253,29 +294,94 @@ func sameContent(a, b string) bool {
 	}
 }
 
-// cleanBackups : anciennes archives de --backup (retiré), supprimées.
-func cleanBackups() {
-	dir := envOr("WSQUASHFS_BACKUP_DIR", filepath.Join(os.Getenv("HOME"), ".local/share/wsquashfs/backups"))
-	if !isDirPath(dir) {
+// backupDir : archives de --erase.
+func backupDir() string {
+	return envOr("WSQUASHFS_BACKUP_DIR", filepath.Join(os.Getenv("HOME"), ".local/share/wsquashfs/backups"))
+}
+
+// backupsKept : archives gardées par jeu ; --clean retire les plus anciennes.
+const backupsKept = 3
+
+var backupNameRe = regexp.MustCompile(`^(.*)-(\d{8}-\d{6})(-\d+)?\.tar\.(zst|gz)$`)
+
+// pruneBackups : ne garde que les backupsKept dernières archives de chaque
+// jeu, et retire les archives inachevées (.part). Les autres fichiers du
+// dossier ne sont pas touchés.
+func pruneBackups() {
+	dir := backupDir()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
 		return
 	}
-	n := 0
-	var size int64
-	for _, pat := range []string{"*.tar.zst", "*.tar.gz", "*.part"} {
-		files, _ := filepath.Glob(dir + "/" + pat)
-		for _, f := range files {
-			if st, err := os.Stat(f); err == nil && st.Mode().IsRegular() {
-				size += st.Size()
-				if os.Remove(f) == nil {
-					n++
-				}
-			}
+	byGame := map[string][]string{}
+	var doomed []string
+	for _, e := range entries {
+		if !e.Type().IsRegular() {
+			continue
+		}
+		switch m := backupNameRe.FindStringSubmatch(e.Name()); {
+		case m != nil:
+			byGame[m[1]] = append(byGame[m[1]], e.Name())
+		case strings.HasSuffix(e.Name(), ".part"):
+			doomed = append(doomed, e.Name())
 		}
 	}
-	_ = os.Remove(dir)
-	if n > 0 {
-		fmt.Printf("✓ %d archive(s) supprimée(s) (%s, %s)\n", n, humanBytes(size), dir)
+	for _, names := range byGame {
+		// L'horodatage du nom donne l'ordre ; à date égale, le suffixe -N.
+		sort.Slice(names, func(i, j int) bool {
+			a, b := backupNameRe.FindStringSubmatch(names[i]), backupNameRe.FindStringSubmatch(names[j])
+			if a[2] != b[2] {
+				return a[2] > b[2]
+			}
+			return len(a[3]) > len(b[3]) || (len(a[3]) == len(b[3]) && a[3] > b[3])
+		})
+		if len(names) > backupsKept {
+			doomed = append(doomed, names[backupsKept:]...)
+		}
 	}
+	sort.Strings(doomed)
+	n := 0
+	var size int64
+	for _, name := range doomed {
+		f := filepath.Join(dir, name)
+		if st, err := os.Stat(f); err == nil && os.Remove(f) == nil {
+			n++
+			size += st.Size()
+		}
+	}
+	if n > 0 {
+		fmt.Printf("✓ %d ancienne(s) archive(s) supprimée(s) (%s, %s)\n", n, humanBytes(size), dir)
+	}
+}
+
+// archiveUsers : archive <parent>/<member> dans backupDir, sous le nom
+// <jeu>-AAAAMMJJ-HHMMSS.tar.zst (tar.gz sans zstd). L'archive n'apparaît
+// sous son nom qu'une fois complète.
+func archiveUsers(name, parent, member string) (string, error) {
+	dir := backupDir()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", err
+	}
+	ext, flag := "tar.zst", "--zstd"
+	if _, err := exec.LookPath("zstd"); err != nil {
+		ext, flag = "tar.gz", "-z"
+	}
+	base := filepath.Join(dir, name+"-"+time.Now().Format("20060102-150405"))
+	out := base + "." + ext
+	for i := 2; pathExists(out); i++ {
+		out = fmt.Sprintf("%s-%d.%s", base, i, ext)
+	}
+	part := out + ".part"
+	if err := execQuiet("tar", flag, "-cf", part, "-C", parent, member); err != nil {
+		_ = os.Remove(part)
+		return "", err
+	}
+	if err := os.Rename(part, out); err != nil {
+		_ = os.Remove(part)
+		return "", err
+	}
+	chownToTarget(dir)
+	return out, nil
 }
 
 // savedGames : jeux qui ont une couche de sauvegardes.
@@ -312,81 +418,126 @@ func cleanCache() {
 			continue
 		}
 		g := filepath.Base(d)
-		if savesBusy(g) || isMountPoint(cacheDir+"/mnt/"+g) {
+		lock, idle := lockIdleGame(g)
+		if !idle || isMountPoint(cacheDir+"/mnt/"+g) {
+			if lock != nil {
+				lock.Close()
+			}
 			if !kept[g] {
 				fmt.Println("  " + g + " : en cours, gardé")
 			}
 			kept[g] = true
 			continue
 		}
-		_ = os.RemoveAll(d)
+		// Mode copy : les sauvegardes de partie sont dans la copie.
+		if filepath.Dir(d) != cacheDir+"/wine" || stashCopyUsers(d, g) {
+			_ = os.RemoveAll(d)
+		} else {
+			warn(g + " : sauvegardes de la copie de travail impossibles à mettre de côté, copie gardée")
+		}
+		if lock != nil {
+			lock.Close()
+		}
 	}
 	fmt.Println("✓ Copies de travail supprimées")
 }
 
-// cmdClean : --clean.
+// cmdClean : --clean. Ménage sans risque : copies de travail, doublons
+// certains des sauvegardes, archives les plus anciennes de --erase.
 func cmdClean() {
 	fmt.Println("Nettoyage des copies de travail et des doublons des sauvegardes...")
 	cleanCache()
-	cleanBackups()
+	pruneBackups()
 	for _, g := range savedGames() {
 		cleanSaves(g)
 	}
 	fmt.Println("✓ Sauvegardes gardées dans : " + savesDir)
 }
 
-// ── --clear (01/10) ────────────────────────────────────────────────────
+// ── --clear (01/10) et --erase (12/11) ─────────────────────────────────
 
-// clearSaves : ne garde que drive_c/users des sauvegardes d'un jeu.
+// clearSaves : --clear pour un jeu. Ne garde que drive_c/users (les
+// sauvegardes de partie) : prefix, registre et fichiers écrits ailleurs sont
+// retirés et recréés au lancement suivant.
 func clearSaves(name string) {
 	saves := savesDir + "/" + name
-	if savesBusy(name) {
+	lock, idle := lockIdleGame(name)
+	if !idle {
 		fmt.Println("  " + name + " : monté ou en cours, ignoré")
 		return
 	}
-	entries, _ := os.ReadDir(saves)
-	for _, e := range entries {
-		if e.Name() != "drive_c" {
-			_ = os.RemoveAll(saves + "/" + e.Name())
-		}
+	if lock != nil {
+		defer lock.Close()
 	}
-	if isDirPath(saves + "/drive_c") {
-		if isDirPath(saves + "/drive_c/users") {
-			_ = os.RemoveAll(saves + "/.users")
-			if os.Rename(saves+"/drive_c/users", saves+"/.users") != nil {
-				return
-			}
-		}
-		_ = os.RemoveAll(saves + "/drive_c")
-		if isDirPath(saves + "/.users") {
-			_ = os.MkdirAll(saves+"/drive_c", 0o755)
-			_ = os.Rename(saves+"/.users", saves+"/drive_c/users")
-		}
-	}
-	_ = os.Remove(saves)
-	if isDirPath(saves) {
+	if keepOnlyUsers(saves) {
 		fmt.Println("  " + name + " : gardé " + duHuman(saves) + " (drive_c/users)")
 	} else {
 		fmt.Println("  " + name + " : rien à garder, supprimé")
 	}
 }
 
+// eraseSaves : --erase pour un jeu. Archive drive_c/users, puis supprime
+// toute la couche de sauvegardes : le jeu repart de son image. Rien n'est
+// supprimé si l'archive échoue.
+func eraseSaves(name string) {
+	saves := savesDir + "/" + name
+	lock, idle := lockIdleGame(name)
+	if !idle {
+		fmt.Println("  " + name + " : monté ou en cours, ignoré")
+		return
+	}
+	if lock != nil {
+		defer lock.Close()
+	}
+	// Mode copy : cleanCache vient de mettre drive_c/users de côté.
+	stash := copyUsersStash(name)
+	parent, member := "", ""
+	switch {
+	case isDirPath(saves + "/drive_c/users"):
+		parent, member = saves, "drive_c/users"
+	case isDirPath(stash):
+		parent, member = filepath.Dir(stash), name
+	}
+	archive := ""
+	if parent != "" {
+		var err error
+		if archive, err = archiveUsers(name, parent, member); err != nil {
+			fmt.Println("  " + name + " : archive impossible (" + err.Error() + "), sauvegardes gardées")
+			return
+		}
+	}
+	_ = os.RemoveAll(saves)
+	_ = os.RemoveAll(stash)
+	if archive != "" {
+		fmt.Println("  " + name + " : supprimé, drive_c/users archivé dans " + archive + " (" + duHuman(archive) + ")")
+	} else {
+		fmt.Println("  " + name + " : supprimé (pas de drive_c/users à archiver)")
+	}
+}
+
+// saveTargetsOf : jeux visés par --clear ou --erase (un seul, ou tous).
+// ok faux si le jeu nommé n'a pas de sauvegarde.
+func saveTargetsOf(args []string) ([]string, bool) {
+	if len(args) == 0 {
+		return savedGames(), true
+	}
+	name := gameNameOf(args[0])
+	if !isDirPath(savesDir+"/"+name) && !isDirPath(copyUsersStash(name)) {
+		fmt.Println("Aucune sauvegarde pour " + name)
+		return nil, false
+	}
+	return []string{name}, true
+}
+
 // cmdClear : --clear [jeu].
 func cmdClear(args []string) int {
-	var targets []string
-	if len(args) > 0 {
-		name := gameNameOf(args[0])
-		if !isDirPath(savesDir + "/" + name) {
-			fmt.Println("Aucune sauvegarde pour " + name)
-			return 0
-		}
-		targets = []string{name}
-	} else {
-		targets = savedGames()
+	targets, ok := saveTargetsOf(args)
+	if !ok {
+		return 0
 	}
 	fmt.Printf("--clear ne garde que drive_c/users de %d jeu(x) : scores et réglages\n", len(targets))
 	fmt.Println("  enregistrés ailleurs (jeux arcade, dossier du jeu, registre) seront perdus.")
-	fmt.Println("  Aucune archive n'est faite (sauvegardes de partie : --saves).")
+	fmt.Println("  Aucune archive n'est faite (tout effacer, avec archive : --erase).")
 	if isTerminal() && !confirm("Continuer ?") {
 		fmt.Println("Abandon.")
 		return 1
@@ -394,6 +545,26 @@ func cmdClear(args []string) int {
 	cleanCache()
 	for _, g := range targets {
 		clearSaves(g)
+	}
+	return 0
+}
+
+// cmdErase : --erase [jeu].
+func cmdErase(args []string) int {
+	targets, ok := saveTargetsOf(args)
+	if !ok {
+		return 0
+	}
+	fmt.Printf("--erase supprime toutes les sauvegardes de %d jeu(x) : chaque jeu repart de son image.\n", len(targets))
+	fmt.Println("  drive_c/users est archivé avant dans " + backupDir())
+	fmt.Println("  (restauration : tar -xf <archive> -C " + savesDir + "/<jeu>/).")
+	if isTerminal() && !confirm("Continuer ?") {
+		fmt.Println("Abandon.")
+		return 1
+	}
+	cleanCache()
+	for _, g := range targets {
+		eraseSaves(g)
 	}
 	return 0
 }

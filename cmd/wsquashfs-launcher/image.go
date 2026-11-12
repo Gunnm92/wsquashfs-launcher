@@ -58,6 +58,11 @@ func resolveGamePath() {
 		abs = real
 	}
 	wsquashfsFile = abs
+	// « .wsquashfs » ou « ..wsquashfs » : le dossier des sauvegardes du jeu
+	// serait celui de tous les jeux.
+	if n := gameNameOf(abs); n == "" || n == "." || n == ".." {
+		die("nom de jeu invalide : " + filepath.Base(abs))
+	}
 	st, err := os.Stat(abs)
 	switch {
 	case err == nil && st.IsDir():
@@ -257,11 +262,57 @@ func extractImage() {
 			"  → Exposer /dev/fuse dans le conteneur : --device /dev/fuse",
 			"  → Ou installer squashfs-tools : apt-get install squashfs-tools")
 	}
+	restoreCopyUsers()
 	_ = os.WriteFile(winePoint+"/.wsquashfs_cache", []byte(imageSignature()), 0o644)
 	chownToTarget(winePoint)
 }
 
-// removeCopy : supprime l'ancienne copie de travail. Jamais à travers un
+// copyUsersStash : drive_c/users d'une copie de travail (mode copy), mis de
+// côté pendant que la copie est supprimée ou refaite. Hors de wine/ : ce
+// dossier-là est lu comme une liste de jeux.
+func copyUsersStash(name string) string {
+	return filepath.Join(cacheDir, "copy-users", name)
+}
+
+// stashCopyUsers : met de côté drive_c/users d'une copie de travail complète
+// (marquée .wsquashfs_cache), avant sa suppression. Une mise de côté plus
+// ancienne, jamais remise en place, est complétée (le plus récent l'emporte).
+// Faux si les sauvegardes n'ont pas pu être mises à l'abri.
+func stashCopyUsers(copyDir, name string) bool {
+	users := copyDir + "/drive_c/users"
+	if !isFile(copyDir+"/.wsquashfs_cache") || !isDirPath(users) {
+		return true
+	}
+	stash := copyUsersStash(name)
+	if isDirPath(stash) {
+		return execQuiet("cp", "-a", users+"/.", stash+"/") == nil
+	}
+	if err := os.MkdirAll(filepath.Dir(stash), 0o755); err != nil {
+		return false
+	}
+	chownToTarget(filepath.Dir(stash))
+	return os.Rename(users, stash) == nil
+}
+
+// restoreCopyUsers : remet drive_c/users dans la copie de travail neuve, à la
+// place de celui de l'image (comme en overlay, où les sauvegardes masquent
+// l'image ; une fusion buterait sur les liens /userdata de l'image, devenus
+// des dossiers). En cas d'échec, la mise de côté est gardée.
+func restoreCopyUsers() {
+	stash := copyUsersStash(gameName)
+	if !isDirPath(stash) {
+		return
+	}
+	users := winePoint + "/drive_c/users"
+	if os.MkdirAll(filepath.Dir(users), 0o755) != nil || os.RemoveAll(users) != nil || os.Rename(stash, users) != nil {
+		warn("sauvegardes de la copie non remises en place, gardées dans " + stash)
+		return
+	}
+	fmt.Println("Sauvegardes   : drive_c/users repris de la copie précédente")
+}
+
+// removeCopy : supprime l'ancienne copie de travail (drive_c/users mis de
+// côté d'abord, remis par restoreCopyUsers après l'extraction). Jamais à travers un
 // montage resté en place (démontage raté) : la suppression atteindrait
 // l'image ou, en overlay, les sauvegardes.
 func removeCopy() {
@@ -271,6 +322,10 @@ func removeCopy() {
 			die(winePoint+" est encore monté (démontage impossible) : copie annulée",
 				"  → "+os.Args[0]+" --umount \""+wsquashfsFile+"\"")
 		}
+	}
+	if !stashCopyUsers(winePoint, gameName) {
+		die("sauvegardes de la copie de travail impossibles à mettre de côté : copie gardée",
+			"  ("+winePoint+"/drive_c/users → "+copyUsersStash(gameName)+")")
 	}
 	_ = os.RemoveAll(winePoint)
 }
@@ -414,6 +469,33 @@ func acquireGameLock() bool {
 	lockFile = f
 	lockedGame = gameName
 	return true
+}
+
+// lockIdleGame : verrou d'un jeu arrêté, le temps d'une maintenance de ses
+// sauvegardes ou de son cache : un lancement simultané attend son tour (il
+// répond « déjà lancé ») au lieu de monter un overlay sur des fichiers en
+// cours de suppression. Faux si le jeu tourne, est monté, ou est verrouillé.
+// Le verrou (nil si le fichier ne peut pas être créé) se rend par Close.
+func lockIdleGame(name string) (*os.File, bool) {
+	if savesBusy(name) {
+		return nil, false
+	}
+	_ = os.MkdirAll(filepath.Join(cacheDir, "locks"), 0o755)
+	chownToTarget(filepath.Join(cacheDir, "locks"))
+	f, err := os.OpenFile(lockPath(name), os.O_CREATE|os.O_RDONLY, 0o644)
+	if err != nil {
+		return nil, true
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		f.Close()
+		return nil, false
+	}
+	// Lancé entre le contrôle et la prise du verrou.
+	if gameInUse(name) || isMountPoint(filepath.Join(cacheDir, "wine", name)) {
+		f.Close()
+		return nil, false
+	}
+	return f, true
 }
 
 // gameLocked : un AUTRE lancement tient le verrou de ce jeu.

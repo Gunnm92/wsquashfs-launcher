@@ -75,7 +75,6 @@ var (
 	hasNvidia, hasAMD                                         string
 	fsr, fsr4, fsr4On                                         string
 	preCmd, attachCmd, attachProcess                          string
-	attachPID                                                 int
 	machineLayer, folderLayer                                 string
 )
 
@@ -84,7 +83,6 @@ var (
 	execPath       string
 	execArgs       string
 	execArgsArr    []string
-	saveTargets    []string
 	ext            string
 	runCmdArgs     []string
 	wineBinary     string

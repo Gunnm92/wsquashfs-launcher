@@ -4,6 +4,7 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -33,7 +34,8 @@ func walkTree(root string, dev uint64, fn func(path string, info os.FileInfo)) {
 func isMountPoint(path string) bool {
 	st, err := os.Stat(path)
 	if err != nil {
-		return false
+		// Démon FUSE mort : le montage est toujours là, mais illisible.
+		return errors.Is(err, syscall.ENOTCONN)
 	}
 	parent, err := os.Stat(filepath.Dir(path))
 	if err != nil {

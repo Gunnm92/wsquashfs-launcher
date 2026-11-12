@@ -49,11 +49,15 @@ curl -fsSL https://raw.githubusercontent.com/Gunnm92/wsquashfs-launcher/main/wsq
 ```
 
 ```bash
-# Via install.sh (vérifie les dépendances, configure PATH, associe .wsquashfs)
+# Première installation : install.sh télécharge le lanceur (empreinte SHA-256
+# vérifiée) s'il est absent, puis lui passe la main (wsquashfs-launcher --setup)
 curl -fsSL https://raw.githubusercontent.com/Gunnm92/wsquashfs-launcher/main/install.sh | bash
 ```
 
-`install.sh` détecte la distribution et installe les paquets système :
+Tout le reste est fait par le lanceur lui-même : `wsquashfs-launcher --setup`
+installe le binaire qui tourne (aucun second téléchargement), vérifie les
+dépendances, configure le PATH et associe les `.wsquashfs` ; `--update` le met
+à jour ensuite. `--setup` détecte la distribution et installe les paquets système :
 
 - **Debian/Ubuntu** (apt) : `wine32:i386`, `libxkbcommon0:i386`, `squashfuse`,
   `squashfs-tools`, `xz-utils`, `fuse-overlayfs`, `attr`, `zstd`, `unzip` et,
@@ -116,7 +120,7 @@ cp wsquashfs-launcher ~/.local/bin/
 #### Avec Make
 
 ```bash
-make install      # installe dans /usr/local/bin
+make install      # ./wsquashfs-launcher --setup : ~/.local/bin (/usr/local/bin en root)
 make uninstall
 ```
 
@@ -207,18 +211,23 @@ wsquashfs-launcher --pack MonJeu.pc            # → MonJeu.wsquashfs
 # ses sauvegardes), refus sans terminal. L'ancienne image n'est remplacée
 # qu'une fois la nouvelle construite.
 
-# Supprimer les copies de travail et les doublons des sauvegardes : fichiers
-# du jeu recopiés sans modification (jeu qui ouvre ses données en écriture :
-# plusieurs Go de copies possibles), DLL que Proton recopie à chaque lancement.
-# Vide aussi ~/.local/share/wsquashfs/backups (archives de l'ancien --backup).
-# Tout ce que le jeu a écrit est gardé ; jeux en cours exceptés.
+# Ménage sans risque : supprime les copies de travail et les doublons des
+# sauvegardes (fichiers du jeu recopiés sans modification, DLL que Proton
+# recopie à chaque lancement). Tout ce que le jeu a écrit est gardé ; jeux en
+# cours exceptés. Ne garde que les 3 dernières archives de --erase par jeu.
 wsquashfs-launcher --clean
 
-# Radical : ne garder que drive_c/users (sauvegardes des jeux PC récents) de
-# tous les jeux, ou d'un seul. Prefix recréé au lancement suivant ; scores et
+# Plus profond : ne garder que drive_c/users (sauvegardes de partie) de tous
+# les jeux, ou d'un seul. Prefix recréé au lancement suivant ; scores et
 # réglages écrits ailleurs (jeux arcade, dossier du jeu, registre) perdus.
-# Aucune archive : copier d'abord avec --saves si besoin.
+# Aucune archive.
 wsquashfs-launcher --clear ["Nom du jeu"]
+
+# Tout effacer, de tous les jeux ou d'un seul : drive_c/users est archivé dans
+# ~/.local/share/wsquashfs/backups (<jeu>-AAAAMMJJ-HHMMSS.tar.zst), puis
+# toutes les sauvegardes du jeu sont supprimées ; il repart de son image.
+# Restauration : tar -xf <archive> -C ~/.local/share/wsquashfs/saves/<jeu>/
+wsquashfs-launcher --erase ["Nom du jeu"]
 
 # Copier les sauvegardes de partie (tous les jeux, ou un seul) dans la
 # ludothèque, <racine>/saves/<système>/<jeu>/drive_c/users/... : Documents,
@@ -548,7 +557,8 @@ chaque montage noyau.
 2. Un fichier `.wsquashfs_cache` (taille + mtime de la source) marque le cache comme valide
 3. Wine exécute le jeu depuis `wine/<jeu>/`
 4. Les sauvegardes sont dans `wine/<jeu>/` (persistantes entre sessions)
-5. `--clean` supprime les copies de travail (libère l'espace)
+5. `--clean` supprime les copies de travail (libère l'espace) ; `drive_c/users` est
+   mis de côté et repris à l'extraction suivante, comme lors d'un changement d'image
 
 ## Structure du projet
 
@@ -625,7 +635,7 @@ echo $DISPLAY
 # Supprimer uniquement le cache d'un jeu
 rm -rf ~/.cache/wsquashfs/wine/"Nom du Jeu"
 
-# Supprimer tous les caches
+# Supprimer tous les caches (drive_c/users est repris à l'extraction suivante)
 wsquashfs-launcher --clean
 ```
 

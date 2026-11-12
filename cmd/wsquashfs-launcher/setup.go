@@ -88,10 +88,15 @@ func installRepoFile(rel, dest string) error {
 	return os.Rename(tmp, dest)
 }
 
-// installSelf : le lanceur installé est ce binaire lui-même.
+// installSelf : le lanceur installé est ce binaire lui-même (rien à faire
+// s'il tourne déjà depuis dest). Copie voisine renommée ensuite : un lanceur
+// en cours d'exécution garde son fichier.
 func installSelf(dest string) error {
 	if dryRun {
 		fmt.Println("    [simulation] " + exePath() + " → " + dest)
+		return nil
+	}
+	if sameFile(exePath(), dest) {
 		return nil
 	}
 	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
@@ -105,19 +110,46 @@ func installSelf(dest string) error {
 	return os.Rename(tmp, dest)
 }
 
-// installLauncher : le lanceur du dépôt (script bash, comme install.sh), puis
-// le pont DualSense. Le binaire Go ne lance pas encore les jeux : il ne
-// remplacera ce script qu'à la parité (installSelf est prêt pour ce moment).
+// sameFile : deux chemins du même fichier (liens résolus).
+func sameFile(a, b string) bool {
+	sa, errA := os.Stat(a)
+	sb, errB := os.Stat(b)
+	return errA == nil && errB == nil && os.SameFile(sa, sb)
+}
+
+// installBridge : pont DualSense, pris à côté du binaire (dépôt cloné) ;
+// sinon téléchargé du dépôt.
+func installBridge(dest string) error {
+	const rel = "tools/dualsense-usb-bridge/dualsense-usb-bridge"
+	local := filepath.Join(filepath.Dir(exePath()), rel)
+	if !isFile(local) {
+		return installRepoFile(rel, dest)
+	}
+	if dryRun {
+		fmt.Println("    [simulation] " + local + " → " + dest)
+		return nil
+	}
+	tmp := fmt.Sprintf("%s.new.%d", dest, os.Getpid())
+	if err := copyFile(local, tmp, 0o755); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	return os.Rename(tmp, dest)
+}
+
+// installLauncher : ce binaire s'installe lui-même (aucun téléchargement :
+// la version installée est celle qui tourne, « --update » la met à jour),
+// puis le pont DualSense.
 func installLauncher() bool {
 	section("Lanceur")
 	dest := filepath.Join(installDir, "wsquashfs-launcher")
-	if err := installRepoFile("wsquashfs-launcher", dest); err != nil {
+	if err := installSelf(dest); err != nil {
 		printError("Installation du lanceur impossible : " + err.Error())
 		return false
 	}
 	printSuccess("Lanceur : " + dest)
 	bridge := filepath.Join(installDir, "dualsense-usb-bridge")
-	if installRepoFile("tools/dualsense-usb-bridge/dualsense-usb-bridge", bridge) == nil && !dryRun {
+	if installBridge(bridge) == nil && !dryRun {
 		printSuccess("Pont DualSense : " + bridge)
 	}
 	return true
@@ -319,9 +351,8 @@ ExecStart=%s/wsquashfs-launcher --agent
 	return os.WriteFile(filepath.Join(agentUnitDir, "wsquashfs-agent.service"), []byte(service), 0o644)
 }
 
-// installAgent : moteur de l'agent (wsquashfs-agent.py), initialisation et
-// socket systemd utilisateur. Le moteur reste celui du dépôt, lancé par le
-// lanceur installé.
+// installAgent : initialisation de l'agent (jeton, certificat) par le lanceur
+// installé, puis socket et service systemd utilisateur.
 func installAgent() bool {
 	section("Agent pour wsquashfs-manager")
 	if os.Geteuid() == 0 {

@@ -46,7 +46,7 @@ services:
       - ${WSQUASHFS_GAMES:-./games}:/games:${WSQUASHFS_GAMES_MODE:-ro}
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
       - /run/user/${UID:-1000}/pulse:/run/user/${UID:-1000}/pulse:ro
-      # Sauvegardes (couches overlay, archives --backup) et cache, conservés
+      # Sauvegardes (couches overlay) et cache, conservés
       # d'un lancement à l'autre
       - wsquashfs-data:/home/wineuser/.local/share/wsquashfs
       - wsquashfs-cache:/home/wineuser/.cache/wsquashfs

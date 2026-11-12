@@ -41,14 +41,19 @@ Usage :
         Jeu.wsquashfs). Autre dossier (prefix .wine, jeu installé par
         --install) : lancé sur place, le jeu écrit directement dans son dossier.
   wsquashfs-launcher --clean
-        Supprime les copies de travail (cache), les doublons des sauvegardes
-        (fichiers identiques à l'image du jeu, DLL que Proton recopie à chaque
-        lancement) et les anciennes archives de ~/.local/share/wsquashfs/backups.
-        Tout ce que le jeu a écrit est gardé ; jeux en cours exceptés.
+        Ménage sans risque : supprime les copies de travail (cache) et les
+        doublons des sauvegardes (fichiers identiques à l'image du jeu, DLL
+        que Proton recopie à chaque lancement). Tout ce que le jeu a écrit est
+        gardé ; jeux en cours exceptés. Ne garde que les 3 dernières archives
+        de --erase par jeu.
   wsquashfs-launcher --clear [jeu]
         Ne garde que drive_c/users des sauvegardes (de tous les jeux, ou d'un
         seul) : le reste (prefix, registre, scores et réglages écrits dans le
         dossier du jeu) est supprimé, sans archive. Confirmation au terminal.
+  wsquashfs-launcher --erase [jeu]
+        Efface toutes les sauvegardes (de tous les jeux, ou d'un seul) : le
+        jeu repart de son image. drive_c/users est archivé avant dans
+        ~/.local/share/wsquashfs/backups. Confirmation au terminal.
   wsquashfs-launcher --list
         Liste les jeux connus : état (en cours, monté), version, taille des
         sauvegardes et image.
@@ -113,7 +118,7 @@ Variables d'environnement :
                              fuse : toujours fuse-overlayfs ; kernel : sans repli
   WSQUASHFS_SAVES_DIR        Sauvegardes overlay (défaut: ~/.local/share/wsquashfs/saves)
   WSQUASHFS_CACHE            Cache de travail   (défaut: ~/.cache/wsquashfs)
-  WSQUASHFS_BACKUP_DIR       Anciennes archives, vidées par --clean (défaut: ~/.local/share/wsquashfs/backups)
+  WSQUASHFS_BACKUP_DIR       Archives de --erase (défaut: ~/.local/share/wsquashfs/backups)
   WSQUASHFS_DXVK=0           Désactive DXVK (défaut : activé)
   WSQUASHFS_HIDRAW=1         Manettes Sony par hidraw si lisibles (défaut : XInput,
                              comme Batocera ; aussi par jeu via HIDRAW=1 dans autorun.cmd) ;
@@ -129,5 +134,5 @@ Variables d'environnement :
                              est active et la couche installée ; 1 force NVAPI ; 0 coupe.
                              Aussi par jeu : VKREFLEX= dans autorun.cmd
   WSQUASHFS_FSR=0|1          FSR de Wine en plein écran (défaut 0). Aussi par jeu : FSR=1 dans autorun.cmd
-  WSQUASHFS_FSR4=0|1         FSR4 (amdxcffx64.dll, carte AMD, DLL d'install.sh) : la DLL est posée dans le
+  WSQUASHFS_FSR4=0|1         FSR4 (amdxcffx64.dll, carte AMD, DLL copiée par --setup) : la DLL est posée dans le
                              prefix, le jeu décide de l'utiliser. Défaut 0. Aussi par jeu : FSR4=1

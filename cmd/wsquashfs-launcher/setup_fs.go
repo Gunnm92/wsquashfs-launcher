@@ -108,12 +108,14 @@ func fileSHA256(path string) (string, error) {
 }
 
 // githubAssetSHA256 : empreinte SHA-256 qu'affiche GitHub pour un fichier
-// d'une version publiée (champ digest de l'API), "" si inconnue (API
-// injoignable, version publiée avant que GitHub ne les calcule).
-func githubAssetSHA256(repo, tag, file string) string {
+// d'une version publiée (champ digest de l'API). "" si GitHub n'en publie pas
+// pour ce fichier (version antérieure à leur calcul) ; reachable faux si
+// l'API n'a pas répondu (panne, limite de débit) : l'empreinte est alors
+// inconnue, pas absente.
+func githubAssetSHA256(repo, tag, file string) (digest string, reachable bool) {
 	body, err := downloadBytes("https://api.github.com/repos/" + repo + "/releases/tags/" + tag)
 	if err != nil {
-		return ""
+		return "", false
 	}
 	var rel struct {
 		Assets []struct {
@@ -122,20 +124,30 @@ func githubAssetSHA256(repo, tag, file string) string {
 		} `json:"assets"`
 	}
 	if json.Unmarshal(body, &rel) != nil {
-		return ""
+		return "", false
 	}
 	for _, a := range rel.Assets {
 		if a.Name == file && strings.HasPrefix(a.Digest, "sha256:") {
-			return strings.ToLower(strings.TrimPrefix(a.Digest, "sha256:"))
+			return strings.ToLower(strings.TrimPrefix(a.Digest, "sha256:")), true
 		}
 	}
-	return ""
+	return "", true
 }
 
 // verifyGithubAsset : archive conforme à l'empreinte publiée par GitHub.
-// Faux si elle diffère ; vrai avec un avertissement si GitHub n'en donne pas.
+// Faux si elle diffère. GitHub n'en publie pas pour ce fichier : acceptée
+// avec un avertissement. API injoignable : refusée, sauf accord donné au
+// terminal (jamais avec --yes ni sans terminal).
 func verifyGithubAsset(archive, repo, tag, file string) bool {
-	want := githubAssetSHA256(repo, tag, file)
+	want, reachable := githubAssetSHA256(repo, tag, file)
+	if !reachable {
+		printError(file + " : empreinte introuvable (API GitHub injoignable ou limite de débit)")
+		if assumeYes || !askYesNo("Installer "+file+" sans vérification ?", false) {
+			printInfo(file + " ignoré : relancer l'installation plus tard")
+			return false
+		}
+		return true
+	}
 	if want == "" {
 		printInfo(file + " : empreinte non publiée par GitHub, archive non vérifiée")
 		return true

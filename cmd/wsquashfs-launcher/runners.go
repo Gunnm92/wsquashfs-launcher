@@ -26,7 +26,7 @@ func sysPath(p string) string {
 func installedWines(filter *regexp.Regexp) []string {
 	var out []string
 	home := os.Getenv("HOME")
-	for _, d := range []string{filepath.Join(home, ".local/share/wsquashfs/wine"), "/opt"} {
+	for _, d := range []string{filepath.Join(home, ".local/share/wsquashfs/wine"), sysPath("/opt")} {
 		if st, err := os.Stat(d); err != nil || !st.IsDir() {
 			continue
 		}

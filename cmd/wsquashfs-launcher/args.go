@@ -56,7 +56,7 @@ func parseArgs(args []string) (*options, error) {
 		case "--update":
 			o.action = "update"
 			return o, nil
-		case "--clean", "--clear", "--umount", "--pack", "--install", "--info",
+		case "--clean", "--clear", "--erase", "--umount", "--pack", "--install", "--info",
 			"--show", "--saves", "--list", "--doctor":
 			o.action = strings.TrimPrefix(a, "--")
 			o.cmdArgs = args[i+1:]

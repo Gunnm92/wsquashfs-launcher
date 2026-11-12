@@ -100,7 +100,8 @@ de Proton. Sauvegardes et cache sont dans des volumes Docker.
   passe en mode copy (unsquashfs).
 - **Un jeu reste monté** : `wsquashfs-launcher --umount` (tous les jeux).
 - **Repartir de zéro pour un jeu** : `wsquashfs-launcher --clear "MonJeu"` ne
-  garde que `drive_c/users`, après une archive automatique.
+  garde que `drive_c/users` ; `--erase "MonJeu"` supprime tout, après avoir
+  archivé `drive_c/users`.
 
 ## 📚 Documentation
 

@@ -119,6 +119,7 @@ WINESERVER -k
 WINESERVER -w
 ################ TREE after-kernel
 d cache -> 
+d cache/copy-users -> 
 d cache/locks -> 
 d cache/mnt -> 
 d cache/mnt/Arcade Game -> 
@@ -144,51 +145,6 @@ d saves/Arcade Game/drive_c/windows ->
 d saves/Arcade Game/drive_c/windows/system32 -> 
 d saves/Arcade Game/drive_c/windows/syswow64 -> 
 d saves/Arcade Game/regs -> 
-d saves/Hook Game -> 
-d saves/Hook Game/drive_c -> 
-d saves/Hook Game/drive_c/users -> 
-d saves/Hook Game/drive_c/users/wsqtest -> 
-d saves/Loader Game -> 
-d saves/Loader Game/drive_c -> 
-d saves/Loader Game/drive_c/users -> 
-d saves/Loader Game/drive_c/users/wsqtest -> 
-d saves/Missing Runner Game -> 
-d saves/Missing Runner Game/drive_c -> 
-d saves/Missing Runner Game/drive_c/users -> 
-d saves/Missing Runner Game/drive_c/users/wsqtest -> 
-d saves/Named Game -> 
-d saves/Named Game/drive_c -> 
-d saves/Named Game/drive_c/users -> 
-d saves/Named Game/drive_c/users/wsqtest -> 
-d saves/Old32 -> 
-d saves/Old32/drive_c -> 
-d saves/Old32/drive_c/users -> 
-d saves/Old32/drive_c/users/wsqtest -> 
-d saves/Old32/drive_c/windows -> 
-d saves/Old32/drive_c/windows/system32 -> 
-d saves/Pre Fail Game -> 
-d saves/Pre Fail Game/drive_c -> 
-d saves/Pre Fail Game/drive_c/users -> 
-d saves/Pre Fail Game/drive_c/users/wsqtest -> 
-d saves/Relative Runner Game -> 
-d saves/Relative Runner Game/drive_c -> 
-d saves/Relative Runner Game/drive_c/users -> 
-d saves/Relative Runner Game/drive_c/users/wsqtest -> 
-d saves/Solo Game -> 
-d saves/Solo Game/drive_c -> 
-d saves/Solo Game/drive_c/users -> 
-d saves/Solo Game/drive_c/users/wsqtest -> 
-d saves/Solo Game/drive_c/windows -> 
-d saves/Solo Game/drive_c/windows/system32 -> 
-d saves/Solo Game/drive_c/windows/syswow64 -> 
-d saves/Two Runners Game -> 
-d saves/Two Runners Game/drive_c -> 
-d saves/Two Runners Game/drive_c/users -> 
-d saves/Two Runners Game/drive_c/users/wsqtest -> 
-d saves/Wine Joint Game -> 
-d saves/Wine Joint Game/drive_c -> 
-d saves/Wine Joint Game/drive_c/users -> 
-d saves/Wine Joint Game/drive_c/users/wsqtest -> 
 d src -> 
 d src/Arcade Game.wine -> 
 d src/Arcade Game.wine/drive_c -> 
@@ -295,6 +251,7 @@ d userdata/saves/windows/Old32 ->
 d userdata/saves/windows/Old32/drive_c -> 
 d userdata/saves/windows/Old32/drive_c/game -> 
 f cache/locks/Arcade Game.lock -> 
+f cache/locks/Folder Game.lock -> 
 f cache/locks/Hook Game.lock -> 
 f cache/locks/Joint Game.lock -> 
 f cache/locks/Loader Game.lock -> 
@@ -322,30 +279,6 @@ f saves/.images/Two Runners Game ->
 f saves/.images/Wine Joint Game -> 
 f saves/Arcade Game/drive_c/Game Dir/Bin/Game.EXE -> 
 f saves/Arcade Game/regs/b.reg -> 
-f saves/Hook Game/drive_c/users/.wh..wh..opq -> 
-f saves/Hook Game/drive_c/users/wsqtest/.wh..wh..opq -> 
-f saves/Loader Game/drive_c/users/.wh..wh..opq -> 
-f saves/Loader Game/drive_c/users/wsqtest/.wh..wh..opq -> 
-f saves/Missing Runner Game/drive_c/users/.wh..wh..opq -> 
-f saves/Missing Runner Game/drive_c/users/wsqtest/.wh..wh..opq -> 
-f saves/Named Game/drive_c/users/.wh..wh..opq -> 
-f saves/Named Game/drive_c/users/wsqtest/.wh..wh..opq -> 
-f saves/Old32/drive_c/users/.wh..wh..opq -> 
-f saves/Old32/drive_c/users/wsqtest/.wh..wh..opq -> 
-f saves/Pre Fail Game/drive_c/users/.wh..wh..opq -> 
-f saves/Pre Fail Game/drive_c/users/wsqtest/.wh..wh..opq -> 
-f saves/Relative Runner Game/drive_c/users/.wh..wh..opq -> 
-f saves/Relative Runner Game/drive_c/users/wsqtest/.wh..wh..opq -> 
-f saves/Solo Game/drive_c/users/.wh..wh..opq -> 
-f saves/Solo Game/drive_c/users/wsqtest/.wh..wh..opq -> 
-f saves/Solo Game/drive_c/windows/.wh..wh..opq -> 
-f saves/Solo Game/drive_c/windows/system32/.wh..wh..opq -> 
-f saves/Solo Game/drive_c/windows/system32/explorer.exe -> 
-f saves/Solo Game/system.reg -> 
-f saves/Two Runners Game/drive_c/users/.wh..wh..opq -> 
-f saves/Two Runners Game/drive_c/users/wsqtest/.wh..wh..opq -> 
-f saves/Wine Joint Game/drive_c/users/.wh..wh..opq -> 
-f saves/Wine Joint Game/drive_c/users/wsqtest/.wh..wh..opq -> 
 f src/Arcade Game.wine/autorun.cmd -> 
 f src/Arcade Game.wine/drive_c/Game Dir/Bin/Config.exe -> 
 f src/Arcade Game.wine/drive_c/Game Dir/Bin/Game.EXE -> 
@@ -451,22 +384,6 @@ l saves/Arcade Game/drive_c/windows/syswow64/ddraw.dll -> ROOT/d7vk/x32/ddraw.dl
 l saves/Arcade Game/drive_c/windows/syswow64/ddraw_.dll -> ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/lib/wine/i386-windows/ddraw.dll
 l saves/Arcade Game/drive_c/windows/syswow64/dxgi.dll -> ROOT/dxvk/x32/dxgi.dll
 l saves/Arcade Game/drive_c/windows/syswow64/kernel32.dll -> ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/lib/wine/i386-windows/kernel32.dll
-l saves/Old32/drive_c/windows/system32/d3d12.dll -> ROOT/vkd3d/x86/d3d12.dll
-l saves/Old32/drive_c/windows/system32/ddraw.dll -> ROOT/d7vk/x32/ddraw.dll
-l saves/Old32/drive_c/windows/system32/ddraw_.dll -> ROOT/home/.local/share/wsquashfs/wine/wine-classic/lib/wine/i386-windows/ddraw.dll
-l saves/Old32/drive_c/windows/system32/kernel32.dll -> ROOT/home/.local/share/wsquashfs/wine/wine-classic/lib/wine/i386-windows/kernel32.dll
-l saves/Solo Game/drive_c/windows/system32/d3d11.dll -> ROOT/dxvk/x64/d3d11.dll
-l saves/Solo Game/drive_c/windows/system32/d3d12.dll -> ROOT/vkd3d/x64/d3d12.dll
-l saves/Solo Game/drive_c/windows/system32/d3d9.dll -> ROOT/dxvk/x64/d3d9.dll
-l saves/Solo Game/drive_c/windows/system32/dxgi.dll -> ROOT/dxvk/x64/dxgi.dll
-l saves/Solo Game/drive_c/windows/system32/kernel32.dll -> ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/lib/wine/x86_64-windows/kernel32.dll
-l saves/Solo Game/drive_c/windows/syswow64/d3d11.dll -> ROOT/dxvk/x32/d3d11.dll
-l saves/Solo Game/drive_c/windows/syswow64/d3d12.dll -> ROOT/vkd3d/x86/d3d12.dll
-l saves/Solo Game/drive_c/windows/syswow64/d3d9.dll -> ROOT/dxvk/x32/d3d9.dll
-l saves/Solo Game/drive_c/windows/syswow64/ddraw.dll -> ROOT/d7vk/x32/ddraw.dll
-l saves/Solo Game/drive_c/windows/syswow64/ddraw_.dll -> ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/lib/wine/i386-windows/ddraw.dll
-l saves/Solo Game/drive_c/windows/syswow64/dxgi.dll -> ROOT/dxvk/x32/dxgi.dll
-l saves/Solo Game/drive_c/windows/syswow64/kernel32.dll -> ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/lib/wine/i386-windows/kernel32.dll
 l src/Arcade Game.wine/drive_c/users/steamuser/Music -> /userdata/system/Music
 l src/Arcade Game.wine/drive_c/windows/system32/dxgi.dll -> /userdata/system/wine/dxvk/x64/dxgi.dll
 ## opaques : Bin=y regs=y
@@ -600,7 +517,7 @@ Jeu           : Solo Game
 Fichier       : ROOT/userdata/roms/windows/Solo Game.wsquashfs
 Overlay noyau : échec, namespace utilisateur refusé (Operation not permitted)
 Mode          : overlay (squashfuse + fuse-overlayfs)
-✓ Préfixe Wine détecté (structure Batocera)
+Initialisation du préfixe Wine (win64)...
 Préfixe       : mise à jour pour wine-9.0 (fake)
 -----------------------------------------
 Exécutable    : ROOT/cache/wine/Solo Game/game/run me.exe
@@ -621,8 +538,17 @@ Bureau virtuel: 1280x720
 Jeu terminé (code : 0)
 =========================================
 -- stderr
-Attention : prefix Wine déjà créé dans les sauvegardes, gardé sous wine-tkg-fake — supprimer ROOT/saves/Solo Game (sauvegardes du jeu comprises) pour passer sous Proton
+Attention : umu-run absent, prefix créé par wine-tkg-fake au lieu de Proton
 == rc=0
+WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
+  WINEPREFIX=ROOT/cache/wine/Solo Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
+  WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
+WINESERVER -w
 WINE wine-tkg-fake cwd=ROOT args: [--version]
   WINEPREFIX=ROOT/cache/wine/Solo Game
   WINEARCH=win64
@@ -764,18 +690,18 @@ WINESERVER -w
 ################ kernel-list
 Jeu                   État        Version     Sauvegardes  Image
 Arcade Game           -           1.2.3       SIZE         ROOT/userdata/roms/windows/Arcade Game.wsquashfs
-Hook Game             -           -           SIZE         ROOT/userdata/roms/windows/Hook Game.wsquashfs
+Hook Game             -           -           aucune       ROOT/userdata/roms/windows/Hook Game.wsquashfs
 Joint Game            -           -           aucune       ROOT/userdata/roms/windows/Joint Game.wsquashfs
-Loader Game           -           -           SIZE         ROOT/userdata/roms/windows/Loader Game.wsquashfs
-Missing Runner Game   -           -           SIZE         ROOT/userdata/roms/windows/Missing Runner Game.wsquashfs
-Named Game            -           -           SIZE         ROOT/userdata/roms/windows/Named Game.wsquashfs
-Old32                 -           -           SIZE         ROOT/userdata/roms/windows/Old32.wsquashfs
-Pre Fail Game         -           -           SIZE         ROOT/userdata/roms/windows/Pre Fail Game.wsquashfs
+Loader Game           -           -           aucune       ROOT/userdata/roms/windows/Loader Game.wsquashfs
+Missing Runner Game   -           -           aucune       ROOT/userdata/roms/windows/Missing Runner Game.wsquashfs
+Named Game            -           -           aucune       ROOT/userdata/roms/windows/Named Game.wsquashfs
+Old32                 -           -           aucune       ROOT/userdata/roms/windows/Old32.wsquashfs
+Pre Fail Game         -           -           aucune       ROOT/userdata/roms/windows/Pre Fail Game.wsquashfs
 Proton Game           -           -           aucune       ROOT/userdata/roms/windows/Proton Game.wsquashfs
-Relative Runner Game  -           -           SIZE         ROOT/userdata/roms/windows/Relative Runner Game.wsquashfs
+Relative Runner Game  -           -           aucune       ROOT/userdata/roms/windows/Relative Runner Game.wsquashfs
 Solo Game             en cours    -           SIZE         ROOT/userdata/roms/windows/Solo Game.wsquashfs
-Two Runners Game      -           -           SIZE         ROOT/userdata/roms/windows/Two Runners Game.wsquashfs
-Wine Joint Game       -           -           SIZE         ROOT/userdata/roms/windows/Wine Joint Game.wsquashfs
+Two Runners Game      -           -           aucune       ROOT/userdata/roms/windows/Two Runners Game.wsquashfs
+Wine Joint Game       -           -           aucune       ROOT/userdata/roms/windows/Wine Joint Game.wsquashfs
 
 Sauvegardes : ROOT/saves (SIZE au total)
 == rc=0

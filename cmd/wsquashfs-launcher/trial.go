@@ -125,7 +125,7 @@ func launchesGame(args []string) bool {
 	}
 	switch o.action {
 	case "agent", "pair", "trial", "update", "setup", "help", "doctor", "list",
-		"info", "show", "saves", "clean", "clear", "pack", "install":
+		"info", "show", "saves", "clean", "clear", "erase", "pack", "install":
 		return false
 	}
 	return true

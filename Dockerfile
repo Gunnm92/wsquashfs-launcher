@@ -11,10 +11,16 @@
 FROM debian:bookworm-slim
 
 # Versions des composants téléchargés (docker build --build-arg ...)
+# Chaque archive est comparée à son empreinte SHA-256 (celle que GitHub publie
+# pour le fichier) : changer une version demande de changer son empreinte.
 ARG WINE_TKG_VERSION=11.19
+ARG WINE_TKG_SHA256=9035cea31ba5d6d597da20e018c865f85742aac35270b368e7c863d55d6d8fd5
 ARG DXVK_VERSION=3.1.1
+ARG DXVK_SHA256=40565b4a724aadc4433fa4e010b4b23916d9b1f1baeee64e17186db94f54e608
 ARG VKD3D_VERSION=3.0.1
+ARG VKD3D_SHA256=3cf2315522af5e43605ef6d3c41dad91387040bf97199934f3f7ab76caaa2f0c
 ARG D7VK_VERSION=2.3
+ARG D7VK_SHA256=ed7eec7d622d81c3606e3a7e705de955da65aba9d16ea812aa88711980b1bb66
 # Utilisateur du conteneur : même UID/GID que l'utilisateur de l'hôte, pour
 # l'accès à son serveur X11/Wayland, à son son et aux fichiers montés.
 ARG UID=1000
@@ -26,7 +32,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 # Paquets système :
 #  - montage des images : squashfuse, fuse3 (fusermount3), fuse-overlayfs,
 #    squashfs-tools (mode copy, --info, --pack) ;
-#  - outils du lanceur : attr (--clean), zstd (--backup), util-linux (flock),
+#  - outils du lanceur : attr (--clean), zstd (archive de VKD3D-Proton), util-linux (flock),
 #    procps (pgrep), python3 (dualsense-usb-bridge) ;
 #  - Wine de Debian (64 et 32 bits) : ses dépendances i386 servent aussi à
 #    wine-tkg (non WoW64) ; libxkbcommon0:i386 pour son pilote Wayland 32 bits ;
@@ -48,24 +54,29 @@ RUN dpkg --add-architecture i386 \
 # Batocera.
 RUN set -eux; \
     mkdir -p /usr/wine; \
-    curl -fsSL "https://github.com/Kron4ek/Wine-Builds/releases/download/${WINE_TKG_VERSION}/wine-${WINE_TKG_VERSION}-staging-tkg-amd64.tar.xz" \
-        | tar -xJ -C /usr/wine; \
+    curl -fsSL -o /tmp/wine-tkg.tar.xz "https://github.com/Kron4ek/Wine-Builds/releases/download/${WINE_TKG_VERSION}/wine-${WINE_TKG_VERSION}-staging-tkg-amd64.tar.xz"; \
+    echo "${WINE_TKG_SHA256}  /tmp/wine-tkg.tar.xz" | sha256sum -c -; \
+    tar -xJf /tmp/wine-tkg.tar.xz -C /usr/wine; \
+    rm -f /tmp/wine-tkg.tar.xz; \
     mv "/usr/wine/wine-${WINE_TKG_VERSION}-staging-tkg-amd64" /usr/wine/wine-tkg; \
     /usr/wine/wine-tkg/bin/wine --version
 
 # DXVK, VKD3D-Proton et d7vk (versions Windows) dans /usr/share, où le
 # lanceur les cherche.
 RUN set -eux; \
-    curl -fsSL "https://github.com/doitsujin/dxvk/releases/download/v${DXVK_VERSION}/dxvk-${DXVK_VERSION}.tar.gz" \
-        | tar -xz -C /usr/share; \
+    curl -fsSL -o /tmp/dxvk.tar.gz "https://github.com/doitsujin/dxvk/releases/download/v${DXVK_VERSION}/dxvk-${DXVK_VERSION}.tar.gz"; \
+    echo "${DXVK_SHA256}  /tmp/dxvk.tar.gz" | sha256sum -c -; \
+    tar -xzf /tmp/dxvk.tar.gz -C /usr/share; \
     mv "/usr/share/dxvk-${DXVK_VERSION}" /usr/share/dxvk; \
-    curl -fsSL "https://github.com/HansKristian-Work/vkd3d-proton/releases/download/v${VKD3D_VERSION}/vkd3d-proton-${VKD3D_VERSION}.tar.zst" \
-        | tar --zstd -x -C /usr/share; \
+    curl -fsSL -o /tmp/vkd3d.tar.zst "https://github.com/HansKristian-Work/vkd3d-proton/releases/download/v${VKD3D_VERSION}/vkd3d-proton-${VKD3D_VERSION}.tar.zst"; \
+    echo "${VKD3D_SHA256}  /tmp/vkd3d.tar.zst" | sha256sum -c -; \
+    tar --zstd -xf /tmp/vkd3d.tar.zst -C /usr/share; \
     mv "/usr/share/vkd3d-proton-${VKD3D_VERSION}" /usr/share/vkd3d-proton; \
     curl -fsSL -o /tmp/d7vk.zip "https://github.com/WinterSnowfall/d7vk/releases/download/v${D7VK_VERSION}/d7vk-v${D7VK_VERSION}.zip"; \
+    echo "${D7VK_SHA256}  /tmp/d7vk.zip" | sha256sum -c -; \
     unzip -q /tmp/d7vk.zip -d /usr/share; \
     mv "/usr/share/d7vk-v${D7VK_VERSION}" /usr/share/d7vk; \
-    rm -f /tmp/d7vk.zip; \
+    rm -f /tmp/d7vk.zip /tmp/dxvk.tar.gz /tmp/vkd3d.tar.zst; \
     test -f /usr/share/dxvk/x64/dxgi.dll; \
     test -f /usr/share/vkd3d-proton/x64/d3d12.dll; \
     test -f /usr/share/d7vk/x32/ddraw.dll

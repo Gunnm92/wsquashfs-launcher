@@ -552,11 +552,12 @@ step install-exist "$L" --install "$ROMS/Arcade Game.wsquashfs" "$ROOT/installed
 step run-dir       env WSQUASHFS_UMU=0 "$L" "$ROOT/installed/Arcade Game"
 step mount-dir     "$L" --mount "$ROOT/installed/Arcade Game"
 
-# --clean vide les archives de l'ancien --backup (.part compris) ; les autres
-# fichiers du dossier restent.
+# --clean ne garde que les 3 dernières archives de --erase par jeu et retire
+# les archives inachevées (.part) ; les autres fichiers du dossier restent.
 BACKUPS="$HOME/.local/share/wsquashfs/backups"
 mkdir -p "$BACKUPS"
-for f in "Jeu-A-20261101-100000.tar.zst" "Jeu-A-20261101-100000-2.tar.zst" "Autre-20261001-090000.tar.gz" \
+for f in "Jeu-A-20261101-100000.tar.zst" "Jeu-A-20261101-100000-2.tar.zst" "Jeu-A-20261102-100000.tar.zst" \
+         "Jeu-A-20261103-100000.tar.zst" "Autre-20261001-090000.tar.gz" \
          "Jeu-A-20261104-100000.tar.zst.part" "notes.txt"; do
     printf 'x' > "${BACKUPS}/${f}"
 done
@@ -565,13 +566,14 @@ done
 snapshot before-clean
 step clean         "$L" --clean
 snapshot after-clean
-note "archives après --clean : $(ls "$BACKUPS" 2>/dev/null | paste -sd ' ')"
+# Noms réels (non normalisés) : c'est le choix des archives gardées qui compte.
+echo "## archives après --clean : $(ls "$BACKUPS" 2>/dev/null | paste -sd ' ')" >> "$OUT"
 rm -rf "$BACKUPS"
 step clear-one     "$L" --clear "Solo Game"
 step clear-none    "$L" --clear "Unknown"
 step clear-all     "$L" --clear
 snapshot after-clear
-note "archives après --clear : $(ls "$HOME/.local/share/wsquashfs/backups" 2>/dev/null | wc -l)"
+note "archives après --clear : $(ls "$BACKUPS" 2>/dev/null | wc -l)"
 step list-after-clear "$L" --list
 step umount-all    "$L" --umount
 
@@ -579,6 +581,18 @@ step umount-all    "$L" --umount
 step copy1         env FAIL_OVERLAY=1 WSQUASHFS_UMU=0 "$L" "$ROMS/Arcade Game.wsquashfs"
 snapshot after-copy
 step copy2         env FAIL_OVERLAY=1 WSQUASHFS_UMU=0 "$L" "$ROMS/Arcade Game.wsquashfs"
+# Mode copy : les sauvegardes de partie (drive_c/users de la copie) survivent
+# à --clean, puis à une image modifiée (copie refaite).
+mkdir -p "$ROOT/cache/wine/Arcade Game/drive_c/users/steamuser/Documents"
+echo partie > "$ROOT/cache/wine/Arcade Game/drive_c/users/steamuser/Documents/slot1.sav"
+step copy-clean    "$L" --clean
+snapshot after-copy-clean
+step copy3         env FAIL_OVERLAY=1 WSQUASHFS_UMU=0 "$L" "$ROMS/Arcade Game.wsquashfs"
+note "sauvegarde après --clean puis relance : $(cat "$ROOT/cache/wine/Arcade Game/drive_c/users/steamuser/Documents/slot1.sav" 2>&1)"
+touch -d '2030-01-01' "$ROMS/Arcade Game.wsquashfs"
+step copy4         env FAIL_OVERLAY=1 WSQUASHFS_UMU=0 "$L" "$ROMS/Arcade Game.wsquashfs"
+note "sauvegarde après changement d'image : $(cat "$ROOT/cache/wine/Arcade Game/drive_c/users/steamuser/Documents/slot1.sav" 2>&1)"
+note "mises de côté restantes : $(ls "$ROOT/cache/copy-users" 2>/dev/null | wc -l)"
 
 # Jeu en cours, reconnu par son WINEPREFIX : chemin par défaut
 # (…/wsquashfs/wine) et chemin du CACHE_DIR personnalisé.
@@ -653,6 +667,7 @@ cp "$P/drive_c/Game Dir/Bin/Config.exe" "$ROOT/saves/Arcade Game/drive_c/Game Di
 echo modified > "$ROOT/saves/Arcade Game/drive_c/Game Dir/Bin/Game.EXE"
 step clean-dup     "$L" --clean
 snapshot after-clean-dup
+
 step umount-final  "$L" --umount
 note "montages restants : $(mount | grep -cF "$ROOT")"
 
@@ -718,6 +733,16 @@ rm -rf "$ROOT/saves/Layer Game" "$ROOT/saves/.images/Layer Game" "$ROOT/saves/.w
        "$ROOT/cache/wine/Layer Game" "$ROOT/cache/mnt/Layer Game" "$ROOT/cache/locks/Layer Game.lock" \
        "$ROOT/userdata/saves/layers" "$LR" "$ROOT/src/Layer Game" "$ROOT/gs"
 
+# --erase : drive_c/users archivé, puis toutes les sauvegardes supprimées
+mkdir -p "$ROOT/saves/Arcade Game/drive_c/users/steamuser/Documents"
+echo partie > "$ROOT/saves/Arcade Game/drive_c/users/steamuser/Documents/slot1.sav"
+step erase-one     "$L" --erase "Arcade Game"
+note "contenu de l'archive : $(tar -tf "$BACKUPS"/Arcade\ Game-*.tar.zst 2>&1 | grep -v '/$' | sort | paste -sd ' ')"
+step erase-none    "$L" --erase "Unknown"
+step erase-all     "$L" --erase
+snapshot after-erase
+note "archives après --erase : $(ls "$BACKUPS" 2>/dev/null | normalize | paste -sd ' ')"
+
 # ── Overlay noyau (namespace utilisateur) ──────────────────────────────
 #
 # Trace à part (expected-kernel.out), produite seulement là où la MACHINE
@@ -764,6 +789,7 @@ if [[ -z "$KERNEL_SKIP" ]]; then
     # (attribut : a.reg masqué).
     mkdir -p "$A/drive_c/Game Dir/Bin" "$A/regs"
     : > "$A/drive_c/Game Dir/Bin/.wh..wh..opq"
+    echo modified > "$A/drive_c/Game Dir/Bin/Game.EXE"
     setfattr -n user.fuseoverlayfs.opaque -v y "$A/regs"
     printf 'REGEDIT4\n' > "$A/regs/b.reg"
     step kernel-arcade env WSQUASHFS_OVERLAY=kernel WSQUASHFS_UMU=0 FAKE_LS="$LS_ARCADE" \

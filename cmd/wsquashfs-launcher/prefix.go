@@ -5,6 +5,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -130,6 +131,20 @@ func detectWineUsername() string {
 
 var wineOwnedRe = regexp.MustCompile(`Wine (builtin|placeholder) DLL`)
 
+// wineOwned : DLL interne de Wine. Sa marque est dans l'en-tête DOS (octet
+// 64) : le début du fichier suffit, sans relire des centaines de Mo de DLL à
+// chaque lancement.
+func wineOwned(path string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	head := make([]byte, 256)
+	n, _ := io.ReadFull(f, head)
+	return wineOwnedRe.Match(head[:n])
+}
+
 // syncWineStubs : liens symboliques vers les DLL du runner, à la place des DLL
 // internes de Wine (les DLL natives de Microsoft sont gardées). Écrit dans
 // targetRoot (SAVEPOINT en overlay, WINEPOINT sinon).
@@ -162,7 +177,7 @@ func syncWineStubs(wineBin, targetRoot string) {
 		owned := map[string]bool{}
 		if files, _ := filepath.Glob(winePoint + "/drive_c/windows/" + dstSub + "/*"); files != nil {
 			for _, f := range files {
-				if data, err := os.ReadFile(f); err == nil && wineOwnedRe.Match(data) {
+				if wineOwned(f) {
 					owned[filepath.Base(f)] = true
 				}
 			}
@@ -407,7 +422,7 @@ func resolveFsr4() {
 	if hasAMD != "1" {
 		warn("FSR4=1 ignoré : aucune carte AMD détectée")
 	} else if findFsr4Dll() == "" {
-		warn("FSR4=1 ignoré : amdxcffx64.dll introuvable (install.sh propose de la copier depuis proton-cachyos)")
+		warn("FSR4=1 ignoré : amdxcffx64.dll introuvable (--setup propose de la copier depuis proton-cachyos)")
 	} else {
 		fsr4On = "1"
 	}
@@ -626,6 +641,56 @@ func batoceraSavesDir() (string, bool) {
 	return root + "/saves/" + sys + "/" + gameName, true
 }
 
+// moveFile : déplace un fichier, y compris vers un autre système de fichiers
+// (le prefix est un montage : rename y échoue toujours). La source n'est
+// retirée qu'après une copie complète.
+func moveFile(src, dst string) error {
+	if os.Rename(src, dst) == nil {
+		return nil
+	}
+	st, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+	if err := copyFile(src, dst, st.Mode().Perm()); err != nil {
+		_ = os.Remove(dst)
+		return err
+	}
+	_ = os.Chtimes(dst, st.ModTime(), st.ModTime())
+	return os.Remove(src)
+}
+
+// copyTreeNoClobber : copie src dans dst sans écraser ce qui s'y trouve déjà
+// (cp -an). Première erreur renvoyée : l'appelant garde alors la source.
+func copyTreeNoClobber(src, dst string) error {
+	return filepath.Walk(src, func(p string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, _ := filepath.Rel(src, p)
+		target := filepath.Join(dst, rel)
+		switch {
+		case info.IsDir():
+			return os.MkdirAll(target, 0o755)
+		case pathExists(target):
+			return nil
+		case info.Mode()&os.ModeSymlink != 0:
+			link, err := os.Readlink(p)
+			if err != nil {
+				return err
+			}
+			return os.Symlink(link, target)
+		case info.Mode().IsRegular():
+			if err := copyFile(p, target, info.Mode().Perm()); err != nil {
+				_ = os.Remove(target)
+				return err
+			}
+			return os.Chtimes(target, info.ModTime(), info.ModTime())
+		}
+		return nil
+	})
+}
+
 // applySavedir : SAVEDIR / SAVEFILES, remplacés par des liens vers les
 // sauvegardes Batocera (copie initiale sans écraser).
 func applySavedir(savedir, savefiles string) {
@@ -646,7 +711,12 @@ func applySavedir(savedir, savefiles string) {
 		_ = os.MkdirAll(parent, 0o755)
 		p := parent + "/" + base
 		if st, err := os.Lstat(p); err == nil && st.IsDir() {
-			_ = runCmd("cp", "-an", p+"/.", sysdir+"/")
+			// Le dossier n'est retiré qu'une fois tout son contenu copié.
+			if err := copyTreeNoClobber(p, sysdir); err != nil {
+				warn("SAVEDIR : copie de "+p+" vers "+sysdir+" impossible ("+err.Error()+"),",
+					"  dossier laissé en place, sauvegardes non déplacées")
+				return
+			}
 			_ = os.RemoveAll(p)
 		}
 		if st, err := os.Lstat(p); err != nil || st.Mode()&os.ModeSymlink == 0 {
@@ -660,11 +730,14 @@ func applySavedir(savedir, savefiles string) {
 			_ = os.MkdirAll(filepath.Dir(sysdir+"/"+f), 0o755)
 			_ = os.MkdirAll(filepath.Dir(winePoint+"/"+f), 0o755)
 			target := winePoint + "/" + f
-			if st, err := os.Lstat(target); err == nil && st.Mode()&os.ModeSymlink == 0 && st.Mode().IsRegular() {
+			if st, err := os.Lstat(target); err == nil && st.Mode().IsRegular() {
 				if _, err := os.Lstat(sysdir + "/" + f); err != nil {
-					_ = os.Rename(target, sysdir+"/"+f)
+					// Le fichier n'est retiré du prefix qu'une fois arrivé.
+					if err := moveFile(target, sysdir+"/"+f); err != nil {
+						warn("SAVEFILES : " + f + " non déplacé vers " + sysdir + " (" + err.Error() + "), fichier laissé en place")
+						continue
+					}
 				}
-				_ = os.Remove(target)
 			}
 			_ = os.Remove(target)
 			_ = os.Symlink(sysdir+"/"+f, target)
