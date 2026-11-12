@@ -10,8 +10,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -201,4 +203,55 @@ func TestMaintenanceForcesColor(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), "force=1") {
 		t.Errorf("couleurs non forcées pour la maintenance : %s", rec.Body.String())
 	}
+}
+
+// TestAgentStop : --agent stop arrête le processus inscrit dans le fichier de
+// PID s'il est un agent, et ignore un PID périmé (sans tuer un autre processus).
+func TestAgentStop(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, "config"))
+	if err := os.MkdirAll(agentDir(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	// Faux agent : sa ligne de commande contient « --agent ».
+	fake := exec.Command("sh", "-c", "sleep 30", "--agent")
+	if err := fake.Start(); err != nil {
+		t.Fatal(err)
+	}
+	// Récupéré dès sa fin (comme le ferait le système pour un agent lancé
+	// hors du shell) : sinon il reste zombie et « kill 0 » le voit encore.
+	reaped := make(chan struct{})
+	go func() { fake.Wait(); close(reaped) }()
+	t.Cleanup(func() { fake.Process.Kill(); <-reaped })
+	if err := os.WriteFile(agentPidFile(), []byte(strconv.Itoa(fake.Process.Pid)+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, _ := capteUI(t)
+	if code := cmdAgentStop(); code != 0 {
+		t.Fatalf("code %d", code)
+	}
+	<-reaped
+	if !strings.Contains(out.String(), "Agent arrêté") {
+		t.Errorf("sortie : %q", out.String())
+	}
+	if pathExistsFile(agentPidFile()) {
+		t.Error("fichier de PID gardé après l'arrêt")
+	}
+
+	// PID périmé : un processus quelconque (ici le test lui-même) n'est pas touché.
+	if err := os.WriteFile(agentPidFile(), []byte(strconv.Itoa(os.Getpid())+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if code := cmdAgentStop(); code != 0 {
+		t.Fatalf("code %d", code)
+	}
+	if !strings.Contains(out.String(), "périmé") || pathExistsFile(agentPidFile()) {
+		t.Errorf("PID périmé mal traité : %q", out.String())
+	}
+}
+
+func pathExistsFile(p string) bool {
+	_, err := os.Stat(p)
+	return err == nil
 }

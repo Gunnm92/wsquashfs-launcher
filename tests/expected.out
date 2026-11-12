@@ -66,7 +66,7 @@ Usage :
   wsquashfs-launcher --pair [--reset] [--roms DIR]... [--port N]
         Prépare l'agent (jeton, certificat, dossiers roms/) et affiche le code
         d'association à coller dans wsquashfs-manager. --reset : nouveau jeton.
-  wsquashfs-launcher --agent [log]
+  wsquashfs-launcher --agent [log | stop]
         Agent pour wsquashfs-manager (machine de jeu sur le réseau). Sert en
         HTTPS, sur le port configuré ; avec systemd (socket), s'arrête seul sans
         requête. « log » : trace de chaque requête sur la sortie d'erreur.

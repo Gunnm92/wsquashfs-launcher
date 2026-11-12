@@ -327,6 +327,57 @@ func startAgentDetached() (int, error) {
 	return pid, nil
 }
 
+// agentPidFile : PID de l'agent en marche.
+func agentPidFile() string {
+	return filepath.Join(agentDir(), "agent.pid")
+}
+
+// cmdAgentStop : --agent stop. Arrête l'agent (SIGTERM) pour le PID inscrit
+// dans agentPidFile, seulement si ce processus est bien un agent (sinon, le
+// fichier est périmé et retiré). Rien à arrêter : code 0.
+func cmdAgentStop() int {
+	data, err := os.ReadFile(agentPidFile())
+	if err != nil {
+		uiStatusLine(stSkip, "Agent : non lancé")
+		return 0
+	}
+	pid, _ := strconv.Atoi(strings.TrimSpace(string(data)))
+	if pid <= 0 || !isAgentProcess(pid) {
+		_ = os.Remove(agentPidFile())
+		uiStatusLine(stSkip, "Agent : non lancé (fichier de PID périmé, retiré)")
+		return 0
+	}
+	if err := syscall.Kill(pid, syscall.SIGTERM); err != nil {
+		uiStatusLine(stFail, fmt.Sprintf("Agent (pid %d) : arrêt impossible (%v)", pid, err))
+		return 1
+	}
+	for i := 0; i < 50; i++ {
+		if syscall.Kill(pid, 0) != nil {
+			_ = os.Remove(agentPidFile())
+			uiStatusLine(stOK, fmt.Sprintf("Agent arrêté (pid %d)", pid))
+			return 0
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	uiStatusLine(stFail, fmt.Sprintf("Agent (pid %d) toujours en cours après 5 s", pid))
+	return 1
+}
+
+// isAgentProcess : le processus est un « wsquashfs-launcher --agent ».
+func isAgentProcess(pid int) bool {
+	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid))
+	if err != nil {
+		return false
+	}
+	args := strings.Split(strings.TrimRight(string(data), "\x00"), "\x00")
+	for _, a := range args {
+		if a == "--agent" {
+			return true
+		}
+	}
+	return false
+}
+
 // agentOwner : utilisateur de la session (pour l'information de l'agent).
 func agentOwner() string {
 	if u, err := user.Current(); err == nil {
@@ -373,6 +424,10 @@ func serveAgent(logOn bool) int {
 	if socketActivated {
 		go srv.idleWatchdog(httpSrv)
 	}
+	// Pour « --agent stop » : le PID de cet agent (retiré à l'arrêt propre).
+	if err := os.WriteFile(agentPidFile(), []byte(strconv.Itoa(os.Getpid())+"\n"), 0o600); err == nil {
+		defer os.Remove(agentPidFile())
+	}
 	if err := httpSrv.Serve(tls.NewListener(ln, tlsConf)); err != nil && err != http.ErrServerClosed {
 		uiError("arrêt : " + err.Error())
 		return 1
@@ -388,8 +443,10 @@ func cmdAgentMain(args []string) int {
 		switch a {
 		case "log":
 			logOn = true
+		case "stop":
+			return cmdAgentStop()
 		default:
-			die("option inconnue pour --agent : " + a + " (--agent [log])")
+			die("option inconnue pour --agent : " + a + " (--agent [log | stop])")
 		}
 	}
 	return serveAgent(logOn)
