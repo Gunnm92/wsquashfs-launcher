@@ -5307,10 +5307,19 @@ l saves/Wine Joint Game/drive_c/windows/syswow64/kernel32.dll -> ROOT/cache/mnt/
 l src/Arcade Game.wine/drive_c/users/steamuser/Music -> /userdata/system/Music
 l src/Arcade Game.wine/drive_c/windows/system32/dxgi.dll -> /userdata/system/wine/dxvk/x64/dxgi.dll
 ################ clean
-Nettoyage des copies de travail et des doublons des sauvegardes...
+Nettoyage des copies de travail et des doublons des sauvegardes
+───────────────────────────────────────────────────────────────
 ✓ Copies de travail supprimées
-✓ 2 ancienne(s) archive(s) supprimée(s) (2o, ROOT/home/.local/share/wsquashfs/backups)
-✓ Sauvegardes gardées dans : ROOT/saves
+✓ Anciennes archives supprimées : 2 (ROOT/home/.local/share/wsquashfs/backups)
+
+Bilan
+─────
+  Copies de travail   2 Ko libérés
+  Archives            2 supprimées, 2 o libérés
+  Doublons            aucun à retirer
+  Sans doublon        13 jeux
+  Place libérée       2 Ko
+  Sauvegardes         ROOT/saves (SIZE au total)
 == rc=0
 ################ TREE after-clean
 d cache -> 
@@ -5824,33 +5833,39 @@ l src/Arcade Game.wine/drive_c/users/steamuser/Music -> /userdata/system/Music
 l src/Arcade Game.wine/drive_c/windows/system32/dxgi.dll -> /userdata/system/wine/dxvk/x64/dxgi.dll
 ## archives après --clean : Autre-20261001-090000.tar.gz Jeu-A-20261101-100000-2.tar.zst Jeu-A-20261102-100000.tar.zst Jeu-A-20261103-100000.tar.zst notes.txt
 ################ clear-one
---clear ne garde que drive_c/users de 1 jeu(x) : scores et réglages
-  enregistrés ailleurs (jeux arcade, dossier du jeu, registre) seront perdus.
-  Aucune archive n'est faite (tout effacer, avec archive : --erase).
+Sauvegardes réduites à drive_c/users : 1 jeu
+────────────────────────────────────────────
+Scores et réglages enregistrés ailleurs (jeux arcade, dossier du jeu,
+registre) seront perdus. Aucune archive n'est faite (tout effacer, avec
+archive : --erase).
+
 ✓ Copies de travail supprimées
-  Solo Game : gardé SIZE (drive_c/users)
+  Solo Game  gardé SIZE (drive_c/users)
 == rc=0
 ################ clear-none
 Aucune sauvegarde pour Unknown
 == rc=0
 ################ clear-all
---clear ne garde que drive_c/users de 13 jeu(x) : scores et réglages
-  enregistrés ailleurs (jeux arcade, dossier du jeu, registre) seront perdus.
-  Aucune archive n'est faite (tout effacer, avec archive : --erase).
+Sauvegardes réduites à drive_c/users : 13 jeux
+──────────────────────────────────────────────
+Scores et réglages enregistrés ailleurs (jeux arcade, dossier du jeu,
+registre) seront perdus. Aucune archive n'est faite (tout effacer, avec
+archive : --erase).
+
 ✓ Copies de travail supprimées
-  Arcade Game : gardé SIZE (drive_c/users)
-  Hook Game : gardé SIZE (drive_c/users)
-  Joint Game : rien à garder, supprimé
-  Loader Game : gardé SIZE (drive_c/users)
-  Missing Runner Game : gardé SIZE (drive_c/users)
-  Named Game : gardé SIZE (drive_c/users)
-  Old32 : gardé SIZE (drive_c/users)
-  Pre Fail Game : gardé SIZE (drive_c/users)
-  Proton Game : rien à garder, supprimé
-  Relative Runner Game : gardé SIZE (drive_c/users)
-  Solo Game : gardé SIZE (drive_c/users)
-  Two Runners Game : gardé SIZE (drive_c/users)
-  Wine Joint Game : gardé SIZE (drive_c/users)
+  Arcade Game           gardé SIZE (drive_c/users)
+  Hook Game             gardé SIZE (drive_c/users)
+  Joint Game            rien à garder, supprimé
+  Loader Game           gardé SIZE (drive_c/users)
+  Missing Runner Game   gardé SIZE (drive_c/users)
+  Named Game            gardé SIZE (drive_c/users)
+  Old32                 gardé SIZE (drive_c/users)
+  Pre Fail Game         gardé SIZE (drive_c/users)
+  Proton Game           rien à garder, supprimé
+  Relative Runner Game  gardé SIZE (drive_c/users)
+  Solo Game             gardé SIZE (drive_c/users)
+  Two Runners Game      gardé SIZE (drive_c/users)
+  Wine Joint Game       gardé SIZE (drive_c/users)
 == rc=0
 ################ TREE after-clear
 d cache -> 
@@ -6747,9 +6762,17 @@ WINESERVER -w
 WINESERVER -k
 WINESERVER -w
 ################ copy-clean
-Nettoyage des copies de travail et des doublons des sauvegardes...
+Nettoyage des copies de travail et des doublons des sauvegardes
+───────────────────────────────────────────────────────────────
 ✓ Copies de travail supprimées
-✓ Sauvegardes gardées dans : ROOT/saves
+
+Bilan
+─────
+  Copies de travail   307 o libérés
+  Doublons            aucun à retirer
+  Sans doublon        11 jeux
+  Place libérée       307 o
+  Sauvegardes         ROOT/saves (SIZE au total)
 == rc=0
 ################ TREE after-copy-clean
 d cache -> 
@@ -7441,11 +7464,22 @@ WINESERVER -k
 WINESERVER -w
 ## Old32 (en cours) après le lancement d'un autre jeu : monté
 ################ clean-running
-Nettoyage des copies de travail et des doublons des sauvegardes...
-  Old32 : en cours, gardé
+Nettoyage des copies de travail et des doublons des sauvegardes
+───────────────────────────────────────────────────────────────
+  Old32 : en cours, copie de travail gardée
 ✓ Copies de travail supprimées
-  Old32 : monté ou en cours, ignoré
-✓ Sauvegardes gardées dans : ROOT/saves
+
+En cours ou montés, ignorés (1) :
+  Old32
+
+Bilan
+─────
+  Copies de travail   307 o libérés
+  Doublons            aucun à retirer
+  Sans doublon        10 jeux
+  Non traités         1 jeu (voir ci-dessus)
+  Place libérée       307 o
+  Sauvegardes         ROOT/saves (SIZE au total)
 == rc=0
 ## Old32 (en cours) après --clean : monté
 ################ locked
@@ -7557,11 +7591,22 @@ WINESERVER -k
 WINESERVER -w
 ## Old32 (verrouillé) après le lancement d'un autre jeu : monté
 ################ clean-locked
-Nettoyage des copies de travail et des doublons des sauvegardes...
-  Old32 : en cours, gardé
+Nettoyage des copies de travail et des doublons des sauvegardes
+───────────────────────────────────────────────────────────────
+  Old32 : en cours, copie de travail gardée
 ✓ Copies de travail supprimées
-  Old32 : monté ou en cours, ignoré
-✓ Sauvegardes gardées dans : ROOT/saves
+
+En cours ou montés, ignorés (1) :
+  Old32
+
+Bilan
+─────
+  Copies de travail   0 o libérés
+  Doublons            aucun à retirer
+  Sans doublon        10 jeux
+  Non traités         1 jeu (voir ci-dessus)
+  Place libérée       0 o
+  Sauvegardes         ROOT/saves (SIZE au total)
 == rc=0
 ## Old32 (verrouillé) après --clean : monté
 ################ unlocked
@@ -8704,10 +8749,21 @@ WINESERVER -w
 WINESERVER -k
 WINESERVER -w
 ################ clean-dup
-Nettoyage des copies de travail et des doublons des sauvegardes...
+Nettoyage des copies de travail et des doublons des sauvegardes
+───────────────────────────────────────────────────────────────
 ✓ Copies de travail supprimées
-  Arcade Game : 1 doublon(s) retiré(s), 0 Mo libérés
-✓ Sauvegardes gardées dans : ROOT/saves
+
+Doublons retirés des sauvegardes :
+  Jeu                     Fichiers    Libéré
+  Arcade Game                    1       2 o
+
+Bilan
+─────
+  Copies de travail   0 o libérés
+  Doublons            1 fichier dans 1 jeu, 2 o libérés
+  Sans doublon        10 jeux
+  Place libérée       2 o
+  Sauvegardes         ROOT/saves (SIZE au total)
 == rc=0
 ################ TREE after-clean-dup
 d cache -> 
@@ -9620,31 +9676,37 @@ Restauration (jeu arrêté) : recopier <ludothèque>/saves/<système>/<jeu>/driv
 == rc=0
 WINESERVER -k
 ################ erase-one
---erase supprime toutes les sauvegardes de 1 jeu(x) : chaque jeu repart de son image.
-  drive_c/users est archivé avant dans ROOT/home/.local/share/wsquashfs/backups
-  (restauration : tar -xf <archive> -C ROOT/saves/<jeu>/).
+Sauvegardes effacées : 1 jeu
+────────────────────────────
+Chaque jeu repart de son image. drive_c/users est archivé avant dans
+  ROOT/home/.local/share/wsquashfs/backups
+Restauration : tar -xf <archive> -C ROOT/saves/<jeu>/
+
 ✓ Copies de travail supprimées
-  Arcade Game : supprimé, drive_c/users archivé dans ROOT/home/.local/share/wsquashfs/backups/Arcade Game-DATE.tar.zst (SIZE)
+  Arcade Game  supprimé, archive : Arcade Game-DATE.tar.zst (SIZE)
 == rc=0
 ## contenu de l'archive : drive_c/users/steamuser/Documents/slot1.sav drive_c/users/steamuser/Music/.wh..wh..opq drive_c/users/wsqtest/.wh..wh..opq
 ################ erase-none
 Aucune sauvegarde pour Unknown
 == rc=0
 ################ erase-all
---erase supprime toutes les sauvegardes de 10 jeu(x) : chaque jeu repart de son image.
-  drive_c/users est archivé avant dans ROOT/home/.local/share/wsquashfs/backups
-  (restauration : tar -xf <archive> -C ROOT/saves/<jeu>/).
+Sauvegardes effacées : 10 jeux
+──────────────────────────────
+Chaque jeu repart de son image. drive_c/users est archivé avant dans
+  ROOT/home/.local/share/wsquashfs/backups
+Restauration : tar -xf <archive> -C ROOT/saves/<jeu>/
+
 ✓ Copies de travail supprimées
-  Hook Game : supprimé, drive_c/users archivé dans ROOT/home/.local/share/wsquashfs/backups/Hook Game-DATE.tar.zst (SIZE)
-  Loader Game : supprimé, drive_c/users archivé dans ROOT/home/.local/share/wsquashfs/backups/Loader Game-DATE.tar.zst (SIZE)
-  Missing Runner Game : supprimé, drive_c/users archivé dans ROOT/home/.local/share/wsquashfs/backups/Missing Runner Game-DATE.tar.zst (SIZE)
-  Named Game : supprimé, drive_c/users archivé dans ROOT/home/.local/share/wsquashfs/backups/Named Game-DATE.tar.zst (SIZE)
-  Old32 : supprimé, drive_c/users archivé dans ROOT/home/.local/share/wsquashfs/backups/Old32-DATE.tar.zst (SIZE)
-  Pre Fail Game : supprimé, drive_c/users archivé dans ROOT/home/.local/share/wsquashfs/backups/Pre Fail Game-DATE.tar.zst (SIZE)
-  Relative Runner Game : supprimé, drive_c/users archivé dans ROOT/home/.local/share/wsquashfs/backups/Relative Runner Game-DATE.tar.zst (SIZE)
-  Solo Game : supprimé, drive_c/users archivé dans ROOT/home/.local/share/wsquashfs/backups/Solo Game-DATE.tar.zst (SIZE)
-  Two Runners Game : supprimé, drive_c/users archivé dans ROOT/home/.local/share/wsquashfs/backups/Two Runners Game-DATE.tar.zst (SIZE)
-  Wine Joint Game : supprimé, drive_c/users archivé dans ROOT/home/.local/share/wsquashfs/backups/Wine Joint Game-DATE.tar.zst (SIZE)
+  Hook Game             supprimé, archive : Hook Game-DATE.tar.zst (SIZE)
+  Loader Game           supprimé, archive : Loader Game-DATE.tar.zst (SIZE)
+  Missing Runner Game   supprimé, archive : Missing Runner Game-DATE.tar.zst (SIZE)
+  Named Game            supprimé, archive : Named Game-DATE.tar.zst (SIZE)
+  Old32                 supprimé, archive : Old32-DATE.tar.zst (SIZE)
+  Pre Fail Game         supprimé, archive : Pre Fail Game-DATE.tar.zst (SIZE)
+  Relative Runner Game  supprimé, archive : Relative Runner Game-DATE.tar.zst (SIZE)
+  Solo Game             supprimé, archive : Solo Game-DATE.tar.zst (SIZE)
+  Two Runners Game      supprimé, archive : Two Runners Game-DATE.tar.zst (SIZE)
+  Wine Joint Game       supprimé, archive : Wine Joint Game-DATE.tar.zst (SIZE)
 == rc=0
 ################ TREE after-erase
 d cache -> 

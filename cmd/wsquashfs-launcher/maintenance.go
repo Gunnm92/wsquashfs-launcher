@@ -120,21 +120,34 @@ func hasWineXattr(p string) bool {
 	return err == nil && strings.TrimSpace(string(out)) != ""
 }
 
+// cleanResult : ce que --clean a fait des sauvegardes d'un jeu.
+type cleanResult struct {
+	skip  string // raison pour laquelle les doublons n'ont pas été cherchés
+	n     int    // doublons retirés
+	bytes int64  // place libérée
+}
+
 // cleanSaves : --clean pour un jeu. Ménage sans risque : ne retire des
 // sauvegardes que les doublons certains (fichiers identiques à l'image, DLL
 // que Proton recopie à chaque lancement). Tout ce que le jeu a écrit reste.
-func cleanSaves(name string) {
+func cleanSaves(name string) cleanResult {
 	saves := savesDir + "/" + name
 	lock, idle := lockIdleGame(name)
 	if !idle {
-		fmt.Println("  " + name + " : monté ou en cours, ignoré")
-		return
+		return cleanResult{skip: skipBusy}
 	}
 	if lock != nil {
 		defer lock.Close()
 	}
-	removeDuplicates(name, saves)
+	skip, n, freed := removeDuplicates(name, saves)
+	return cleanResult{skip, n, freed}
 }
+
+// Raisons de cleanResult.skip.
+const (
+	skipBusy    = "en cours"
+	skipNoImage = "image inconnue"
+)
 
 // keepOnlyUsers : ne laisse dans une couche de sauvegardes que drive_c/users.
 // Faux s'il ne reste rien (dossier supprimé).
@@ -164,17 +177,16 @@ func keepOnlyUsers(saves string) bool {
 
 // removeDuplicates : retire des sauvegardes les fichiers identiques à l'image
 // du jeu (copiés sans être modifiés), puis les DLL que Proton recopie.
-func removeDuplicates(name, saves string) {
+func removeDuplicates(name, saves string) (skip string, n int, bytesFreed int64) {
 	img := ""
 	if data, err := os.ReadFile(savesDir + "/.images/" + name); err == nil {
 		img = strings.TrimRight(string(data), "\n")
 	}
-	n, bytesFreed := 0, int64(0)
 	switch {
 	case img == "" || !pathExists(img):
-		fmt.Println("  " + name + " : image inconnue (lancer le jeu une fois), fichiers du jeu gardés")
+		skip = skipNoImage
 	case !cmdOK("getfattr", "--version"):
-		fmt.Println("  " + name + " : getfattr absent (paquet attr), fichiers du jeu gardés")
+		skip = "getfattr absent (paquet attr)"
 	default:
 		_ = os.MkdirAll(cacheDir, 0o755)
 		mnt, err := os.MkdirTemp(cacheDir, "purge.")
@@ -218,7 +230,7 @@ func removeDuplicates(name, saves string) {
 				umountRetry(mnt)
 			}
 		} else {
-			fmt.Println("  " + name + " : montage de l'image impossible, fichiers du jeu gardés")
+			skip = "montage de l'image impossible"
 		}
 		_ = os.Remove(mnt)
 	}
@@ -254,9 +266,76 @@ func removeDuplicates(name, saves string) {
 			}
 		}
 	}
-	if n > 0 {
-		fmt.Printf("  %s : %d doublon(s) retiré(s), %d Mo libérés\n", name, n, bytesFreed/1048576)
+	return skip, n, bytesFreed
+}
+
+// ── Affichage des commandes de maintenance ─────────────────────────────
+
+// gameColWidth : largeur de la colonne des noms de jeux (gameLine).
+var gameColWidth int
+
+// maxGameCol : au-delà, le nom est abrégé.
+const maxGameCol = 48
+
+// setGameCol : colonne des noms dimensionnée sur les jeux à afficher.
+func setGameCol(names []string) {
+	gameColWidth = 3
+	for _, n := range names {
+		gameColWidth = max(gameColWidth, textWidth(shortName(n)))
 	}
+	gameColWidth += 2
+}
+
+// shortName : nom de jeu abrégé à maxGameCol caractères.
+func shortName(n string) string {
+	if r := []rune(n); len(r) > maxGameCol {
+		return string(r[:maxGameCol-1]) + "…"
+	}
+	return n
+}
+
+// gameLine : une ligne par jeu, noms alignés en colonne.
+func gameLine(name, msg string) {
+	fmt.Println("  " + pad(shortName(name), gameColWidth) + msg)
+}
+
+// title : titre d'une commande de maintenance, souligné.
+func title(text string) {
+	fmt.Println(text)
+	fmt.Println(strings.Repeat("─", textWidth(text)))
+}
+
+// nameList : rubrique suivie de ses jeux, un par ligne (rien si aucun).
+func nameList(heading string, names []string) {
+	if len(names) == 0 {
+		return
+	}
+	fmt.Println()
+	fmt.Printf("%s (%d) :\n", heading, len(names))
+	for _, n := range names {
+		fmt.Println("  " + n)
+	}
+}
+
+// sizeText : taille lisible, à l'unité près (o, Ko, Mo) ou au dixième (Go).
+func sizeText(n int64) string {
+	switch {
+	case n < 1024:
+		return fmt.Sprintf("%d o", n)
+	case n < 1024*1024:
+		return fmt.Sprintf("%d Ko", n/1024)
+	case n < 1024*1024*1024:
+		return fmt.Sprintf("%d Mo", n/(1024*1024))
+	}
+	return strings.Replace(fmt.Sprintf("%.1f Go", float64(n)/(1024*1024*1024)), ".", ",", 1)
+}
+
+// plural : « 1 jeu », « 3 jeux ».
+func plural(n int, one, many string) string {
+	if n > 1 {
+		return fmt.Sprintf("%d %s", n, many)
+	}
+	return fmt.Sprintf("%d %s", n, one)
 }
 
 // isDirPath : chemin existant et dossier.
@@ -307,11 +386,11 @@ var backupNameRe = regexp.MustCompile(`^(.*)-(\d{8}-\d{6})(-\d+)?\.tar\.(zst|gz)
 // pruneBackups : ne garde que les backupsKept dernières archives de chaque
 // jeu, et retire les archives inachevées (.part). Les autres fichiers du
 // dossier ne sont pas touchés.
-func pruneBackups() {
+func pruneBackups() (n int, size int64) {
 	dir := backupDir()
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return
+		return 0, 0
 	}
 	byGame := map[string][]string{}
 	var doomed []string
@@ -340,8 +419,6 @@ func pruneBackups() {
 		}
 	}
 	sort.Strings(doomed)
-	n := 0
-	var size int64
 	for _, name := range doomed {
 		f := filepath.Join(dir, name)
 		if st, err := os.Stat(f); err == nil && os.Remove(f) == nil {
@@ -350,8 +427,9 @@ func pruneBackups() {
 		}
 	}
 	if n > 0 {
-		fmt.Printf("✓ %d ancienne(s) archive(s) supprimée(s) (%s, %s)\n", n, humanBytes(size), dir)
+		fmt.Printf("✓ Anciennes archives supprimées : %d (%s)\n", n, dir)
 	}
+	return n, size
 }
 
 // archiveUsers : archive <parent>/<member> dans backupDir, sous le nom
@@ -403,7 +481,8 @@ func visibleDirs(d string) []string {
 }
 
 // cleanCache : copies de travail (mnt, wine, work) des jeux qui ne tournent pas.
-func cleanCache() {
+// Retourne la place libérée (fichiers des copies supprimées).
+func cleanCache() (freed int64) {
 	unmountAllStale()
 	kept := map[string]bool{}
 	dirs, _ := filepath.Glob(cacheDir + "/mnt/*")
@@ -424,13 +503,14 @@ func cleanCache() {
 				lock.Close()
 			}
 			if !kept[g] {
-				fmt.Println("  " + g + " : en cours, gardé")
+				fmt.Println("  " + g + " : en cours, copie de travail gardée")
 			}
 			kept[g] = true
 			continue
 		}
 		// Mode copy : les sauvegardes de partie sont dans la copie.
 		if filepath.Dir(d) != cacheDir+"/wine" || stashCopyUsers(d, g) {
+			freed += filesSize(d)
 			_ = os.RemoveAll(d)
 		} else {
 			warn(g + " : sauvegardes de la copie de travail impossibles à mettre de côté, copie gardée")
@@ -440,18 +520,83 @@ func cleanCache() {
 		}
 	}
 	fmt.Println("✓ Copies de travail supprimées")
+	return freed
+}
+
+// filesSize : taille des fichiers ordinaires d'un dossier.
+func filesSize(dir string) (total int64) {
+	_ = filepath.Walk(dir, func(_ string, info os.FileInfo, err error) error {
+		if err == nil && info.Mode().IsRegular() {
+			total += info.Size()
+		}
+		return nil
+	})
+	return total
 }
 
 // cmdClean : --clean. Ménage sans risque : copies de travail, doublons
-// certains des sauvegardes, archives les plus anciennes de --erase.
+// certains des sauvegardes, archives les plus anciennes de --erase. Les jeux
+// nettoyés s'affichent au fur et à mesure (le parcours peut être long), le
+// reste est regroupé à la fin, avec le bilan.
 func cmdClean() {
-	fmt.Println("Nettoyage des copies de travail et des doublons des sauvegardes...")
-	cleanCache()
-	pruneBackups()
-	for _, g := range savedGames() {
-		cleanSaves(g)
+	title("Nettoyage des copies de travail et des doublons des sauvegardes")
+	cacheFreed := cleanCache()
+	archives, archivesFreed := pruneBackups()
+
+	games := savedGames()
+	setGameCol(games)
+	var busy, noImage, failed []string
+	cleaned, untouched, files := 0, 0, 0
+	var freed int64
+	row := func(name, n, size string) {
+		fmt.Printf("  %s%10s%10s\n", pad(shortName(name), gameColWidth), n, size)
 	}
-	fmt.Println("✓ Sauvegardes gardées dans : " + savesDir)
+	for _, g := range games {
+		switch r := cleanSaves(g); {
+		case r.skip == skipBusy:
+			busy = append(busy, g)
+		case r.skip == skipNoImage:
+			noImage = append(noImage, g)
+		case r.skip != "" && r.n == 0:
+			failed = append(failed, g+" : "+r.skip)
+		case r.n == 0:
+			untouched++
+		default:
+			if cleaned == 0 {
+				fmt.Println()
+				fmt.Println("Doublons retirés des sauvegardes :")
+				row("Jeu", "Fichiers", "Libéré")
+			}
+			row(g, strconv.Itoa(r.n), sizeText(r.bytes))
+			cleaned++
+			files += r.n
+			freed += r.bytes
+		}
+	}
+	nameList("En cours ou montés, ignorés", busy)
+	nameList("Image inconnue, doublons non cherchés (lancer le jeu une fois)", noImage)
+	nameList("Doublons non cherchés", failed)
+
+	fmt.Println()
+	title("Bilan")
+	line := func(label, text string) { fmt.Println("  " + pad(label, 20) + text) }
+	line("Copies de travail", sizeText(cacheFreed)+" libérés")
+	if archives > 0 {
+		line("Archives", plural(archives, "supprimée", "supprimées")+", "+sizeText(archivesFreed)+" libérés")
+	}
+	if cleaned > 0 {
+		line("Doublons", plural(files, "fichier", "fichiers")+" dans "+plural(cleaned, "jeu", "jeux")+", "+sizeText(freed)+" libérés")
+	} else {
+		line("Doublons", "aucun à retirer")
+	}
+	if untouched > 0 {
+		line("Sans doublon", plural(untouched, "jeu", "jeux"))
+	}
+	if skipped := len(busy) + len(noImage) + len(failed); skipped > 0 {
+		line("Non traités", plural(skipped, "jeu", "jeux")+" (voir ci-dessus)")
+	}
+	line("Place libérée", sizeText(cacheFreed+archivesFreed+freed))
+	line("Sauvegardes", savesDir+" ("+duHuman(savesDir)+" au total)")
 }
 
 // ── --clear (01/10) et --erase (12/11) ─────────────────────────────────
@@ -463,16 +608,16 @@ func clearSaves(name string) {
 	saves := savesDir + "/" + name
 	lock, idle := lockIdleGame(name)
 	if !idle {
-		fmt.Println("  " + name + " : monté ou en cours, ignoré")
+		gameLine(name, "monté ou en cours, ignoré")
 		return
 	}
 	if lock != nil {
 		defer lock.Close()
 	}
 	if keepOnlyUsers(saves) {
-		fmt.Println("  " + name + " : gardé " + duHuman(saves) + " (drive_c/users)")
+		gameLine(name, "gardé "+duHuman(saves)+" (drive_c/users)")
 	} else {
-		fmt.Println("  " + name + " : rien à garder, supprimé")
+		gameLine(name, "rien à garder, supprimé")
 	}
 }
 
@@ -483,7 +628,7 @@ func eraseSaves(name string) {
 	saves := savesDir + "/" + name
 	lock, idle := lockIdleGame(name)
 	if !idle {
-		fmt.Println("  " + name + " : monté ou en cours, ignoré")
+		gameLine(name, "monté ou en cours, ignoré")
 		return
 	}
 	if lock != nil {
@@ -502,16 +647,16 @@ func eraseSaves(name string) {
 	if parent != "" {
 		var err error
 		if archive, err = archiveUsers(name, parent, member); err != nil {
-			fmt.Println("  " + name + " : archive impossible (" + err.Error() + "), sauvegardes gardées")
+			gameLine(name, "archive impossible ("+err.Error()+"), sauvegardes gardées")
 			return
 		}
 	}
 	_ = os.RemoveAll(saves)
 	_ = os.RemoveAll(stash)
 	if archive != "" {
-		fmt.Println("  " + name + " : supprimé, drive_c/users archivé dans " + archive + " (" + duHuman(archive) + ")")
+		gameLine(name, "supprimé, archive : "+filepath.Base(archive)+" ("+duHuman(archive)+")")
 	} else {
-		fmt.Println("  " + name + " : supprimé (pas de drive_c/users à archiver)")
+		gameLine(name, "supprimé (pas de drive_c/users à archiver)")
 	}
 }
 
@@ -535,14 +680,17 @@ func cmdClear(args []string) int {
 	if !ok {
 		return 0
 	}
-	fmt.Printf("--clear ne garde que drive_c/users de %d jeu(x) : scores et réglages\n", len(targets))
-	fmt.Println("  enregistrés ailleurs (jeux arcade, dossier du jeu, registre) seront perdus.")
-	fmt.Println("  Aucune archive n'est faite (tout effacer, avec archive : --erase).")
+	title("Sauvegardes réduites à drive_c/users : " + plural(len(targets), "jeu", "jeux"))
+	fmt.Println("Scores et réglages enregistrés ailleurs (jeux arcade, dossier du jeu,")
+	fmt.Println("registre) seront perdus. Aucune archive n'est faite (tout effacer, avec")
+	fmt.Println("archive : --erase).")
 	if isTerminal() && !confirm("Continuer ?") {
 		fmt.Println("Abandon.")
 		return 1
 	}
+	fmt.Println()
 	cleanCache()
+	setGameCol(targets)
 	for _, g := range targets {
 		clearSaves(g)
 	}
@@ -555,14 +703,17 @@ func cmdErase(args []string) int {
 	if !ok {
 		return 0
 	}
-	fmt.Printf("--erase supprime toutes les sauvegardes de %d jeu(x) : chaque jeu repart de son image.\n", len(targets))
-	fmt.Println("  drive_c/users est archivé avant dans " + backupDir())
-	fmt.Println("  (restauration : tar -xf <archive> -C " + savesDir + "/<jeu>/).")
+	title("Sauvegardes effacées : " + plural(len(targets), "jeu", "jeux"))
+	fmt.Println("Chaque jeu repart de son image. drive_c/users est archivé avant dans")
+	fmt.Println("  " + backupDir())
+	fmt.Println("Restauration : tar -xf <archive> -C " + savesDir + "/<jeu>/")
 	if isTerminal() && !confirm("Continuer ?") {
 		fmt.Println("Abandon.")
 		return 1
 	}
+	fmt.Println()
 	cleanCache()
+	setGameCol(targets)
 	for _, g := range targets {
 		eraseSaves(g)
 	}
