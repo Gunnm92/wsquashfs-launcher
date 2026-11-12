@@ -633,3 +633,52 @@ func TestTrialJSONSansCouleur(t *testing.T) {
 		t.Errorf("erreur %q, attendu noimage (ou busy)", rapport.Error)
 	}
 }
+
+// TestFitColumns : un tableau plus large que le terminal est rogné, sans
+// toucher aux colonnes alignées à droite ni aux en-têtes ; hors terminal
+// (largeur 0), rien ne change.
+func TestFitColumns(t *testing.T) {
+	headers := []string{"Jeu", "Taille", "Image"}
+	rows := [][]string{
+		{"Teenage Mutant Ninja Turtles Arcade Wrath Of The Mutants", "1,1 Go", "introuvable : /userdata/roms/windows/Teenage Mutant Ninja Turtles Arcade.wsquashfs"},
+		{"Old32", "16 Ko", "/roms/Old32.wsquashfs"},
+	}
+	if got := fitColumns(headers, rows, map[int]bool{1: true}, 0); got[0][0] != rows[0][0] {
+		t.Fatal("rogné sans terminal")
+	}
+	got := fitColumns(headers, rows, map[int]bool{1: true}, 80)
+	total := 1
+	for c := range headers {
+		w := textWidth(headers[c])
+		for _, r := range got {
+			w = max(w, textWidth(r[c]))
+		}
+		total += w + 3
+	}
+	if total > 80 {
+		t.Errorf("tableau de %d colonnes pour un terminal de 80 : %q", total, got)
+	}
+	if got[0][1] != "1,1 Go" || got[1][0] != "Old32" {
+		t.Errorf("colonne alignée à droite ou cellule courte modifiée : %q", got)
+	}
+	if !strings.HasPrefix(got[0][2], "introuvable") || !strings.HasSuffix(got[0][2], ".wsquashfs") || !strings.Contains(got[0][2], "…") {
+		t.Errorf("chemin mal abrégé (début et fin à garder) : %q", got[0][2])
+	}
+	if !strings.HasSuffix(got[0][0], "…") || !utf8.ValidString(got[0][0]) {
+		t.Errorf("nom mal abrégé : %q", got[0][0])
+	}
+}
+
+// TestQuestionsHomogenes : toujours « [o/n] » dans le même ordre, la réponse
+// par défaut écrite en toutes lettres.
+func TestQuestionsHomogenes(t *testing.T) {
+	if uiYesNo(true) != "[o/n] (défaut : oui)" || uiYesNo(false) != "[o/n] (défaut : non)" {
+		t.Errorf("indications : %q / %q", uiYesNo(true), uiYesNo(false))
+	}
+	out, _ := capteUI(t)
+	uiMenu([]string{"Tout", "Rien"}, "2")
+	want := "  1  Tout\n  2  Rien  (défaut)\n"
+	if out.String() != want {
+		t.Errorf("menu :\n%q\nattendu :\n%q", out.String(), want)
+	}
+}

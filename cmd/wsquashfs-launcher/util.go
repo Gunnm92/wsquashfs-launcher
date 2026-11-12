@@ -34,7 +34,7 @@ func exitNow(code int) {
 // confirm : vrai si l'utilisateur répond oui (o/y). Question au terminal
 // (forme commune, voir uiPrompt), réponse lue sur l'entrée standard.
 func confirm(question string) bool {
-	uiPrompt(question, "[o/N]")
+	uiPrompt(question, uiYesNo(false))
 	reply := strings.ToLower(readLine())
 	return strings.HasPrefix(reply, "o") || strings.HasPrefix(reply, "y")
 }

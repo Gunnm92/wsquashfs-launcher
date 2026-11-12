@@ -126,10 +126,9 @@ func autoReason() string {
 
 // askYesNo : vrai pour oui. --yes : oui ; sans terminal : la réponse par défaut.
 func askYesNo(question string, def bool) bool {
-	hint := "[o/N]"
+	hint := uiYesNo(def)
 	defWord := "n"
 	if def {
-		hint = "[O/n]"
 		defWord = "o"
 	}
 	if assumeYes {

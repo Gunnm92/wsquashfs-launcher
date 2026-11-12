@@ -97,8 +97,8 @@ func checkWineRunners() {
 	if needGE {
 		setupTodo("wine-ge manquant", "GloriousEggroll, ~234 Mo — alternative")
 	}
-	uiNote("1) Installer ce qui manque   2) wine-tkg seulement   3) wine-ge seulement   4) Ignorer")
-	switch askChoice("Choix", "[1-4]", "2") {
+	uiMenu([]string{"Installer ce qui manque", "wine-tkg seulement", "wine-ge seulement", "Ignorer"}, "2")
+	switch askChoice("Choix", "[1-4] (défaut : 2)", "2") {
 	case "1":
 		if needTkg {
 			downloadWineTkg()

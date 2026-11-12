@@ -48,6 +48,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"charm.land/lipgloss/v2/table"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/charmbracelet/x/term"
 )
 
 // ── Palette et styles ──────────────────────────────────────────────────
@@ -232,11 +233,16 @@ type uiCell func(row, col int, value string) lipgloss.Style
 
 // uiTable : tableau encadré, en-tête en gras ; right : colonnes alignées à
 // droite (nombres, tailles).
+//
+// Plus large que le terminal : les colonnes de texte les plus larges sont
+// rognées (« … » ; un chemin garde son début et sa fin). Hors terminal, rien
+// n'est rogné : la sortie ne dépend pas de la machine.
 func uiTable(headers []string, rows [][]string, right []int, cell uiCell) {
 	isRight := map[int]bool{}
 	for _, c := range right {
 		isRight[c] = true
 	}
+	rows = fitColumns(headers, rows, isRight, uiTermWidth())
 	t := table.New().
 		Border(lipgloss.RoundedBorder()).
 		BorderStyle(sMuted).
@@ -258,6 +264,78 @@ func uiTable(headers []string, rows [][]string, right []int, cell uiCell) {
 			return s
 		})
 	uiOut(t.Render())
+}
+
+// uiTermWidth : largeur du terminal de la sortie standard, 0 hors terminal.
+var uiTermWidth = func() int {
+	f, ok := uiStdout.(*os.File)
+	if !ok || !term.IsTerminal(f.Fd()) {
+		return 0
+	}
+	w, _, err := term.GetSize(f.Fd())
+	if err != nil {
+		return 0
+	}
+	return w
+}
+
+// uiMinColumn : largeur en dessous de laquelle une colonne n'est plus rognée.
+const uiMinColumn = 12
+
+// fitColumns : cellules rognées pour que le tableau tienne dans width
+// colonnes (0 : aucune limite). Les colonnes alignées à droite (nombres,
+// tailles) et les en-têtes ne sont jamais rognés ; la plus large des autres
+// perd un caractère à la fois.
+func fitColumns(headers []string, rows [][]string, right map[int]bool, width int) [][]string {
+	if width <= 0 {
+		return rows
+	}
+	n := len(headers)
+	w := make([]int, n)
+	for c, h := range headers {
+		w[c] = textWidth(h)
+	}
+	for _, r := range rows {
+		for c, v := range r {
+			if c < n {
+				w[c] = max(w[c], textWidth(v))
+			}
+		}
+	}
+	total := 1 // bordure gauche ; puis par colonne : marges (2) et bordure (1)
+	for _, x := range w {
+		total += x + 3
+	}
+	for over := total - width; over > 0; over-- {
+		best := -1
+		for c := range w {
+			if right[c] || w[c] <= max(uiMinColumn, textWidth(headers[c])) {
+				continue
+			}
+			if best < 0 || w[c] > w[best] {
+				best = c
+			}
+		}
+		if best < 0 {
+			break
+		}
+		w[best]--
+	}
+	out := make([][]string, len(rows))
+	for i, r := range rows {
+		out[i] = make([]string, len(r))
+		for c, v := range r {
+			if c < n && textWidth(v) > w[c] {
+				if strings.Contains(v, "/") {
+					v = truncateMiddle(v, w[c])
+				} else {
+					v = truncate(v, w[c])
+				}
+			}
+			out[i][c] = v
+		}
+	}
+	return out
 }
 
 // Styles de cellule courants.
@@ -384,11 +462,34 @@ func usageError(syntax string) {
 
 // ── Questions ──────────────────────────────────────────────────────────
 //
-// Une seule forme : « ␣␣? Question [o/N] ». Réponse automatique affichée
+// Une seule forme : « ␣␣? Question [o/n] (défaut : non) » ; toujours
+// « o/n » dans cet ordre, la réponse par défaut écrite en toutes lettres
+// (uiYesNo). Réponse automatique affichée
 // en clair : « o (--yes) », « n (pas de terminal) ».
 
 func uiQuestion(q, hint string) string {
 	return "  " + sCode.Render("?") + " " + q + " " + sMuted.Render(hint)
+}
+
+// uiYesNo : indication d'une question oui/non, identique partout.
+func uiYesNo(def bool) string {
+	if def {
+		return "[o/n] (défaut : oui)"
+	}
+	return "[o/n] (défaut : non)"
+}
+
+// uiMenu : choix numérotés (« ␣␣1  libellé »), le choix par défaut marqué ;
+// suivi d'une question askChoice. def : numéro par défaut (« 2 »).
+func uiMenu(options []string, def string) {
+	for i, o := range options {
+		n := fmt.Sprint(i + 1)
+		line := "  " + sCode.Render(n) + "  " + o
+		if n == def {
+			line += "  " + sMuted.Render("(défaut)")
+		}
+		uiOut(line)
+	}
 }
 
 // uiPrompt : question sans fin de ligne (la réponse est saisie à la suite).
@@ -422,6 +523,21 @@ func truncate(s string, max int) string {
 	}
 	r := []rune(s)
 	return string(r[:max-1]) + "…"
+}
+
+// truncateMiddle : texte abrégé au milieu (« début…fin »), pour un chemin
+// dont le début (préfixe, dossier) et la fin (nom de fichier) comptent.
+func truncateMiddle(s string, max int) string {
+	r := []rune(s)
+	if len(r) <= max {
+		return s
+	}
+	if max < 3 {
+		return truncate(s, max)
+	}
+	tail := (max - 1) * 2 / 3
+	head := max - 1 - tail
+	return string(r[:head]) + "…" + string(r[len(r)-tail:])
 }
 
 // sizeText : taille lisible (o, Ko, Mo à l'unité ; Go au dixième).
