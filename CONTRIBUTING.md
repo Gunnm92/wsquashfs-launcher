@@ -32,8 +32,17 @@ Merci de votre intérêt pour contribuer à WSquashFS Launcher !
 
 ### Lanceur (Go)
 
-Le lanceur est un binaire Go **sans dépendance tierce** (bibliothèque standard
-seulement), dont les sources sont dans `cmd/wsquashfs-launcher/`.
+Le lanceur est un binaire Go statique dont les sources sont dans
+`cmd/wsquashfs-launcher/`. Une seule dépendance tierce, **lipgloss** (v2), pour
+l'affichage ; toute autre dépendance doit être justifiée.
+
+- **Tout affichage destiné à un humain passe par `ui.go`**, qui porte les règles
+  de présentation (en tête du fichier) et les composants : titre, étape,
+  section, clés-valeurs, statuts ✓ ✗ – →, tableaux, listes, notes, questions,
+  `warn` et `die`. Jamais de `fmt.Print` d'un texte stylé : les couleurs ne
+  sont retirées hors terminal que par `ui.go`.
+- Le JSON (`--doctor --json`, `--trial`, agent) et le journal de l'agent
+  restent hors de `ui.go`, sans couleur.
 
 - `make build` régénère le binaire versionné `wsquashfs-launcher` ; à committer
   avec les sources

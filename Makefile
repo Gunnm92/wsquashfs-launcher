@@ -8,7 +8,7 @@ help:
 	@echo "WSquashFS Launcher"
 	@echo "=================="
 	@echo ""
-	@echo "  make build          Compiler wsquashfs-launcher (binaire Go, sans dépendance)"
+	@echo "  make build          Compiler wsquashfs-launcher (binaire Go statique)"
 	@echo "  make install        Installer wsquashfs-launcher (wsquashfs-launcher --setup)"
 	@echo "  make uninstall      Désinstaller wsquashfs-launcher"
 	@echo "  make test           Lancer les tests de non-régression (tests/)"
@@ -20,10 +20,10 @@ help:
 	@echo "  make run-docker     Aide pour lancer un jeu via Docker"
 	@echo ""
 
-# Binaire Go statique, sans dépendance (cmd/wsquashfs-launcher/). Le binaire
+# Binaire Go statique (cmd/wsquashfs-launcher/), une seule dépendance : lipgloss. Le binaire
 # versionné à la racine est régénéré par cette cible.
 build:
-	@command -v go >/dev/null || { echo "go absent (Go 1.22 ou plus récent)"; exit 1; }
+	@command -v go >/dev/null || { echo "go absent (Go 1.26.7 ou plus récent)"; exit 1; }
 	@cd cmd/wsquashfs-launcher && CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w" -o ../../wsquashfs-launcher .
 	@sha256sum wsquashfs-launcher > wsquashfs-launcher.sha256
 	@echo "✓ wsquashfs-launcher compilé (empreinte : wsquashfs-launcher.sha256, à committer avec lui)"

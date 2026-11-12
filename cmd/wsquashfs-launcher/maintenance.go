@@ -725,7 +725,8 @@ func cmdList() {
 		}
 		rows = append(rows, []string{truncate(g, uiNameMax), gameState(g), version, size, image})
 	}
-	uiTitle("Jeux connus", plural(len(games), "jeu", "jeux")+", "+duHuman(savesDir)+" de sauvegardes")
+	// Taille totale : sur la ligne « Sauvegardes » en fin de liste.
+	uiTitle("Jeux connus", plural(len(games), "jeu", "jeux"))
 	uiTable([]string{"Jeu", "État", "Version", "Sauvegardes", "Image"}, rows, []int{3}, uiStateCell(1, 4))
 	uiOut("")
 	uiKVLine("Sauvegardes", savesDir+" ("+duHuman(savesDir)+" au total)")

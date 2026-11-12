@@ -36,3 +36,6 @@ Thumbs.db
 
 # Docker
 docker-compose.override.yml
+
+# Copies de travail des agents (Claude Code)
+.claude/worktrees/

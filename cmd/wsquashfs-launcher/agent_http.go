@@ -311,7 +311,11 @@ func (s *agentServer) maintenance(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 900*time.Second)
 	defer cancel()
-	out, _ := exec.CommandContext(ctx, launcherExe(), args...).CombinedOutput()
+	// Couleurs forcées : wsquashfs-manager affiche la sortie en couleurs
+	// (codes ANSI convertis en HTML). NO_COLOR, s'il est posé, l'emporte.
+	cmd := exec.CommandContext(ctx, launcherExe(), args...)
+	cmd.Env = append(os.Environ(), "CLICOLOR_FORCE=1")
+	out, _ := cmd.CombinedOutput()
 	writeJSON(w, http.StatusOK, map[string]any{"action": req.Action, "output": string(out)})
 }
 

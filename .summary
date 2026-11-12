@@ -6,7 +6,7 @@ Lancer les jeux Windows .wsquashfs de Batocera sur n'importe quel Linux
 (Pegasus, EmulationStation...).
 
 ## Fichier principal
-wsquashfs-launcher : binaire Go sans dépendance tierce, versionné à la racine
+wsquashfs-launcher : binaire Go statique (affichage : lipgloss), versionné à la racine
 avec son empreinte (wsquashfs-launcher.sha256). Sources : cmd/wsquashfs-launcher/.
 
 ## Caractéristiques

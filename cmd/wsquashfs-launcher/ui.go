@@ -47,6 +47,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"charm.land/lipgloss/v2/table"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // ── Palette et styles ──────────────────────────────────────────────────
@@ -80,10 +81,20 @@ var (
 
 // uiOut : une ligne sur la sortie standard (codes retirés hors terminal).
 // Les espaces de fin de ligne sont retirés (tableaux, encadrés).
-func uiOut(s string) { _, _ = lipgloss.Fprintln(uiStdout, trimLines(s)) }
+func uiOut(s string) { uiWrite(uiStdout, trimLines(s)+"\n") }
 
 // uiErr : une ligne sur la sortie d'erreur.
-func uiErr(s string) { _, _ = lipgloss.Fprintln(uiStderr, trimLines(s)) }
+func uiErr(s string) { uiWrite(uiStderr, trimLines(s)+"\n") }
+
+// uiWrite : écriture par lipgloss (codes retirés hors terminal). NO_COLOR
+// l'emporte sur tout, CLICOLOR_FORCE compris (no-color.org) : colorprofile
+// v0.4.3 garde les couleurs hors terminal quand les deux sont posés.
+func uiWrite(w io.Writer, s string) {
+	if os.Getenv("NO_COLOR") != "" {
+		s = ansi.Strip(s)
+	}
+	_, _ = lipgloss.Fprint(w, s)
+}
 
 // trimLines : espaces de fin de chaque ligne retirés.
 func trimLines(s string) string {
@@ -382,7 +393,7 @@ func uiQuestion(q, hint string) string {
 
 // uiPrompt : question sans fin de ligne (la réponse est saisie à la suite).
 func uiPrompt(q, hint string) {
-	_, _ = lipgloss.Fprint(uiStdout, uiQuestion(q, hint)+" ")
+	uiWrite(uiStdout, uiQuestion(q, hint)+" ")
 }
 
 // uiAuto : question à réponse automatique, affichée avec sa raison.

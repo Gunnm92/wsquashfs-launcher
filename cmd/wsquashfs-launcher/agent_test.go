@@ -187,3 +187,18 @@ func TestNewTokenIsRandom(t *testing.T) {
 		t.Errorf("jetons identiques ou trop courts : %q %q", a, b)
 	}
 }
+
+// TestMaintenanceForcesColor : la sortie de maintenance est colorée pour le
+// manager (CLICOLOR_FORCE=1 transmis au lanceur appelé).
+func TestMaintenanceForcesColor(t *testing.T) {
+	_, h, _ := agentFixture(t)
+	fake := filepath.Join(t.TempDir(), "fake-launcher")
+	if err := os.WriteFile(fake, []byte("#!/bin/sh\necho \"force=$CLICOLOR_FORCE\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	selfPath = fake
+	rec := do(h, "POST", "/v1/maintenance", "secret-token", `{"action":"list"}`)
+	if !strings.Contains(rec.Body.String(), "force=1") {
+		t.Errorf("couleurs non forcées pour la maintenance : %s", rec.Body.String())
+	}
+}

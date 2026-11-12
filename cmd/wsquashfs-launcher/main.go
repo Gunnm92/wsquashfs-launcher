@@ -1,5 +1,5 @@
 // wsquashfs-launcher : lance un jeu Windows .wsquashfs (format Batocera) sur
-// n'importe quel Linux. Binaire Go sans dépendance tierce, issu de la
+// n'importe quel Linux. Binaire Go statique (seule dépendance : lipgloss, pour l'affichage), issu de la
 // réécriture du script bash ; tests/run-tests.sh en vérifie le comportement.
 package main
 

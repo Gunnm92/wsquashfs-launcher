@@ -157,8 +157,9 @@ func TestEnvRelueAChaqueAppel(t *testing.T) {
 
 // TestNO_COLORPrioritaire : NO_COLOR=1 coupe les couleurs même avec
 // CLICOLOR_FORCE=1, hors terminal, comme la règle 1 de ui.go l'annonce.
-// DÉFAUT : colorprofile v0.4.3 (Detect/colorProfile) n'applique NO_COLOR
-// que si la sortie est un terminal ; hors terminal CLICOLOR_FORCE l'emporte.
+// colorprofile v0.4.3 (Detect/colorProfile) n'applique NO_COLOR que si la
+// sortie est un terminal : uiWrite retire lui-même les codes (correctif
+// détecté par ce test).
 func TestNO_COLORPrioritaire(t *testing.T) {
 	horsTerminal(t)
 	t.Setenv("CLICOLOR_FORCE", "1")
@@ -167,8 +168,7 @@ func TestNO_COLORPrioritaire(t *testing.T) {
 		out, errs := capteUI(t)
 		appel()
 		if strings.Contains(out.String()+errs.String(), esc) {
-			// DÉFAUT : voir la note ci-dessus.
-			t.Errorf("DÉFAUT %s : NO_COLOR=1 ignoré avec CLICOLOR_FORCE=1 hors terminal", nom)
+			t.Errorf("%s : NO_COLOR=1 ignoré avec CLICOLOR_FORCE=1 hors terminal", nom)
 		}
 	}
 }

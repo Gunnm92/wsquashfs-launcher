@@ -1,37 +1,35 @@
 ################ kernel-arcade
-=========================================
-WSquashFS Launcher
-=========================================
-Environnement : ENV
-Jeu           : Arcade Game
-Version       : 1.2.3
-Fichier       : ROOT/userdata/roms/windows/Arcade Game.wsquashfs
-Mode          : overlay noyau (squashfuse + overlayfs, namespace utilisateur)
+╭─────────────────────────────╮
+│ WSquashFS Launcher          │
+│ Arcade Game · version 1.2.3 │
+╰─────────────────────────────╯
+Environnement    : ENV
+Fichier          : ROOT/userdata/roms/windows/Arcade Game.wsquashfs
+Mode             : overlay noyau (squashfuse + overlayfs, namespace utilisateur)
 ✓ Préfixe Wine détecté (structure Batocera)
-Préfixe       : mise à jour pour wine-9.0 (fake)
-Import des fichiers de registre...
-  → b.reg
-Sauvegardes   : ROOT/userdata/saves/windows/Arcade Game (SAVEDIR/SAVEFILES)
------------------------------------------
-Exécutable    : ROOT/cache/wine/Arcade Game/drive_c/Game Dir/Bin/Game.EXE
-Arguments     : -fullscreen -w 1
-Wine          : ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/bin/wine (win64)
-Version Wine  : wine-9.0 (fake)
-Préfixe       : ROOT/cache/wine/Arcade Game
-Utilisateur   : steamuser (adapté au prefix)
-Sauvegardes   : ROOT/saves/Arcade Game
-Manettes      : XInput, manette Xbox
-DXVK          : activé
-VKD3D         : activé
-D7VK          : activé (DirectDraw → Vulkan)
-ESYNC         : activé
-Langue        : fr_FR.UTF-8
-=========================================
+Préfixe          : mise à jour pour wine-9.0 (fake)
+→ Import des fichiers de registre...
+  b.reg
+Sauvegardes      : ROOT/userdata/saves/windows/Arcade Game (SAVEDIR/SAVEFILES)
 
+▍Lancement
+  Exécutable   : ROOT/cache/wine/Arcade Game/drive_c/Game Dir/Bin/Game.EXE
+  Arguments    : -fullscreen -w 1
+  Wine         : ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/bin/wine (win64)
+  Version Wine : wine-9.0 (fake)
+  Préfixe      : ROOT/cache/wine/Arcade Game
+  Utilisateur  : steamuser (adapté au prefix)
+  Sauvegardes  : ROOT/saves/Arcade Game
+  Manettes     : XInput, manette Xbox
+  DXVK         : activé
+  VKD3D        : activé
+  D7VK         : activé (DirectDraw → Vulkan)
+  ESYNC        : activé
+  Langue       : fr_FR.UTF-8
+───────────────────────────────────────── sortie du jeu
+─────────────────────────────────────────
 
-=========================================
-Jeu terminé (code : 0)
-=========================================
+✓ Jeu terminé (code : 0)
 == rc=0
 WINE wine-tkg-fake cwd=ROOT args: [--version]
   WINEPREFIX=ROOT/cache/wine/Arcade Game
@@ -390,39 +388,37 @@ l src/Arcade Game.wine/drive_c/windows/system32/dxgi.dll -> /userdata/system/win
 ## squashfuse restants : 0
 ## verrou Arcade Game après la partie : libre
 ################ fuse-after-kernel
-=========================================
-WSquashFS Launcher
-=========================================
-Environnement : ENV
-Jeu           : Arcade Game
-Version       : 1.2.3
-Fichier       : ROOT/userdata/roms/windows/Arcade Game.wsquashfs
-Mode          : overlay (squashfuse + fuse-overlayfs)
+╭─────────────────────────────╮
+│ WSquashFS Launcher          │
+│ Arcade Game · version 1.2.3 │
+╰─────────────────────────────╯
+Environnement    : ENV
+Fichier          : ROOT/userdata/roms/windows/Arcade Game.wsquashfs
+Mode             : overlay (squashfuse + fuse-overlayfs)
 ✓ Préfixe Wine détecté (structure Batocera)
-Préfixe       : mise à jour pour wine-9.0 (fake)
-Import des fichiers de registre...
-  → b.reg
-Sauvegardes   : ROOT/userdata/saves/windows/Arcade Game (SAVEDIR/SAVEFILES)
------------------------------------------
-Exécutable    : ROOT/cache/wine/Arcade Game/drive_c/Game Dir/Bin/Game.EXE
-Arguments     : -fullscreen -w 1
-Wine          : ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/bin/wine (win64)
-Version Wine  : wine-9.0 (fake)
-Préfixe       : ROOT/cache/wine/Arcade Game
-Utilisateur   : steamuser (adapté au prefix)
-Sauvegardes   : ROOT/saves/Arcade Game
-Manettes      : XInput, manette Xbox
-DXVK          : activé
-VKD3D         : activé
-D7VK          : activé (DirectDraw → Vulkan)
-ESYNC         : activé
-Langue        : fr_FR.UTF-8
-=========================================
+Préfixe          : mise à jour pour wine-9.0 (fake)
+→ Import des fichiers de registre...
+  b.reg
+Sauvegardes      : ROOT/userdata/saves/windows/Arcade Game (SAVEDIR/SAVEFILES)
 
+▍Lancement
+  Exécutable   : ROOT/cache/wine/Arcade Game/drive_c/Game Dir/Bin/Game.EXE
+  Arguments    : -fullscreen -w 1
+  Wine         : ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/bin/wine (win64)
+  Version Wine : wine-9.0 (fake)
+  Préfixe      : ROOT/cache/wine/Arcade Game
+  Utilisateur  : steamuser (adapté au prefix)
+  Sauvegardes  : ROOT/saves/Arcade Game
+  Manettes     : XInput, manette Xbox
+  DXVK         : activé
+  VKD3D        : activé
+  D7VK         : activé (DirectDraw → Vulkan)
+  ESYNC        : activé
+  Langue       : fr_FR.UTF-8
+───────────────────────────────────────── sortie du jeu
+─────────────────────────────────────────
 
-=========================================
-Jeu terminé (code : 0)
-=========================================
+✓ Jeu terminé (code : 0)
 == rc=0
 WINE wine-tkg-fake cwd=ROOT args: [--version]
   WINEPREFIX=ROOT/cache/wine/Arcade Game
@@ -509,34 +505,33 @@ WINESERVER -w
 WINESERVER -k
 WINESERVER -w
 ################ kernel-refused
-=========================================
-WSquashFS Launcher
-=========================================
-Environnement : ENV
-Jeu           : Solo Game
-Fichier       : ROOT/userdata/roms/windows/Solo Game.wsquashfs
-Overlay noyau : échec, namespace utilisateur refusé (Operation not permitted)
-Mode          : overlay (squashfuse + fuse-overlayfs)
-Initialisation du préfixe Wine (win64)...
-Préfixe       : mise à jour pour wine-9.0 (fake)
------------------------------------------
-Exécutable    : ROOT/cache/wine/Solo Game/game/run me.exe
-Arguments     : --arg
-Wine          : ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/bin/wine (win64)
-Version Wine  : wine-9.0 (fake)
-Préfixe       : ROOT/cache/wine/Solo Game
-Sauvegardes   : ROOT/saves/Solo Game
-Manettes      : XInput, manette Xbox
-DXVK          : activé
-VKD3D         : activé
-D7VK          : activé (DirectDraw → Vulkan)
-Bureau virtuel: 1280x720
-=========================================
+╭────────────────────╮
+│ WSquashFS Launcher │
+│ Solo Game          │
+╰────────────────────╯
+Environnement    : ENV
+Fichier          : ROOT/userdata/roms/windows/Solo Game.wsquashfs
+Overlay noyau    : échec, namespace utilisateur refusé (Operation not permitted)
+Mode             : overlay (squashfuse + fuse-overlayfs)
+→ Initialisation du préfixe Wine (win64)...
+Préfixe          : mise à jour pour wine-9.0 (fake)
 
+▍Lancement
+  Exécutable     : ROOT/cache/wine/Solo Game/game/run me.exe
+  Arguments      : --arg
+  Wine           : ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/bin/wine (win64)
+  Version Wine   : wine-9.0 (fake)
+  Préfixe        : ROOT/cache/wine/Solo Game
+  Sauvegardes    : ROOT/saves/Solo Game
+  Manettes       : XInput, manette Xbox
+  DXVK           : activé
+  VKD3D          : activé
+  D7VK           : activé (DirectDraw → Vulkan)
+  Bureau virtuel : 1280x720
+───────────────────────────────────────── sortie du jeu
+─────────────────────────────────────────
 
-=========================================
-Jeu terminé (code : 0)
-=========================================
+✓ Jeu terminé (code : 0)
 -- stderr
 Attention : umu-run absent, prefix créé par wine-tkg-fake au lieu de Proton
 == rc=0
@@ -598,44 +593,43 @@ WINESERVER -w
 WINESERVER -k
 WINESERVER -w
 ################ kernel-forced
-=========================================
-WSquashFS Launcher
-=========================================
-Environnement : ENV
-Jeu           : Solo Game
-Fichier       : ROOT/userdata/roms/windows/Solo Game.wsquashfs
+╭────────────────────╮
+│ WSquashFS Launcher │
+│ Solo Game          │
+╰────────────────────╯
+Environnement    : ENV
+Fichier          : ROOT/userdata/roms/windows/Solo Game.wsquashfs
 -- stderr
 Erreur : overlay noyau impossible : namespace utilisateur refusé (Operation not permitted)
 == rc=1
 ################ kernel-fallback
-=========================================
-WSquashFS Launcher
-=========================================
-Environnement : ENV
-Jeu           : Solo Game
-Fichier       : ROOT/userdata/roms/windows/Solo Game.wsquashfs
-Overlay noyau : échec, overlay refusé (simulated failure)
-Mode          : overlay (squashfuse + fuse-overlayfs)
+╭────────────────────╮
+│ WSquashFS Launcher │
+│ Solo Game          │
+╰────────────────────╯
+Environnement    : ENV
+Fichier          : ROOT/userdata/roms/windows/Solo Game.wsquashfs
+Overlay noyau    : échec, overlay refusé (simulated failure)
+Mode             : overlay (squashfuse + fuse-overlayfs)
 ✓ Préfixe Wine détecté (structure Batocera)
-Préfixe       : mise à jour pour wine-9.0 (fake)
------------------------------------------
-Exécutable    : ROOT/cache/wine/Solo Game/game/run me.exe
-Arguments     : --arg
-Wine          : ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/bin/wine (win64)
-Version Wine  : wine-9.0 (fake)
-Préfixe       : ROOT/cache/wine/Solo Game
-Sauvegardes   : ROOT/saves/Solo Game
-Manettes      : XInput, manette Xbox
-DXVK          : activé
-VKD3D         : activé
-D7VK          : activé (DirectDraw → Vulkan)
-Bureau virtuel: 1280x720
-=========================================
+Préfixe          : mise à jour pour wine-9.0 (fake)
 
+▍Lancement
+  Exécutable     : ROOT/cache/wine/Solo Game/game/run me.exe
+  Arguments      : --arg
+  Wine           : ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/bin/wine (win64)
+  Version Wine   : wine-9.0 (fake)
+  Préfixe        : ROOT/cache/wine/Solo Game
+  Sauvegardes    : ROOT/saves/Solo Game
+  Manettes       : XInput, manette Xbox
+  DXVK           : activé
+  VKD3D          : activé
+  D7VK           : activé (DirectDraw → Vulkan)
+  Bureau virtuel : 1280x720
+───────────────────────────────────────── sortie du jeu
+─────────────────────────────────────────
 
-=========================================
-Jeu terminé (code : 0)
-=========================================
+✓ Jeu terminé (code : 0)
 -- stderr
 Attention : prefix Wine déjà créé dans les sauvegardes, gardé sous wine-tkg-fake — supprimer ROOT/saves/Solo Game (sauvegardes du jeu comprises) pour passer sous Proton
 == rc=0
@@ -688,31 +682,38 @@ WINESERVER -w
 WINESERVER -k
 WINESERVER -w
 ################ kernel-list
-Jeu                   État        Version     Sauvegardes  Image
-Arcade Game           -           1.2.3       SIZE         ROOT/userdata/roms/windows/Arcade Game.wsquashfs
-Hook Game             -           -           aucune       ROOT/userdata/roms/windows/Hook Game.wsquashfs
-Joint Game            -           -           aucune       ROOT/userdata/roms/windows/Joint Game.wsquashfs
-Loader Game           -           -           aucune       ROOT/userdata/roms/windows/Loader Game.wsquashfs
-Missing Runner Game   -           -           aucune       ROOT/userdata/roms/windows/Missing Runner Game.wsquashfs
-Named Game            -           -           aucune       ROOT/userdata/roms/windows/Named Game.wsquashfs
-Old32                 -           -           aucune       ROOT/userdata/roms/windows/Old32.wsquashfs
-Pre Fail Game         -           -           aucune       ROOT/userdata/roms/windows/Pre Fail Game.wsquashfs
-Proton Game           -           -           aucune       ROOT/userdata/roms/windows/Proton Game.wsquashfs
-Relative Runner Game  -           -           aucune       ROOT/userdata/roms/windows/Relative Runner Game.wsquashfs
-Solo Game             en cours    -           SIZE         ROOT/userdata/roms/windows/Solo Game.wsquashfs
-Two Runners Game      -           -           aucune       ROOT/userdata/roms/windows/Two Runners Game.wsquashfs
-Wine Joint Game       -           -           aucune       ROOT/userdata/roms/windows/Wine Joint Game.wsquashfs
+╭─────────────╮
+│ Jeux connus │
+│ 13 jeux     │
+╰─────────────╯
+╭──────────────────────┬──────────┬─────────┬─────────────┬──────────────────────────────────────────────────────────────────────────────────╮
+│ Jeu                  │ État     │ Version │ Sauvegardes │ Image                                                                            │
+├──────────────────────┼──────────┼─────────┼─────────────┼──────────────────────────────────────────────────────────────────────────────────┤
+│ Arcade Game          │ -        │ 1.2.3   │ SIZE │ ROOT/userdata/roms/windows/Arcade Game.wsquashfs          │
+│ Hook Game            │ -        │ -       │      aucune │ ROOT/userdata/roms/windows/Hook Game.wsquashfs            │
+│ Joint Game           │ -        │ -       │      aucune │ ROOT/userdata/roms/windows/Joint Game.wsquashfs           │
+│ Loader Game          │ -        │ -       │      aucune │ ROOT/userdata/roms/windows/Loader Game.wsquashfs          │
+│ Missing Runner Game  │ -        │ -       │      aucune │ ROOT/userdata/roms/windows/Missing Runner Game.wsquashfs  │
+│ Named Game           │ -        │ -       │      aucune │ ROOT/userdata/roms/windows/Named Game.wsquashfs           │
+│ Old32                │ -        │ -       │      aucune │ ROOT/userdata/roms/windows/Old32.wsquashfs                │
+│ Pre Fail Game        │ -        │ -       │      aucune │ ROOT/userdata/roms/windows/Pre Fail Game.wsquashfs        │
+│ Proton Game          │ -        │ -       │      aucune │ ROOT/userdata/roms/windows/Proton Game.wsquashfs          │
+│ Relative Runner Game │ -        │ -       │      aucune │ ROOT/userdata/roms/windows/Relative Runner Game.wsquashfs │
+│ Solo Game            │ en cours │ -       │ SIZE │ ROOT/userdata/roms/windows/Solo Game.wsquashfs            │
+│ Two Runners Game     │ -        │ -       │      aucune │ ROOT/userdata/roms/windows/Two Runners Game.wsquashfs     │
+│ Wine Joint Game      │ -        │ -       │      aucune │ ROOT/userdata/roms/windows/Wine Joint Game.wsquashfs      │
+╰──────────────────────┴──────────┴─────────┴─────────────┴──────────────────────────────────────────────────────────────────────────────────╯
 
-Sauvegardes : ROOT/saves (SIZE au total)
+Sauvegardes      : ROOT/saves (SIZE au total)
 == rc=0
 ## Solo Game vu de l'hôte : non monté
 ################ kernel-again
-=========================================
-WSquashFS Launcher
-=========================================
-Environnement : ENV
-Jeu           : Solo Game
-Fichier       : ROOT/userdata/roms/windows/Solo Game.wsquashfs
+╭────────────────────╮
+│ WSquashFS Launcher │
+│ Solo Game          │
+╰────────────────────╯
+Environnement    : ENV
+Fichier          : ROOT/userdata/roms/windows/Solo Game.wsquashfs
 -- stderr
 Erreur : Solo Game est déjà lancé
 == rc=1
