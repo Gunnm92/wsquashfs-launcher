@@ -71,7 +71,8 @@ export WSQUASHFS_CACHE="${ROOT}/cache" WSQUASHFS_SAVES_DIR="${ROOT}/saves"
 export FAKELOG="${ROOT}/wine.log"
 export USER=wsqtest
 export LANG=C
-unset LC_ALL WINEDEBUG WINEDLLOVERRIDES WINEPREFIX WINEARCH WINEUSERNAME DISPLAY \
+unset LC_ALL NO_COLOR CLICOLOR CLICOLOR_FORCE TERM COLORTERM \
+      WINEDEBUG WINEDLLOVERRIDES WINEPREFIX WINEARCH WINEUSERNAME DISPLAY \
       GAMEID PROTONPATH WSQUASHFS_UMU WSQUASHFS_HIDRAW WSQUASHFS_DXVK WSQUASHFS_D7VK \
       WSQUASHFS_VIRTUAL_DESKTOP WSQUASHFS_BATOCERA_SAVES SUDO_USER \
       WSQUASHFS_NVAPI WSQUASHFS_VKREFLEX WSQUASHFS_FSR WSQUASHFS_FSR4 \
@@ -419,6 +420,7 @@ step doctor        env HIDRAW_SYSFS="$ROOT/sysfs" "$L" --doctor
 step doctor-amd    env WSQUASHFS_DRM_SYSFS="$ROOT/drm-amd" WSQUASHFS_VK_ICD_DIR="$ROOT/icd" WSQUASHFS_FSR4_DIR="$ROOT/fsr4" "$L" --doctor
 step doctor-nvidia env WSQUASHFS_DRM_SYSFS="$ROOT/drm-nvidia" "$L" --doctor
 step doctor-both   env WSQUASHFS_DRM_SYSFS="$ROOT/drm-both" "$L" --doctor
+note "doctor --json avec CLICOLOR_FORCE=1 : $(CLICOLOR_FORCE=1 "$L" --doctor --json 2>&1 | grep -c $'\x1b') code(s) de couleur"
 step list-empty    "$L" --list
 step backup-removed "$L" --backup
 step noarg         "$L"
