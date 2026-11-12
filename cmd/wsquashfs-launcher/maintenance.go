@@ -317,27 +317,6 @@ func nameList(heading string, names []string) {
 	}
 }
 
-// sizeText : taille lisible, à l'unité près (o, Ko, Mo) ou au dixième (Go).
-func sizeText(n int64) string {
-	switch {
-	case n < 1024:
-		return fmt.Sprintf("%d o", n)
-	case n < 1024*1024:
-		return fmt.Sprintf("%d Ko", n/1024)
-	case n < 1024*1024*1024:
-		return fmt.Sprintf("%d Mo", n/(1024*1024))
-	}
-	return strings.Replace(fmt.Sprintf("%.1f Go", float64(n)/(1024*1024*1024)), ".", ",", 1)
-}
-
-// plural : « 1 jeu », « 3 jeux ».
-func plural(n int, one, many string) string {
-	if n > 1 {
-		return fmt.Sprintf("%d %s", n, many)
-	}
-	return fmt.Sprintf("%d %s", n, one)
-}
-
 // isDirPath : chemin existant et dossier.
 func isDirPath(p string) bool {
 	st, err := os.Stat(p)

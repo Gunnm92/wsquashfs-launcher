@@ -32,29 +32,6 @@ func exitNow(code int) {
 	select {}
 }
 
-// die : affiche l'erreur (et ses lignes de détail) et quitte (code 1).
-func die(msg string, details ...string) {
-	fmt.Fprintln(os.Stderr, "Erreur : "+msg)
-	for _, d := range details {
-		fmt.Fprintln(os.Stderr, d)
-	}
-	exitNow(1)
-}
-
-// warn : avertissement sur la sortie d'erreur.
-func warn(msg string, details ...string) {
-	fmt.Fprintln(os.Stderr, "Attention : "+msg)
-	for _, d := range details {
-		fmt.Fprintln(os.Stderr, d)
-	}
-}
-
-// usageError : rappel de syntaxe, puis code 1.
-func usageError(syntax string) {
-	fmt.Fprintln(os.Stderr, "Usage : "+syntax)
-	exitNow(1)
-}
-
 // confirm : vrai si l'utilisateur répond oui (o/y).
 func confirm(question string) bool {
 	fmt.Print(question + " [o/N] ")
@@ -187,18 +164,6 @@ func splitCommandLine(line string) []string {
 		args = append(args, arg.String())
 	}
 	return args
-}
-
-// textWidth : longueur en caractères d'un texte UTF-8 (octets de continuation
-// non comptés), quelle que soit la locale.
-func textWidth(s string) int {
-	n := 0
-	for i := 0; i < len(s); i++ {
-		if s[i] < 0x80 || s[i] > 0xBF {
-			n++
-		}
-	}
-	return n
 }
 
 // pad : texte complété d'espaces jusqu'à la largeur (au moins un espace).
