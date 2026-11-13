@@ -68,7 +68,7 @@ Usage :
         et fenêtres, l'arrête, et écrit le rapport en JSON.
   wsquashfs-launcher --pair [--reset] [--roms DIR]... [--port N]
         Affiche le code d'association (wsq://…) à coller dans wsquashfs-manager
-        (Réglages → Machine de jeu ou Sauvegardes) ou sur l'autre machine
+        (Réglages → Machine de jeu ou onglet Sauvegardes) ou sur l'autre machine
         (--sync wsq://…), puis
         attend l'association (10 min au plus, Ctrl-C annule) et se ferme. Sans
         agent en marche, sert un agent temporaire le temps de l'attente.
@@ -80,8 +80,9 @@ Usage :
           (rien) ou <jeu>   synchronise tous les jeux, ou un seul
           status            montre ce qui serait fait, sans rien changer
           forget <machine>  retire une machine associée
-        Conflit : la version la plus récente gagne, l'autre est archivée dans
-        le dossier des backups. Le jeu doit être arrêté des deux côtés.
+        Conflit (les deux côtés ont changé) : la version la plus lourde gagne
+        (à taille égale, la plus récente), l'autre est archivée dans le dossier
+        des backups. Le jeu doit être arrêté des deux côtés.
   wsquashfs-launcher --agent
         Lance l'agent pour wsquashfs-manager (machine de jeu sur le réseau) en
         arrière-plan, puis rend la main. Sans configuration, l'initialise

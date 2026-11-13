@@ -59,7 +59,7 @@ processus de session), `cert.pem`, `key.pem` (droits 600).
 
 | Route | Rôle |
 |---|---|
-| `GET /v1/info` | version, machine, utilisateur, dossiers roms/ |
+| `GET /v1/info` | version, machine, utilisateur, dossiers roms/, `os` (ID de `/etc/os-release`, `linux` par défaut) |
 | `GET /v1/doctor[?refresh=1]` | rapport `--doctor --json` (mis en cache 5 min) |
 | `POST /v1/trial` `{rel, duration}` | essai : rapport `--trial` et capture (base64) |
 | `POST /v1/maintenance` `{action, rel?}` | voir la table ci-dessous |
@@ -71,7 +71,7 @@ processus de session), `cert.pem`, `key.pem` (droits 600).
 ### Maintenance (`POST /v1/maintenance`)
 
 Table fermée (`maintenanceActions` dans `agent_http.go`), contrat commun avec
-wsquashfs-manager (version de l'agent : **3**, route `GET /v1/info`).
+wsquashfs-manager (version de l'agent : **4**, route `GET /v1/info`).
 
 | `action` | Lanceur | `rel` (image du jeu) |
 |---|---|---|
@@ -100,9 +100,11 @@ et mise de côté du mode copy.
 
 | Route | Rôle |
 |---|---|
-| `GET /v1/saves/list` | jeux à sauvegardes (empreinte, plus récente date) et état enregistré pour cette machine |
+| `GET /v1/saves/list` | jeux à sauvegardes (empreinte, plus récente date, `size` : taille totale en octets) et état enregistré pour cette machine |
 | `GET /v1/saves/tar?game=` | archive tar.gz du périmètre (en-têtes `X-Wsq-Fingerprint`, `X-Wsq-Profile`) ; 404 sans sauvegarde |
 | `PUT /v1/saves/tar?game=` | remplace le périmètre par l'archive (2 Gio max, 413 sinon) ; si la version locale a changé depuis la dernière synchro avec cette machine, elle est archivée dans le dossier backups d'abord (réponse `archived`) |
 | `POST /v1/saves/state` `{game, fingerprint}` | enregistre l'empreinte commune après une réception (409 si le jeu a changé entre-temps) |
+
+Règle du conflit (les deux côtés ont changé depuis la dernière synchro) : la version la plus lourde gagne, à taille égale la plus récente ; la perdante est archivée dans le dossier backups.
 
 Un jeu verrouillé (lancé, monté, en maintenance) répond 409 `jeu en cours`.

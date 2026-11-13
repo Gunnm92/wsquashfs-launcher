@@ -107,6 +107,9 @@ func TestSyncListStates(t *testing.T) {
 	if games[1].Name != syncRigGame || games[1].Fingerprint != want || games[1].State != "" || games[1].Newest == 0 {
 		t.Errorf("Game : %+v, empreinte attendue %s", games[1], want)
 	}
+	if size := saveSize(collectSaveFiles(r.users)); games[1].Size == 0 || games[1].Size != size {
+		t.Errorf("taille Game : %d, attendue %d", games[1].Size, size)
+	}
 }
 
 func TestSyncFetchThenAck(t *testing.T) {

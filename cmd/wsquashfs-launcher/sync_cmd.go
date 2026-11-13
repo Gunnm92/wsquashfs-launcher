@@ -288,6 +288,16 @@ func archivedNote(path string) string {
 	return " (" + path + ")"
 }
 
+// conflictWhy : ce qui a départagé un conflit gagné (« plus lourde », ou « plus récente » à taille
+// égale) et les deux tailles, gagnant d'abord.
+func conflictWhy(winSize, loseSize int64) string {
+	why := "plus récente"
+	if winSize != loseSize {
+		why = "plus lourde"
+	}
+	return why + " gardée (" + sizeText(winSize) + " contre " + sizeText(loseSize) + ")"
+}
+
 // syncGameWith : synchronise UN jeu avec une machine associée. users : users/ local du jeu ; remote :
 // son état sur la machine distante (liste). dryRun : rien n'est verrouillé ni écrit. Retourne le
 // statut et le texte de la ligne du jeu.
@@ -312,7 +322,8 @@ func syncGameWith(c *syncClient, peerName, peerID, stateRoot, name, users string
 		return stSkip, "aucune sauvegarde ici ni sur " + peerName
 	}
 	state := loadSyncState(stateRoot, peerID, name).Fingerprint
-	action := decideSync(fp, state, newestSave(files), remote.Fingerprint, remote.State, remote.Newest)
+	localSize := saveSize(files)
+	action := decideSync(fp, state, newestSave(files), localSize, remote.Fingerprint, remote.State, remote.Newest, remote.Size)
 	if dryRun {
 		return stInfo, action.String()
 	}
@@ -337,7 +348,7 @@ func syncGameWith(c *syncClient, peerName, peerID, stateRoot, name, users string
 			return stFail, err.Error()
 		}
 		if action == syncConflictSend {
-			return stOK, "conflit : version d'ici plus récente gardée ; celle de " + peerName + " archivée là-bas" + archivedNote(archived)
+			return stOK, "conflit : version d'ici " + conflictWhy(localSize, remote.Size) + " ; celle de " + peerName + " archivée là-bas" + archivedNote(archived)
 		}
 		return stOK, "envoyé à " + peerName
 
@@ -363,7 +374,7 @@ func syncGameWith(c *syncClient, peerName, peerID, stateRoot, name, users string
 			return stFail, err.Error()
 		}
 		if action == syncConflictReceive {
-			return stOK, "conflit : version de " + peerName + " plus récente gardée ; celle d'ici archivée dans " + archivedLocal
+			return stOK, "conflit : version de " + peerName + " " + conflictWhy(remote.Size, localSize) + " ; celle d'ici archivée dans " + archivedLocal
 		}
 		return stOK, "reçu de " + peerName
 	}

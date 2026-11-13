@@ -49,7 +49,7 @@ import (
 )
 
 const (
-	agentVersion     = "3"
+	agentVersion     = "4"
 	agentDefaultPort = 8790
 	agentIdleExit    = 60 * time.Second // sans requête, quand systemd tient la socket
 )
@@ -272,7 +272,7 @@ func cmdPair(args []string) int {
 	}
 	uiTitle("Association avec wsquashfs-manager")
 	uiNote("Colle ce code sur l'autre machine (wsquashfs-launcher --sync wsq://…)",
-		"ou dans wsquashfs-manager (Réglages → Machine de jeu, ou → Sauvegardes) :")
+		"ou dans wsquashfs-manager (Réglages → Machine de jeu, ou onglet Sauvegardes) :")
 	uiOut("")
 	uiCode(code)
 	uiOut("")

@@ -159,6 +159,15 @@ func newestSave(files []saveFile) int64 {
 	return newest
 }
 
+// saveSize : taille totale des sauvegardes du périmètre, en octets.
+func saveSize(files []saveFile) int64 {
+	var total int64
+	for _, f := range files {
+		total += f.Size
+	}
+	return total
+}
+
 // archiveEntryName : nom d'une entrée d'archive ; le profil devient le token s'il est seul.
 func archiveEntryName(rel string, single bool) string {
 	if !single {
@@ -558,8 +567,10 @@ const (
 )
 
 // decideSync : sens de la synchro, d'après les empreintes locale et distante et l'état de la
-// dernière synchro (chacune son empreinte). Si les deux côtés ont changé, le plus récent gagne.
-func decideSync(localFP, localState string, localNewest int64, remoteFP, remoteState string, remoteNewest int64) syncAction {
+// dernière synchro (chacune son empreinte). Si les deux côtés ont changé (conflit), la plus lourde
+// gagne ; à taille égale, la plus récente. localNewest et remoteNewest : MTime le plus récent (s) ;
+// localSize et remoteSize : taille totale du périmètre (octets).
+func decideSync(localFP, localState string, localNewest, localSize int64, remoteFP, remoteState string, remoteNewest, remoteSize int64) syncAction {
 	switch {
 	case localFP == remoteFP:
 		return syncUpToDate
@@ -575,6 +586,11 @@ func decideSync(localFP, localState string, localNewest int64, remoteFP, remoteS
 		return syncReceive
 	case lc && !rc:
 		return syncSend
+	case localSize != remoteSize:
+		if localSize > remoteSize {
+			return syncConflictSend
+		}
+		return syncConflictReceive
 	case localNewest >= remoteNewest:
 		return syncConflictSend
 	}

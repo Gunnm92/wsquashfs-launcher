@@ -134,7 +134,7 @@ func TestSyncGameSend(t *testing.T) {
 
 // TestSyncGameConflictSendKeepsNewerLocal : les deux côtés ont changé, la version d'ici est la plus
 // récente : elle est envoyée, la version du serveur est mise de côté là-bas.
-func TestSyncGameConflictSendKeepsNewerLocal(t *testing.T) {
+func TestSyncGameConflictSendKeepsHeavierLocal(t *testing.T) {
 	r := newSyncRig(t)
 	syncNoLocalLock(t)
 	local := clientUsers(t)
@@ -142,11 +142,12 @@ func TestSyncGameConflictSendKeepsNewerLocal(t *testing.T) {
 	if st, msg := syncOne(t, r, local, stateRoot, false); st != stOK {
 		t.Fatalf("réception initiale : %v %q", st, msg)
 	}
-	syncTestPut(t, filepath.Join(r.users, "steamuser", "Documents", "Game", "serveur.sav"), "serveur", syncTestTime.Add(time.Hour))
-	syncTestPut(t, filepath.Join(local, "steamuser", "Documents", "Game", "client.sav"), "client", syncTestTime.Add(2*time.Hour))
+	// Version d'ici plus lourde mais plus ancienne : elle gagne quand même.
+	syncTestPut(t, filepath.Join(r.users, "steamuser", "Documents", "Game", "serveur.sav"), "serveur", syncTestTime.Add(3*time.Hour))
+	syncTestPut(t, filepath.Join(local, "steamuser", "Documents", "Game", "client.sav"), strings.Repeat("client", 1000), syncTestTime.Add(time.Hour))
 
 	st, msg := syncOne(t, r, local, stateRoot, false)
-	if st != stOK || !strings.HasPrefix(msg, "conflit : version d'ici plus récente gardée") {
+	if st != stOK || !strings.HasPrefix(msg, "conflit : version d'ici plus lourde gardée (") {
 		t.Fatalf("conflit côté envoi : %v %q", st, msg)
 	}
 	archive := syncArchiveWith(t, r.backups, "serveur.sav")
@@ -161,9 +162,9 @@ func TestSyncGameConflictSendKeepsNewerLocal(t *testing.T) {
 	}
 }
 
-// TestSyncGameConflictReceiveKeepsNewerRemote : les deux côtés ont changé, la version du serveur est la
-// plus récente : elle est reçue, la version d'ici est archivée localement avant.
-func TestSyncGameConflictReceiveKeepsNewerRemote(t *testing.T) {
+// TestSyncGameConflictReceiveKeepsHeavierRemote : les deux côtés ont changé, la version du serveur est la
+// plus lourde (mais la plus ancienne) : elle est reçue, la version d'ici est archivée localement avant.
+func TestSyncGameConflictReceiveKeepsHeavierRemote(t *testing.T) {
 	r := newSyncRig(t)
 	syncNoLocalLock(t)
 	local := clientUsers(t)
@@ -171,15 +172,15 @@ func TestSyncGameConflictReceiveKeepsNewerRemote(t *testing.T) {
 	if st, msg := syncOne(t, r, local, stateRoot, false); st != stOK {
 		t.Fatalf("réception initiale : %v %q", st, msg)
 	}
-	syncTestPut(t, filepath.Join(r.users, "steamuser", "Documents", "Game", "serveur.sav"), "serveur", syncTestTime.Add(3*time.Hour))
-	syncTestPut(t, filepath.Join(local, "steamuser", "Documents", "Game", "client.sav"), "client", syncTestTime.Add(2*time.Hour))
+	syncTestPut(t, filepath.Join(r.users, "steamuser", "Documents", "Game", "serveur.sav"), strings.Repeat("serveur", 1000), syncTestTime.Add(2*time.Hour))
+	syncTestPut(t, filepath.Join(local, "steamuser", "Documents", "Game", "client.sav"), "client", syncTestTime.Add(3*time.Hour))
 
 	st, msg := syncOne(t, r, local, stateRoot, false)
-	const prefix = "conflit : version de steambox plus récente gardée ; celle d'ici archivée dans "
-	if st != stOK || !strings.HasPrefix(msg, prefix) {
+	const sep = " ; celle d'ici archivée dans "
+	if st != stOK || !strings.HasPrefix(msg, "conflit : version de steambox plus lourde gardée (") || !strings.Contains(msg, sep) {
 		t.Fatalf("conflit côté réception : %v %q", st, msg)
 	}
-	archive := strings.TrimPrefix(msg, prefix)
+	archive := msg[strings.Index(msg, sep)+len(sep):]
 	if filepath.Dir(archive) != r.backups {
 		t.Errorf("archive hors de WSQUASHFS_BACKUP_DIR : %s", archive)
 	}

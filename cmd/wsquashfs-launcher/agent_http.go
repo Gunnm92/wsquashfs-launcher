@@ -179,7 +179,25 @@ func (s *agentServer) info(w http.ResponseWriter, r *http.Request) {
 		"launcher":        launcherExe(),
 		"roms":            s.cfg.Roms,
 		"session_process": s.cfg.Session,
+		"os":              osID("/etc/os-release"),
 	})
+}
+
+// osID : valeur de ID= dans un os-release (guillemets retirés, minuscules) ; "linux" si le fichier
+// est absent ou sans ID.
+func osID(path string) string {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return "linux"
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		if v, ok := strings.CutPrefix(strings.TrimSpace(line), "ID="); ok {
+			if id := strings.ToLower(strings.Trim(strings.TrimSpace(v), `"'`)); id != "" {
+				return id
+			}
+		}
+	}
+	return "linux"
 }
 
 // doctor : --doctor --json, mis en cache quelques minutes.
@@ -528,6 +546,7 @@ type remoteSave struct {
 	Name        string `json:"name"`
 	Fingerprint string `json:"fingerprint"`
 	Newest      int64  `json:"newest"`
+	Size        int64  `json:"size"`
 	State       string `json:"state"`
 }
 
@@ -563,7 +582,7 @@ func (s *agentServer) savesList(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		st := loadSyncState(syncStateRoot(), machine, name)
-		games = append(games, remoteSave{Name: name, Fingerprint: fp, Newest: newestSave(files), State: st.Fingerprint})
+		games = append(games, remoteSave{Name: name, Fingerprint: fp, Newest: newestSave(files), Size: saveSize(files), State: st.Fingerprint})
 	}
 	sort.Slice(games, func(i, j int) bool { return games[i].Name < games[j].Name })
 	writeJSON(w, http.StatusOK, map[string]any{"games": games})

@@ -294,30 +294,34 @@ func TestSyncApplyRefusesMalicious(t *testing.T) {
 
 func TestSyncDecide(t *testing.T) {
 	cases := []struct {
-		name     string
-		lfp, lst string
-		lnew     int64
-		rfp, rst string
-		rnew     int64
-		want     syncAction
+		name      string
+		lfp, lst  string
+		lnew, lsz int64
+		rfp, rst  string
+		rnew, rsz int64
+		want      syncAction
 	}{
-		{"identiques", "a", "a", 10, "a", "a", 10, syncUpToDate},
-		{"vides", "", "", 0, "", "", 0, syncUpToDate},
-		{"identiques, état absent", "a", "", 10, "a", "", 10, syncUpToDate},
-		{"local vide", "", "", 0, "b", "b", 5, syncReceive},
-		{"distant vide", "a", "a", 5, "", "", 0, syncSend},
-		{"local vide, état ancien", "", "a", 0, "b", "b", 5, syncReceive},
-		{"local changé seul", "a2", "a", 10, "b", "b", 5, syncSend},
-		{"local changé, jamais synchro", "a", "", 10, "b", "b", 5, syncSend},
-		{"distant changé seul", "a", "a", 10, "b2", "b", 5, syncReceive},
-		{"deux inchangés, empreintes différentes", "a", "a", 10, "b", "b", 5, syncConflictSend},
-		{"conflit, local plus récent", "a2", "a", 20, "b2", "b", 10, syncConflictSend},
-		{"conflit, distant plus récent", "a2", "a", 10, "b2", "b", 20, syncConflictReceive},
-		{"conflit, à égalité", "a2", "a", 10, "b2", "b", 10, syncConflictSend},
-		{"conflit, état absent des deux", "a", "", 10, "b", "", 20, syncConflictReceive},
+		{"identiques", "a", "a", 10, 1, "a", "a", 10, 1, syncUpToDate},
+		{"vides", "", "", 0, 0, "", "", 0, 0, syncUpToDate},
+		{"identiques, état absent", "a", "", 10, 1, "a", "", 10, 1, syncUpToDate},
+		{"local vide", "", "", 0, 0, "b", "b", 5, 3, syncReceive},
+		{"distant vide", "a", "a", 5, 3, "", "", 0, 0, syncSend},
+		{"local vide, état ancien", "", "a", 0, 0, "b", "b", 5, 3, syncReceive},
+		{"local changé seul", "a2", "a", 10, 1, "b", "b", 5, 9, syncSend},
+		{"local changé, jamais synchro", "a", "", 10, 1, "b", "b", 5, 9, syncSend},
+		{"distant changé seul", "a", "a", 10, 9, "b2", "b", 5, 1, syncReceive},
+		{"deux inchangés, empreintes différentes", "a", "a", 10, 5, "b", "b", 5, 5, syncConflictSend},
+		{"conflit, local plus récent, même taille", "a2", "a", 20, 5, "b2", "b", 10, 5, syncConflictSend},
+		{"conflit, distant plus récent, même taille", "a2", "a", 10, 5, "b2", "b", 20, 5, syncConflictReceive},
+		{"conflit, à égalité", "a2", "a", 10, 5, "b2", "b", 10, 5, syncConflictSend},
+		{"conflit, état absent des deux", "a", "", 10, 5, "b", "", 20, 5, syncConflictReceive},
+		{"conflit, local plus lourde mais plus ancienne", "a2", "a", 10, 300, "b2", "b", 20, 200, syncConflictSend},
+		{"conflit, distant plus lourd mais plus ancien", "a2", "a", 20, 100, "b2", "b", 10, 300, syncConflictReceive},
+		{"conflit, distant plus lourd et plus récent", "a2", "a", 10, 100, "b2", "b", 20, 300, syncConflictReceive},
+		{"conflit, local plus lourd et plus récent", "a2", "a", 20, 300, "b2", "b", 10, 100, syncConflictSend},
 	}
 	for _, c := range cases {
-		if got := decideSync(c.lfp, c.lst, c.lnew, c.rfp, c.rst, c.rnew); got != c.want {
+		if got := decideSync(c.lfp, c.lst, c.lnew, c.lsz, c.rfp, c.rst, c.rnew, c.rsz); got != c.want {
 			t.Errorf("%s : %v, attendu %v", c.name, got, c.want)
 		}
 	}
@@ -329,6 +333,17 @@ func TestSyncDecide(t *testing.T) {
 		if a.String() != l {
 			t.Errorf("String() = %q, attendu %q", a.String(), l)
 		}
+	}
+}
+
+// TestSyncSaveSize : somme des tailles du périmètre, 0 si vide.
+func TestSyncSaveSize(t *testing.T) {
+	if saveSize(nil) != 0 {
+		t.Error("saveSize(vide) : attendu 0")
+	}
+	files := []saveFile{{Rel: "deck/a.sav", Size: 3}, {Rel: "deck/b.sav", Size: 4}}
+	if got := saveSize(files); got != 7 {
+		t.Errorf("saveSize = %d, attendu 7", got)
 	}
 }
 

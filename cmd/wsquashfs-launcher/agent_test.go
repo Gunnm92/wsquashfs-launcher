@@ -174,9 +174,14 @@ func TestMaintenanceArgs(t *testing.T) {
 	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "--save attend un jeu") {
 		t.Errorf("save sans jeu : code %d, %s", rec.Code, rec.Body.String())
 	}
-	// Version de l'API : 3 depuis la table (save, saves, sync, sync-status).
-	if rec := do(h, "GET", "/v1/info", "secret-token", ""); !strings.Contains(rec.Body.String(), `"version":"3"`) {
-		t.Errorf("version de l'agent : %s", rec.Body.String())
+	// Version de l'API : 4 depuis la table (save, saves, sync, sync-status, taille et OS).
+	rec = do(h, "GET", "/v1/info", "secret-token", "")
+	var info struct {
+		Version string `json:"version"`
+		OS      string `json:"os"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &info); err != nil || info.Version != "4" || info.OS == "" {
+		t.Errorf("/v1/info : version et os attendus, %s (%v)", rec.Body.String(), err)
 	}
 }
 
@@ -366,6 +371,32 @@ func TestMaintenanceReturnsExitCode(t *testing.T) {
 		}
 		if !strings.Contains(got.Output, "sortie") {
 			t.Errorf("sortie absente : %q", got.Output)
+		}
+	}
+}
+
+// TestOSID : identifiant de distribution tiré d'os-release ; "linux" sans fichier ni ID.
+func TestOSID(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, content string) string {
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	cases := []struct {
+		name, path, want string
+	}{
+		{"steamos", write("steamos", "NAME=\"SteamOS\"\nID=steamos\nVERSION_ID=3.5\n"), "steamos"},
+		{"batocera, guillemets et majuscules", write("batocera", "ID_LIKE=linux\nID=\"Batocera\"\n"), "batocera"},
+		{"absent", filepath.Join(dir, "absent"), "linux"},
+		{"sans ID", write("sans", "NAME=Inconnu\nID_LIKE=debian\n"), "linux"},
+		{"ID vide", write("vide", "ID=\"\"\n"), "linux"},
+	}
+	for _, c := range cases {
+		if got := osID(c.path); got != c.want {
+			t.Errorf("%s : osID = %q, attendu %q", c.name, got, c.want)
 		}
 	}
 }

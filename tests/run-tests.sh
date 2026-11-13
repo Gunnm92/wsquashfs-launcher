@@ -826,12 +826,16 @@ echo partie-B > "$ROOT/syncB/saves/Sync Game/drive_c/users/steamuser/Documents/y
 sync_step sync-receive A --sync "Sync Game"
 note "A après réception : $(sync_files A)"
 note "archives de conflit : $(ls "$ROOT/syncA/backups" 2>/dev/null | wc -l)"
-# Les deux jouent sans synchro : la plus récente (A) gagne, celle de B est archivée sur B
-echo partie-B2 > "$ROOT/syncB/saves/Sync Game/drive_c/users/steamuser/Documents/y.sav"
+# Les deux jouent sans synchro : la version la plus LOURDE gagne, même plus ancienne. B réécrit
+# y.sav en 4 Ko daté de 2026-01-01 ; A réécrit x.sav (10 octets, maintenant) : B gagne, A archive
+# sa version (sur A) et reçoit celle de B. Sur B, rien n'est archivé.
+yes partie-B2 | head -c 4096 > "$ROOT/syncB/saves/Sync Game/drive_c/users/steamuser/Documents/y.sav"
 touch -d '2026-01-01 12:00' "$ROOT/syncB/saves/Sync Game/drive_c/users/steamuser/Documents/y.sav"
 echo partie-A2 > "$ROOT/syncA/saves/Sync Game/drive_c/users/steamuser/Documents/x.sav"
 sync_step sync-conflict A --sync
-note "B après conflit : y.sav = $(cat "$ROOT/syncB/saves/Sync Game/drive_c/users/steamuser/Documents/y.sav"), x.sav = $(cat "$ROOT/syncB/saves/Sync Game/drive_c/users/steamuser/Documents/x.sav")"
+note "A après conflit (B doit gagner) : y.sav = $(wc -c < "$ROOT/syncA/saves/Sync Game/drive_c/users/steamuser/Documents/y.sav") octets, x.sav = $(cat "$ROOT/syncA/saves/Sync Game/drive_c/users/steamuser/Documents/x.sav")"
+note "archives sur A après conflit : $(ls "$ROOT/syncA/backups" 2>/dev/null | normalize | paste -sd ' ')"
+note "B après conflit : y.sav = $(wc -c < "$ROOT/syncB/saves/Sync Game/drive_c/users/steamuser/Documents/y.sav") octets, x.sav = $(cat "$ROOT/syncB/saves/Sync Game/drive_c/users/steamuser/Documents/x.sav")"
 note "archives sur B : $(ls "$ROOT/syncB/backups" 2>/dev/null | normalize | paste -sd ' ')"
 sync_step sync-forget  A --sync forget "$SYNC_NAME"
 sync_step sync-none    A --sync

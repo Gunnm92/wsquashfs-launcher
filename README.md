@@ -430,7 +430,8 @@ wsquashfs-launcher --sync forget <machine>   # retirer une machine
 - Ce qui est synchronisé : Documents, Saved Games et AppData des profils
   Windows du prefix, comme `--save`. Les caches sont exclus.
 - **Conflit** (les deux machines ont changé depuis la dernière synchro) : la
-  plus récente gagne ; l'autre version est archivée dans le dossier
+  plus lourde gagne (à taille égale, la plus récente) ; l'autre version est
+  archivée dans le dossier
   `backups` (`~/.local/share/wsquashfs/backups`), dont `--clean` ne garde que
   les 3 dernières archives.
 - **Limites** : les jeux qui sauvegardent hors de leur prefix (dossier
