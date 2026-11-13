@@ -12,8 +12,10 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -550,6 +552,18 @@ func saveSyncState(stateRoot, peerID, game, fp string) error {
 	}
 	if err := os.Rename(tmp, path); err != nil {
 		_ = os.Remove(tmp)
+		return err
+	}
+	return nil
+}
+
+// removeSyncState : efface l'état de synchro de cette machine pour ce jeu ; absent : rien à faire.
+// Les états des autres machines ne sont pas touchés.
+func removeSyncState(stateRoot, peerID, game string) error {
+	if !validSyncID(peerID) || !validSyncGame(game) {
+		return fmt.Errorf("état de synchro refusé : %q / %q", peerID, game)
+	}
+	if err := os.Remove(syncStatePath(stateRoot, peerID, game)); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
 	return nil

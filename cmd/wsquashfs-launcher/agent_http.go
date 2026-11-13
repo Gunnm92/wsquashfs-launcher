@@ -70,6 +70,7 @@ func (s *agentServer) httpServer() *http.Server {
 	mux.HandleFunc("GET /v1/saves/list", s.syncMachine(s.savesList))
 	mux.HandleFunc("GET /v1/saves/tar", s.syncMachine(s.savesGet))
 	mux.HandleFunc("PUT /v1/saves/tar", s.syncMachine(s.savesPut))
+	mux.HandleFunc("DELETE /v1/saves/tar", s.syncMachine(s.savesDelete))
 	mux.HandleFunc("POST /v1/saves/state", s.syncMachine(s.savesState))
 	var h http.Handler = mux
 	if s.logOn {
@@ -688,6 +689,72 @@ func (s *agentServer) savesPut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"fingerprint": fp, "archived": archived})
+}
+
+// savesDelete : supprime les sauvegardes d'un jeu sur cette machine (le manager, par l'agent). Le
+// périmètre est archivé d'abord (dossier backups) : si l'archivage échoue, rien n'est effacé. Seuls
+// les fichiers du périmètre partent, puis les dossiers devenus vides ; caches et autres fichiers
+// restent. L'état de synchro de la machine appelante pour ce jeu est effacé ; ceux des autres machines
+// restent.
+func (s *agentServer) savesDelete(w http.ResponseWriter, r *http.Request) {
+	game := r.URL.Query().Get("game")
+	if !validSyncGame(game) {
+		writeDetail(w, http.StatusBadRequest, "jeu invalide")
+		return
+	}
+	machine := r.Header.Get("X-Wsq-Machine")
+	lock, ok := lockIdleGame(game)
+	if !ok {
+		writeDetail(w, http.StatusConflict, "jeu en cours")
+		return
+	}
+	if lock != nil {
+		defer lock.Close()
+	}
+	users := syncUsersDir(game)
+	files := collectSaveFiles(users)
+	if len(files) == 0 {
+		if err := removeSyncState(syncStateRoot(), machine, game); err != nil {
+			writeDetail(w, http.StatusInternalServerError, "état de synchro non supprimé")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"archived": "", "removed": 0})
+		return
+	}
+	archived, err := archiveUsers(game, filepath.Dir(users), filepath.Base(users))
+	if err != nil {
+		writeDetail(w, http.StatusInternalServerError, "archivage impossible, rien supprimé")
+		return
+	}
+	removed := 0
+	for _, f := range files {
+		profile, _ := splitRel(f.Rel)
+		p := filepath.Join(users, filepath.FromSlash(f.Rel))
+		switch err := os.Remove(p); {
+		case err == nil:
+			removed++
+		case !errors.Is(err, fs.ErrNotExist):
+			writeDetail(w, http.StatusInternalServerError, "suppression impossible ("+err.Error()+"), archive : "+archived)
+			return
+		}
+		removeEmptyDirs(filepath.Dir(p), filepath.Join(users, profile))
+	}
+	if err := removeSyncState(syncStateRoot(), machine, game); err != nil {
+		writeDetail(w, http.StatusInternalServerError, "état de synchro non supprimé, archive : "+archived)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"archived": archived, "removed": removed})
+}
+
+// removeEmptyDirs : supprime dir, puis ses parents devenus vides, jusqu'à (exclu) stop. Un dossier
+// non vide arrête la remontée.
+func removeEmptyDirs(dir, stop string) {
+	for dir != stop && strings.HasPrefix(dir, stop+string(filepath.Separator)) {
+		if err := os.Remove(dir); err != nil {
+			return
+		}
+		dir = filepath.Dir(dir)
+	}
 }
 
 // syncStateRequest : corps de POST /v1/saves/state.

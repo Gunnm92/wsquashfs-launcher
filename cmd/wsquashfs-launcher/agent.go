@@ -49,7 +49,7 @@ import (
 )
 
 const (
-	agentVersion     = "4"
+	agentVersion     = "5"
 	agentDefaultPort = 8790
 	agentIdleExit    = 60 * time.Second // sans requête, quand systemd tient la socket
 )

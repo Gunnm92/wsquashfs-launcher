@@ -180,7 +180,7 @@ func TestMaintenanceArgs(t *testing.T) {
 		Version string `json:"version"`
 		OS      string `json:"os"`
 	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &info); err != nil || info.Version != "4" || info.OS == "" {
+	if err := json.Unmarshal(rec.Body.Bytes(), &info); err != nil || info.Version != "5" || info.OS == "" {
 		t.Errorf("/v1/info : version et os attendus, %s (%v)", rec.Body.String(), err)
 	}
 }

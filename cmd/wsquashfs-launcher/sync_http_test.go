@@ -419,3 +419,142 @@ func TestSyncGamesListsCopyModes(t *testing.T) {
 		t.Errorf("/v1/saves/list : %v, attendu %v", names, want)
 	}
 }
+
+// deleteSaves : DELETE /v1/saves/tar pour le jeu de la rig, machine donnée.
+func deleteSaves(t *testing.T, r *syncRig, game, machine string) (int, map[string]any) {
+	t.Helper()
+	rec := doSync(r.h, http.MethodDelete, "/v1/saves/tar?game="+game, machine, nil)
+	var body map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &body)
+	return rec.Code, body
+}
+
+// TestSyncDeleteSaves : suppression par l'agent. Archive dans backups d'abord, fichiers du périmètre
+// effacés, cache et fichier hors périmètre conservés, état de la machine appelante effacé et
+// seul celui-ci : l'état d'une autre machine reste.
+func TestSyncDeleteSaves(t *testing.T) {
+	r := newSyncRig(t)
+	// Hors périmètre : un cache dans un dossier du périmètre, et un fichier hors saveProfileDirs.
+	cache := filepath.Join(r.users, "steamuser", "Documents", "shadercache_x", "s.bin")
+	hors := filepath.Join(r.users, "steamuser", "Pictures", "p.png")
+	if _, err := os.Stat(cache); err != nil {
+		t.Fatalf("cache de test absent : %v", err)
+	}
+	if err := saveSyncState(syncStateRoot(), "client-machine-01", syncRigGame, "AAAA"); err != nil {
+		t.Fatal(err)
+	}
+	if err := saveSyncState(syncStateRoot(), "autre-machine-02", syncRigGame, "BBBB"); err != nil {
+		t.Fatal(err)
+	}
+	code, body := deleteSaves(t, r, syncRigGame, "client-machine-01")
+	if code != http.StatusOK {
+		t.Fatalf("DELETE : code %d, %v", code, body)
+	}
+	archived, _ := body["archived"].(string)
+	if archived == "" || filepath.Dir(archived) != r.backups {
+		t.Fatalf("archive %q hors de WSQUASHFS_BACKUP_DIR", archived)
+	}
+	if out, err := exec.Command("tar", "-tf", archived).CombinedOutput(); err != nil || !strings.Contains(string(out), "save1.sav") {
+		t.Errorf("archive sans les sauvegardes (%v) : %s", err, out)
+	}
+	if n, _ := body["removed"].(float64); int(n) != 2 {
+		t.Errorf("removed %v, attendu 2 (save1.sav, cfg.ini ; caches, lien et profil système exclus)", body["removed"])
+	}
+	for _, p := range []string{
+		filepath.Join(r.users, "steamuser", "Documents", "Game", "save1.sav"),
+		filepath.Join(r.users, "steamuser", "AppData", "Local", "Game", "cfg.ini"),
+	} {
+		if _, err := os.Stat(p); !os.IsNotExist(err) {
+			t.Errorf("fichier du périmètre encore présent : %s (%v)", p, err)
+		}
+	}
+	// Dossier devenu vide : retiré jusqu'à users/steamuser, qui reste.
+	if _, err := os.Stat(filepath.Join(r.users, "steamuser", "AppData", "Local", "Game")); !os.IsNotExist(err) {
+		t.Error("dossier vide AppData/Local/Game non retiré")
+	}
+	if _, err := os.Stat(filepath.Join(r.users, "steamuser")); err != nil {
+		t.Errorf("profil supprimé : %v", err)
+	}
+	for _, keep := range []string{cache, hors} {
+		if _, err := os.Stat(keep); err != nil {
+			t.Errorf("fichier hors périmètre supprimé : %s (%v)", keep, err)
+		}
+	}
+	if st := loadSyncState(syncStateRoot(), "client-machine-01", syncRigGame); st.Fingerprint != "" {
+		t.Errorf("état de la machine appelante conservé : %q", st.Fingerprint)
+	}
+	if st := loadSyncState(syncStateRoot(), "autre-machine-02", syncRigGame); st.Fingerprint != "BBBB" {
+		t.Errorf("état d'une autre machine modifié : %q", st.Fingerprint)
+	}
+	// Pour cette machine, le jeu n'a plus ni sauvegarde ni état : il ne figure plus dans la liste.
+	games, err := r.client.list()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, g := range games {
+		if g.Name == syncRigGame {
+			t.Errorf("jeu encore listé après suppression : %+v", g)
+		}
+	}
+}
+
+// TestSyncDeleteNoSaves : jeu sans sauvegarde : 200, rien archivé ni supprimé, état de la machine
+// appelante effacé.
+func TestSyncDeleteNoSaves(t *testing.T) {
+	r := newSyncRig(t)
+	if err := os.RemoveAll(filepath.Join(r.users, "steamuser")); err != nil {
+		t.Fatal(err)
+	}
+	if err := saveSyncState(syncStateRoot(), "client-machine-01", syncRigGame, "AAAA"); err != nil {
+		t.Fatal(err)
+	}
+	code, body := deleteSaves(t, r, syncRigGame, "client-machine-01")
+	if code != http.StatusOK || body["removed"] != float64(0) || body["archived"] != "" {
+		t.Errorf("jeu sans sauvegarde : code %d, %v", code, body)
+	}
+	if entries, _ := os.ReadDir(r.backups); len(entries) != 0 {
+		t.Errorf("archive créée sans sauvegarde : %d entrée(s)", len(entries))
+	}
+	if st := loadSyncState(syncStateRoot(), "client-machine-01", syncRigGame); st.Fingerprint != "" {
+		t.Errorf("état conservé : %q", st.Fingerprint)
+	}
+}
+
+func TestSyncDeleteRefusals(t *testing.T) {
+	r := newSyncRig(t)
+	if code, _ := deleteSaves(t, r, "..%2Fx", "client-machine-01"); code != http.StatusBadRequest {
+		t.Errorf("jeu invalide : code %d, attendu 400", code)
+	}
+	lock, ok := lockIdleGame(syncRigGame)
+	if !ok {
+		t.Fatal("verrou de test impossible")
+	}
+	defer lock.Close()
+	if code, _ := deleteSaves(t, r, syncRigGame, "client-machine-01"); code != http.StatusConflict {
+		t.Errorf("jeu en cours : code %d, attendu 409", code)
+	}
+	if got := saveFingerprint(r.users, collectSaveFiles(r.users)); got == "" {
+		t.Error("sauvegardes supprimées malgré le verrou")
+	}
+	if rec := doSync(r.h, http.MethodDelete, "/v1/saves/tar?game="+syncRigGame, "", nil); rec.Code != http.StatusBadRequest {
+		t.Errorf("sans X-Wsq-Machine : code %d, attendu 400", rec.Code)
+	}
+}
+
+// TestSyncDeleteArchiveFailureKeepsSaves : archivage impossible (dossier backups inutilisable) :
+// 500 et rien n'est supprimé.
+func TestSyncDeleteArchiveFailureKeepsSaves(t *testing.T) {
+	r := newSyncRig(t)
+	blocker := filepath.Join(t.TempDir(), "fichier")
+	if err := os.WriteFile(blocker, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("WSQUASHFS_BACKUP_DIR", filepath.Join(blocker, "sous"))
+	before := saveFingerprint(r.users, collectSaveFiles(r.users))
+	if code, _ := deleteSaves(t, r, syncRigGame, "client-machine-01"); code != http.StatusInternalServerError {
+		t.Fatalf("archivage en échec : code %d, attendu 500", code)
+	}
+	if got := saveFingerprint(r.users, collectSaveFiles(r.users)); got != before {
+		t.Error("sauvegardes supprimées alors que l'archivage a échoué")
+	}
+}
