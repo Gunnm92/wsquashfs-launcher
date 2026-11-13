@@ -61,7 +61,10 @@ modifié.
 
 ```bash
 wsquashfs-launcher --saves                 # tous les jeux : copie dans <ludothèque>/saves/<système>/<jeu>
-wsquashfs-launcher --saves "MonJeu"        # un seul jeu
+wsquashfs-launcher --save "MonJeu"         # un seul jeu
+wsquashfs-launcher --sync wsq://…         # une fois : associer une autre machine (code de --pair)
+wsquashfs-launcher --sync                  # synchroniser les sauvegardes (réseau local, jeu arrêté)
+wsquashfs-launcher --sync status           # voir ce qui serait fait, sans rien changer
 ```
 
 Autre emplacement : `export WSQUASHFS_SAVES_DIR=/mnt/nas/saves`.

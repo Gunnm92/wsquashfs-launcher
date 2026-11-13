@@ -118,8 +118,7 @@ func detectWineUsername() string {
 		return ""
 	}
 	for _, e := range entries {
-		switch e.Name() {
-		case "Public", "All Users", "Default User", "LocalService", "NetworkService":
+		if isSystemProfile(e.Name()) {
 			continue
 		}
 		if e.IsDir() {

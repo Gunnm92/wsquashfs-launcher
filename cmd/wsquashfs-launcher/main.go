@@ -88,8 +88,8 @@ func launcherMain() int {
 	fixOwnership(savesDir)
 
 	switch action {
-	case "clean", "clear", "erase", "umount", "pack", "install", "info", "show", "saves",
-		"list", "doctor", "agent", "pair", "trial", "update":
+	case "clean", "clear", "erase", "umount", "pack", "install", "info", "show", "save", "saves",
+		"list", "doctor", "agent", "pair", "sync", "trial", "update":
 		return maintenanceMain()
 	}
 	launchGame()
@@ -115,6 +115,11 @@ func installSignals() {
 		for sig := range ch {
 			if pid := nsPID.Load(); pid != 0 {
 				_ = syscall.Kill(int(pid), syscall.SIGTERM)
+				continue
+			}
+			// --pair attend l'association : annulation propre (son code rend 130).
+			if hook := interruptHook.Load(); hook != nil {
+				(*hook)()
 				continue
 			}
 			code := 128 + 15

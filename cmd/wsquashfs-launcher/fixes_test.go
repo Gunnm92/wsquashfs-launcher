@@ -6,10 +6,12 @@ package main
 
 import (
 	"archive/tar"
+	"errors"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 )
@@ -377,5 +379,45 @@ func TestParseArgsMaintenanceActions(t *testing.T) {
 		if launchesGame([]string{flag}) {
 			t.Errorf("%s compté comme un lancement de jeu", flag)
 		}
+	}
+
+	// --save <jeu> : un seul jeu, action interne « save » (agent, manager).
+	o, err := parseArgs([]string{"--save", "Jeu"})
+	if err != nil {
+		t.Fatalf("--save Jeu : erreur %v", err)
+	}
+	if o.action != "save" || len(o.cmdArgs) != 1 || o.cmdArgs[0] != "Jeu" {
+		t.Errorf("--save Jeu : action %q, cmdArgs %v", o.action, o.cmdArgs)
+	}
+	if launchesGame([]string{"--save", "Jeu"}) {
+		t.Error("--save compté comme un lancement de jeu")
+	}
+	// --save sans argument (ou vide) : erreur d'usage.
+	for _, args := range [][]string{{"--save"}, {"--save", ""}} {
+		_, err := parseArgs(args)
+		var ae *argError
+		if !errors.As(err, &ae) || !ae.usage {
+			t.Errorf("%q : erreur %v, attendue une erreur d'usage", args, err)
+		}
+	}
+	// --saves seul : tous les jeux, action « saves ».
+	o, err = parseArgs([]string{"--saves"})
+	if err != nil || o.action != "saves" || len(o.cmdArgs) != 0 {
+		t.Errorf("--saves : action %v, erreur %v", o, err)
+	}
+	if launchesGame([]string{"--saves"}) {
+		t.Error("--saves compté comme un lancement de jeu")
+	}
+	// --saves avec un jeu : plus d'alias, erreur d'usage qui renvoie à --save.
+	for _, args := range [][]string{{"--saves", "Jeu"}, {"--saves", ""}} {
+		_, err := parseArgs(args)
+		var ae *argError
+		if !errors.As(err, &ae) || !ae.usage || !strings.Contains(ae.msg, "--save <jeu>") {
+			t.Errorf("%q : erreur %v, attendue une erreur d'usage vers --save <jeu>", args, err)
+		}
+	}
+	// --sync : action « sync » (agent).
+	if o, err := parseArgs([]string{"--sync"}); err != nil || o.action != "sync" {
+		t.Errorf("--sync : action %v, erreur %v", o, err)
 	}
 }

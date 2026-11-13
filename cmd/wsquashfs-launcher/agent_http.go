@@ -3,6 +3,9 @@ package main
 // Routes HTTPS de l'agent (voir agent.go). Chaque route appelle une action du
 // lanceur ou une lecture de dossier borné ; aucune commande fournie par le
 // client, aucun chemin hors des dossiers roms/ ou des runners installés.
+// Les routes /v1/saves/* (synchro --sync, sync.go) lisent et écrivent les
+// sauvegardes de partie, bornées au périmètre de sync.go : jamais hors de
+// users/, jamais les caches ni les comptes système.
 
 import (
 	"archive/tar"
@@ -10,13 +13,16 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -39,6 +45,11 @@ type agentServer struct {
 	docMu  sync.Mutex
 	docOut []byte
 	docAt  time.Time
+	// last-client.json : écrit à chaque requête authentifiée (noteClient).
+	clientMu      sync.Mutex
+	clientAddr    string
+	clientMachine string
+	clientAt      time.Time
 }
 
 func newAgentServer(cfg agentConfig, logOn bool) *agentServer {
@@ -56,6 +67,10 @@ func (s *agentServer) httpServer() *http.Server {
 	mux.HandleFunc("POST /v1/maintenance", s.auth(s.maintenance))
 	mux.HandleFunc("GET /v1/runner/list", s.auth(s.runnerList))
 	mux.HandleFunc("GET /v1/runner/tar", s.auth(s.runnerTar))
+	mux.HandleFunc("GET /v1/saves/list", s.syncMachine(s.savesList))
+	mux.HandleFunc("GET /v1/saves/tar", s.syncMachine(s.savesGet))
+	mux.HandleFunc("PUT /v1/saves/tar", s.syncMachine(s.savesPut))
+	mux.HandleFunc("POST /v1/saves/state", s.syncMachine(s.savesState))
 	var h http.Handler = mux
 	if s.logOn {
 		h = s.logged(mux)
@@ -85,8 +100,28 @@ func (s *agentServer) auth(next http.HandlerFunc) http.HandlerFunc {
 			writeDetail(w, http.StatusUnauthorized, "jeton refusé")
 			return
 		}
+		s.noteClient(r)
 		next(w, r)
 	}
+}
+
+// noteClient : note la requête authentifiée dans last-client.json (--pair attend
+// cette trace). Au plus une fois par seconde pour un même client ; un autre
+// client (adresse ou machine) est noté tout de suite.
+func (s *agentServer) noteClient(r *http.Request) {
+	addr, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		addr = r.RemoteAddr
+	}
+	machine := r.Header.Get("X-Wsq-Machine")
+	now := time.Now()
+	s.clientMu.Lock()
+	defer s.clientMu.Unlock()
+	if addr == s.clientAddr && machine == s.clientMachine && now.Sub(s.clientAt) < time.Second {
+		return
+	}
+	s.clientAddr, s.clientMachine, s.clientAt = addr, machine, now
+	_ = writeLastClient(lastClient{At: now, Addr: addr, Machine: machine})
 }
 
 // logged : trace (méthode, chemin, code, durée) ; jamais le jeton ni la requête.
@@ -277,31 +312,59 @@ func (s *agentServer) trialRoute(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"report": report, "screenshot": screenshot})
 }
 
-// maintenanceActions : liste fermée (pas de --clear, --erase, --pack, --install).
-var maintenanceActions = map[string]bool{"list": true, "umount": true, "clean": true, "saves": true}
+// gameRule : la place du jeu (rel) dans une action de maintenance.
+type gameRule int
+
+const (
+	noGame       gameRule = iota // rel interdit
+	gameRequired                 // rel obligatoire (son image devient l'argument)
+	gameOptional                 // rel facultatif
+)
+
+// maintenanceSpec : arguments du lanceur pour une action de l'agent (sans le jeu) et règle sur le jeu.
+type maintenanceSpec struct {
+	args []string
+	game gameRule
+}
+
+// maintenanceActions : liste fermée, action de l'agent → lanceur (pas de --clear, --erase, --pack,
+// --install). Le contrat est celui de wsquashfs-manager ; la version de l'agent (agentVersion) le suit.
+var maintenanceActions = map[string]maintenanceSpec{
+	"list":        {[]string{"--list"}, noGame},
+	"umount":      {[]string{"--umount"}, noGame},
+	"clean":       {[]string{"--clean"}, noGame},
+	"save":        {[]string{"--save"}, gameRequired},
+	"saves":       {[]string{"--saves"}, noGame},
+	"sync":        {[]string{"--sync"}, gameOptional},
+	"sync-status": {[]string{"--sync", "status"}, noGame},
+}
 
 type maintenanceRequest struct {
 	Action string `json:"action"`
 	Rel    string `json:"rel"`
 }
 
-// maintenance : une action de maintenance du lanceur ; saves accepte un jeu.
+// maintenance : une action de maintenance du lanceur, selon la table maintenanceActions.
 func (s *agentServer) maintenance(w http.ResponseWriter, r *http.Request) {
 	var req maintenanceRequest
 	if err := json.NewDecoder(io.LimitReader(r.Body, 65536)).Decode(&req); err != nil {
 		writeDetail(w, http.StatusBadRequest, "requête illisible")
 		return
 	}
-	if !maintenanceActions[req.Action] {
+	spec, ok := maintenanceActions[req.Action]
+	if !ok {
 		writeDetail(w, http.StatusBadRequest, "action de maintenance non autorisée")
 		return
 	}
-	args := []string{"--" + req.Action}
-	if req.Rel != "" {
-		if req.Action != "saves" {
-			writeDetail(w, http.StatusBadRequest, "--"+req.Action+" ne prend pas de jeu")
-			return
-		}
+	args := append([]string{}, spec.args...)
+	switch {
+	case spec.game == noGame && req.Rel != "":
+		writeDetail(w, http.StatusBadRequest, req.Action+" ne prend pas de jeu")
+		return
+	case spec.game == gameRequired && req.Rel == "":
+		writeDetail(w, http.StatusBadRequest, "--save attend un jeu")
+		return
+	case req.Rel != "":
 		image, code, msg := s.resolveImage(req.Rel)
 		if code != 0 {
 			writeDetail(w, code, msg)
@@ -315,8 +378,19 @@ func (s *agentServer) maintenance(w http.ResponseWriter, r *http.Request) {
 	// (codes ANSI convertis en HTML). NO_COLOR, s'il est posé, l'emporte.
 	cmd := exec.CommandContext(ctx, launcherExe(), args...)
 	cmd.Env = append(os.Environ(), "CLICOLOR_FORCE=1")
-	out, _ := cmd.CombinedOutput()
-	writeJSON(w, http.StatusOK, map[string]any{"action": req.Action, "output": string(out)})
+	out, err := cmd.CombinedOutput()
+	// code : code de sortie du lanceur, comme en mode local (wsquashfs-manager teste code !== 0).
+	// -1 si le processus n'a pas pu démarrer ou a été tué (délai) : le motif est ajouté à la sortie.
+	code := 0
+	if err != nil {
+		code = -1
+		if ee, ok := err.(*exec.ExitError); ok && ee.ExitCode() >= 0 {
+			code = ee.ExitCode()
+		} else {
+			out = append(out, []byte(err.Error()+"\n")...)
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"action": req.Action, "code": code, "output": string(out)})
 }
 
 // runnerDir : dossier demandé, seulement s'il est un runner installé.
@@ -427,4 +501,203 @@ func (s *agentServer) runnerTar(w http.ResponseWriter, r *http.Request) {
 		// client voie un échec et non une archive tronquée.
 		panic(http.ErrAbortHandler)
 	}
+}
+
+// syncMaxBody : taille maximale d'une archive reçue (--sync). Variable pour les tests.
+var syncMaxBody int64 = 2 << 30
+
+// syncStateRoot : état des synchros, par machine cliente (dossier caché de savesDir).
+func syncStateRoot() string {
+	return filepath.Join(savesDir, ".sync")
+}
+
+// syncMachine : authentification, puis identifiant de la machine cliente obligatoire
+// (en-tête X-Wsq-Machine) : l'état de synchro est tenu par machine.
+func (s *agentServer) syncMachine(next http.HandlerFunc) http.HandlerFunc {
+	return s.auth(func(w http.ResponseWriter, r *http.Request) {
+		if !validSyncID(r.Header.Get("X-Wsq-Machine")) {
+			writeDetail(w, http.StatusBadRequest, "identifiant de machine absent ou invalide")
+			return
+		}
+		next(w, r)
+	})
+}
+
+// remoteSave : un jeu tel que la machine le voit pour la synchro (routes /v1/saves/list).
+type remoteSave struct {
+	Name        string `json:"name"`
+	Fingerprint string `json:"fingerprint"`
+	Newest      int64  `json:"newest"`
+	State       string `json:"state"`
+}
+
+// savesList : jeux à sauvegardes, plus ceux qui ont un état pour cette machine.
+func (s *agentServer) savesList(w http.ResponseWriter, r *http.Request) {
+	machine := r.Header.Get("X-Wsq-Machine")
+	// Jeux avec un état pour cette machine : listés même vides (la synchro doit le savoir).
+	withState := map[string]bool{}
+	if entries, err := os.ReadDir(filepath.Join(syncStateRoot(), machine)); err == nil {
+		for _, e := range entries {
+			if g, ok := strings.CutSuffix(e.Name(), ".json"); ok {
+				withState[g] = true
+			}
+		}
+	}
+	// Même liste que --sync (syncGames), plus les jeux qui n'ont qu'un état pour cette machine.
+	names := map[string]bool{}
+	for _, g := range syncGames() {
+		names[g] = true
+	}
+	for g := range withState {
+		names[g] = true
+	}
+	games := []remoteSave{}
+	for name := range names {
+		if !validSyncGame(name) {
+			continue
+		}
+		users := syncUsersDir(name)
+		files := collectSaveFiles(users)
+		fp := saveFingerprint(users, files)
+		if fp == "" && !withState[name] {
+			continue
+		}
+		st := loadSyncState(syncStateRoot(), machine, name)
+		games = append(games, remoteSave{Name: name, Fingerprint: fp, Newest: newestSave(files), State: st.Fingerprint})
+	}
+	sort.Slice(games, func(i, j int) bool { return games[i].Name < games[j].Name })
+	writeJSON(w, http.StatusOK, map[string]any{"games": games})
+}
+
+// savesGet : archive des sauvegardes d'un jeu (tar.gz). L'archive est écrite dans un fichier
+// temporaire d'abord : l'empreinte et le profil partent dans les en-têtes, avant le corps.
+func (s *agentServer) savesGet(w http.ResponseWriter, r *http.Request) {
+	game := r.URL.Query().Get("game")
+	if !validSyncGame(game) {
+		writeDetail(w, http.StatusBadRequest, "jeu invalide")
+		return
+	}
+	lock, ok := lockIdleGame(game)
+	if !ok {
+		writeDetail(w, http.StatusConflict, "jeu en cours")
+		return
+	}
+	if lock != nil {
+		defer lock.Close()
+	}
+	users := syncUsersDir(game)
+	files := collectSaveFiles(users)
+	if len(files) == 0 {
+		writeDetail(w, http.StatusNotFound, "aucune sauvegarde pour ce jeu")
+		return
+	}
+	fp := saveFingerprint(users, files)
+	tmp, err := os.CreateTemp("", "wsq-sync-*.tar.gz")
+	if err != nil {
+		writeDetail(w, http.StatusInternalServerError, "erreur interne de l'agent")
+		return
+	}
+	defer os.Remove(tmp.Name())
+	defer tmp.Close()
+	profile, err := writeSaveArchive(tmp, users, files)
+	if err != nil {
+		writeDetail(w, http.StatusInternalServerError, "archive impossible : "+game)
+		return
+	}
+	size, err := tmp.Seek(0, io.SeekCurrent)
+	if err != nil {
+		writeDetail(w, http.StatusInternalServerError, "erreur interne de l'agent")
+		return
+	}
+	if _, err := tmp.Seek(0, io.SeekStart); err != nil {
+		writeDetail(w, http.StatusInternalServerError, "erreur interne de l'agent")
+		return
+	}
+	w.Header().Set("Content-Type", "application/gzip")
+	w.Header().Set("Content-Length", fmt.Sprint(size))
+	w.Header().Set("X-Wsq-Fingerprint", fp)
+	if profile != "" {
+		w.Header().Set("X-Wsq-Profile", profile)
+	}
+	w.WriteHeader(http.StatusOK)
+	_, _ = io.Copy(w, tmp)
+}
+
+// savesPut : reçoit une archive et remplace le périmètre du jeu. Si le périmètre local a changé
+// depuis la dernière synchro avec cette machine, il est archivé d'abord (dossier backups) : c'est
+// la version perdante du conflit, rien ne doit disparaître. Sans archive, rien n'est remplacé.
+func (s *agentServer) savesPut(w http.ResponseWriter, r *http.Request) {
+	game := r.URL.Query().Get("game")
+	if !validSyncGame(game) {
+		writeDetail(w, http.StatusBadRequest, "jeu invalide")
+		return
+	}
+	machine := r.Header.Get("X-Wsq-Machine")
+	lock, ok := lockIdleGame(game)
+	if !ok {
+		writeDetail(w, http.StatusConflict, "jeu en cours")
+		return
+	}
+	if lock != nil {
+		defer lock.Close()
+	}
+	users := syncUsersDir(game)
+	cur := saveFingerprint(users, collectSaveFiles(users))
+	archived := ""
+	if cur != "" && cur != loadSyncState(syncStateRoot(), machine, game).Fingerprint {
+		// Le membre est le nom réel du dossier : une mise de côté (mode copy) ne s'appelle pas « users ».
+		path, err := archiveUsers(game, filepath.Dir(users), filepath.Base(users))
+		if err != nil {
+			writeDetail(w, http.StatusInternalServerError, "archivage de la version locale impossible, rien remplacé")
+			return
+		}
+		archived = path
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, syncMaxBody)
+	if err := applySaveArchive(r.Body, users, r.Header.Get("X-Wsq-Profile")); err != nil {
+		var tooBig *http.MaxBytesError
+		if errors.As(err, &tooBig) {
+			writeDetail(w, http.StatusRequestEntityTooLarge, "archive trop volumineuse")
+			return
+		}
+		writeDetail(w, http.StatusBadRequest, "archive refusée : "+err.Error())
+		return
+	}
+	fp := saveFingerprint(users, collectSaveFiles(users))
+	if err := saveSyncState(syncStateRoot(), machine, game, fp); err != nil {
+		writeDetail(w, http.StatusInternalServerError, "état de synchro non enregistré")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"fingerprint": fp, "archived": archived})
+}
+
+// syncStateRequest : corps de POST /v1/saves/state.
+type syncStateRequest struct {
+	Game        string `json:"game"`
+	Fingerprint string `json:"fingerprint"`
+}
+
+// savesState : la machine cliente confirme l'empreinte commune après une réception. Refusé si le
+// jeu a changé sur cette machine entre-temps.
+func (s *agentServer) savesState(w http.ResponseWriter, r *http.Request) {
+	var req syncStateRequest
+	if err := json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&req); err != nil {
+		writeDetail(w, http.StatusBadRequest, "requête illisible")
+		return
+	}
+	if !validSyncGame(req.Game) {
+		writeDetail(w, http.StatusBadRequest, "jeu invalide")
+		return
+	}
+	users := syncUsersDir(req.Game)
+	cur := saveFingerprint(users, collectSaveFiles(users))
+	if cur != req.Fingerprint {
+		writeDetail(w, http.StatusConflict, "le jeu a changé sur cette machine depuis la lecture : relancer --sync")
+		return
+	}
+	if err := saveSyncState(syncStateRoot(), r.Header.Get("X-Wsq-Machine"), req.Game, cur); err != nil {
+		writeDetail(w, http.StatusInternalServerError, "état de synchro non enregistré")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"fingerprint": cur})
 }

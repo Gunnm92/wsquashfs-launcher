@@ -229,13 +229,16 @@ wsquashfs-launcher --clear ["Nom du jeu"]
 # Restauration : tar -xf <archive> -C ~/.local/share/wsquashfs/saves/<jeu>/
 wsquashfs-launcher --erase ["Nom du jeu"]
 
-# Copier les sauvegardes de partie (tous les jeux, ou un seul) dans la
-# ludothèque, <racine>/saves/<système>/<jeu>/drive_c/users/... : Documents,
-# Saved Games, AppData (caches exclus). Sens unique, rien n'est supprimé ;
-# pour les retrouver ailleurs (Batocera, autre machine). Inutile pour un jeu
-# à SAVEDIR=/SAVEFILES=. Restauration, jeu arrêté :
+# Copier les sauvegardes de partie d'un jeu dans la ludothèque,
+# <racine>/saves/<système>/<jeu>/drive_c/users/... : Documents, Saved Games,
+# AppData (caches exclus). Sens unique, rien n'est supprimé ; pour les
+# retrouver ailleurs (Batocera, autre machine). Inutile pour un jeu à
+# SAVEDIR=/SAVEFILES=. Restauration, jeu arrêté :
 #   cp -a <racine>/saves/<système>/<jeu>/drive_c ~/.local/share/wsquashfs/saves/<jeu>/
-wsquashfs-launcher --saves ["Nom du jeu"]
+wsquashfs-launcher --save "Nom du jeu"
+
+# Même copie pour tous les jeux.
+wsquashfs-launcher --saves
 
 # Jeux connus : état (en cours, verrouillé, monté), version, taille des
 # sauvegardes et image d'origine
@@ -399,6 +402,40 @@ Sans `WINE`, `PROTON`, `RUNNER`, runner joint ni `--wine` :
 |---|---|---|
 | `SAVEDIR` | Dossier de sauvegarde du jeu, relié à `saves/<système>/<jeu>` (à côté de `roms/`). Les sauvegardes packagées y sont copiées sans jamais écraser l'existant | `drive_c/game/saves` |
 | `SAVEFILES` | Fichiers de sauvegarde (séparés par `;`, relatifs au prefix), reliés au même dossier | `drive_c/game/save.dat;drive_c/game/cfg.ini` |
+
+#### Synchroniser entre machines
+
+Les sauvegardes d'un jeu peuvent passer d'une machine à l'autre (SteamBox,
+AIBox, Steam Deck) par une commande lancée à la main. Rien ne se fait au
+lancement d'un jeu, et il n'y a pas de serveur central.
+
+```bash
+# Une fois. Sur la machine B : affiche le code wsq://… et attend l'association
+wsquashfs-launcher --pair
+# Sur la machine A : enregistre B avec ce code (--pair de B se ferme alors)
+wsquashfs-launcher --sync wsq://…
+# Sur B, pour les synchros suivantes : l'agent tourne en arrière-plan
+wsquashfs-launcher --agent                   # --agent stop l'arrête, --agent status le montre
+
+# Ensuite, sur A : tous les jeux, avec chaque machine enregistrée joignable
+wsquashfs-launcher --sync
+wsquashfs-launcher --sync "Nom du jeu"       # un jeu
+wsquashfs-launcher --sync status             # ce qui serait fait, sans rien changer
+wsquashfs-launcher --sync forget <machine>   # retirer une machine
+```
+
+- **Réseau local uniquement** : les machines doivent se joindre directement
+  (même réseau, agent lancé sur celle qui reçoit). Pas de synchro à distance.
+- Synchroniser **avant de partir** et **en rentrant**.
+- Ce qui est synchronisé : Documents, Saved Games et AppData des profils
+  Windows du prefix, comme `--save`. Les caches sont exclus.
+- **Conflit** (les deux machines ont changé depuis la dernière synchro) : la
+  plus récente gagne ; l'autre version est archivée dans le dossier
+  `backups` (`~/.local/share/wsquashfs/backups`), dont `--clean` ne garde que
+  les 3 dernières archives.
+- **Limites** : les jeux qui sauvegardent hors de leur prefix (dossier
+  SAVEDIR ou SAVEFILES, registre Windows) ne sont pas synchronisés. Le jeu doit
+  être arrêté sur les deux machines.
 
 ### Variables d'optimisation
 

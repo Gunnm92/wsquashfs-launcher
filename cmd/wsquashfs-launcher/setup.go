@@ -332,7 +332,7 @@ WantedBy=sockets.target
 Description=wsquashfs-agent (à la demande, lancé par sa socket)
 
 [Service]
-ExecStart=%s/wsquashfs-launcher --agent
+ExecStart=%s/wsquashfs-launcher --agent run
 `, installDir)
 	if err := os.WriteFile(filepath.Join(agentUnitDir, "wsquashfs-agent.socket"), []byte(socket), 0o644); err != nil {
 		return err
@@ -357,19 +357,20 @@ func installAgent() bool {
 	}
 	agentPort = port
 	if !portFree(port) {
-		setupFail(fmt.Sprintf("Port %d déjà utilisé sur cette machine : en choisir un autre (--agent, puis répondre au port)", port))
+		setupFail(fmt.Sprintf("Port %d déjà utilisé sur cette machine : en choisir un autre (--setup --agent, puis répondre au port)", port))
 		return false
 	}
 	launcher := filepath.Join(installDir, "wsquashfs-launcher")
 	if dryRun {
-		simLine(launcher + " --pair --roms " + roms + " --port " + strconv.Itoa(port) + "  (jeton, certificat, " + agentDir() + ")")
+		simLine("configuration : dossier roms/ " + roms + ", port " + strconv.Itoa(port) + " (jeton, certificat dans " + agentDir() + ")")
 		simLine("socket " + agentUnitDir + fmt.Sprintf("/wsquashfs-agent.socket (port %d) et service", port))
 		simLine("systemctl --user enable --now wsquashfs-agent.socket")
 		return true
 	}
 	// Configuration, jeton et certificat : fait par le lanceur lui-même.
-	if err := runCmd(launcher, "--pair", "--roms", roms, "--port", strconv.Itoa(port)); err != nil {
-		setupFail("Initialisation de l'agent en échec (voir ci-dessus)")
+	// Initialisation seulement (jeton, certificat, roms/) : --pair attendrait l'association.
+	if _, err := agentInit([]string{roms}, port); err != nil {
+		setupFail("Initialisation de l'agent en échec : " + err.Error())
 		return false
 	}
 	setupDone("Agent : " + launcher + " --agent (configuration dans " + agentDir() + ")")
@@ -395,8 +396,10 @@ func installAgent() bool {
 		setupSkip("systemd utilisateur indisponible : lancer « "+launcher+" --agent » à la main",
 			"(cas d'un conteneur sans systemd, comme SteamBox)")
 	}
-	uiNote("Code d'association à coller dans wsquashfs-manager (Réglages → Machine de jeu → Agent réseau) :")
-	_ = runCmd(launcher, "--pair")
+	if code, err := currentPairCode(loadAgentConfig()); err == nil {
+		uiNote("Code d'association à coller dans wsquashfs-manager (Réglages → Machine de jeu → Agent réseau) :")
+		uiCode(code)
+	}
 	return true
 }
 

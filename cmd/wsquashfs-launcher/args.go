@@ -58,6 +58,10 @@ func parseArgs(args []string) (*options, error) {
 			o.action = "pair"
 			o.cmdArgs = args[i+1:]
 			return o, nil
+		case "--sync":
+			o.action = "sync"
+			o.cmdArgs = args[i+1:]
+			return o, nil
 		case "--trial":
 			o.action = "trial"
 			o.cmdArgs = args[i+1:]
@@ -66,9 +70,24 @@ func parseArgs(args []string) (*options, error) {
 			o.action = "update"
 			return o, nil
 		case "--clean", "--clear", "--erase", "--umount", "--pack", "--install", "--info",
-			"--show", "--saves", "--list", "--doctor":
+			"--show", "--list", "--doctor":
 			o.action = strings.TrimPrefix(a, "--")
 			o.cmdArgs = args[i+1:]
+			return o, nil
+		case "--save":
+			// Un seul jeu (action interne « save », agent et manager).
+			if argAt(args, i+1) == "" {
+				return nil, &argError{msg: fmt.Sprintf("%s --save <jeu>", os.Args[0]), usage: true}
+			}
+			o.action = "save"
+			o.cmdArgs = args[i+1:]
+			return o, nil
+		case "--saves":
+			// Tous les jeux (action interne « saves », agent et manager) : sans argument.
+			if i+1 < len(args) {
+				return nil, &argError{msg: fmt.Sprintf("%s --saves ne prend pas de jeu : --save <jeu> copie un seul jeu", os.Args[0]), usage: true}
+			}
+			o.action = "saves"
 			return o, nil
 		case "--wine":
 			if i+1 >= len(args) || args[i+1] == "" {

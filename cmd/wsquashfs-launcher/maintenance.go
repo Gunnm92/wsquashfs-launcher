@@ -1,7 +1,8 @@
 package main
 
 // Commandes de maintenance (script bash, section 8) : --clean, --clear,
-// --erase, --umount, --list, --doctor, --info, --show, --pack, --install, --saves,
+// --erase, --umount, --list, --doctor, --info, --show, --pack, --install, --save,
+// --saves,
 // --agent, --pair, --update.
 
 import (
@@ -49,8 +50,10 @@ func maintenanceMain() int {
 		return showInfo(cmdArgs)
 	case "show":
 		return cmdShow(cmdArgs)
+	case "save":
+		return cmdSave(cmdArgs)
 	case "saves":
-		return cmdSaves(cmdArgs)
+		return cmdSaves()
 	case "list":
 		cmdList()
 	case "doctor":
@@ -59,6 +62,8 @@ func maintenanceMain() int {
 		return cmdAgentMain(cmdArgs)
 	case "pair":
 		return cmdPair(cmdArgs)
+	case "sync":
+		return cmdSync(cmdArgs)
 	case "trial":
 		return cmdTrialMain(cmdArgs)
 	case "update":
@@ -1009,7 +1014,7 @@ func cmdShow(args []string) int {
 	layerLookup("SAVEFILES", "")
 	sysdir, ok := batoceraSavesDir()
 	overlay := kv{"Overlay", savesDir + "/" + gameName}
-	sauvegardes := kv{"Sauvegardes", "dans l'overlay ; --saves les copie dans " + sysdir}
+	sauvegardes := kv{"Sauvegardes", "dans l'overlay ; --save <jeu> les copie dans " + sysdir}
 	switch {
 	case !ok:
 		sauvegardes.v = "hors d'un dossier roms/<système>/ (WSQUASHFS_BATOCERA_SAVES)"
@@ -1159,32 +1164,31 @@ func mustAbs(p string) string {
 	return p
 }
 
-// ── --saves (06/11) ────────────────────────────────────────────────────
+// ── --save et --saves (06/11) ─────────────────────────────────────────────────────
 
 // saveProfileDirs : dossiers du profil Windows où les jeux écrivent leurs
 // sauvegardes de partie.
 var saveProfileDirs = []string{"Documents", "Saved Games", "AppData/Roaming", "AppData/LocalLow", "AppData/Local",
 	"My Documents", "Application Data", "Local Settings/Application Data"}
 
-// copyGameSaves : copie les sauvegardes de partie de l'overlay dans la
-// ludothèque (saves/<système>/<jeu>/), sens unique.
-func copyGameSaves(name string, g uiGames) {
-	saves := savesDir + "/" + name
-	img := ""
+// gameImage : image du jeu d'après savesDir/.images/<jeu> (dernier lancement) ; "" si inconnue.
+func gameImage(name string) string {
 	if data, err := os.ReadFile(savesDir + "/.images/" + name); err == nil {
-		img = strings.TrimRight(string(data), "\n")
+		return strings.TrimRight(string(data), "\n")
 	}
+	return ""
+}
+
+// gameUsesSaveDir : le jeu déclare SAVEDIR ou SAVEFILES (sauvegardes hors du prefix, déjà à leur
+// place : ni la copie vers la ludothèque ni la synchro ne les touchent). Image inconnue : faux.
+// Pose wsquashfsFile, gameName, autorunOverride et les couches du jeu.
+func gameUsesSaveDir(name string) bool {
+	img := gameImage(name)
 	if img == "" {
-		g.line(stSkip, name, "image inconnue (aucun lancement enregistré), ignoré")
-		return
+		return false
 	}
 	wsquashfsFile = img
 	gameName = name
-	dest, ok := batoceraSavesDir()
-	if !ok {
-		g.line(stSkip, name, "hors d'un dossier roms/<système>/ (définir WSQUASHFS_BATOCERA_SAVES), ignoré")
-		return
-	}
 	autorunOverride = strings.TrimSuffix(img, "/") + ".autorun"
 	if !isFile(autorunOverride) {
 		autorunOverride = ""
@@ -1197,7 +1201,26 @@ func copyGameSaves(name string, g uiGames) {
 	layerLookup("SAVEDIR", "")
 	savedir := lookupVal
 	layerLookup("SAVEFILES", "")
-	if savedir+lookupVal != "" {
+	return savedir+lookupVal != ""
+}
+
+// copyGameSaves : copie les sauvegardes de partie de l'overlay dans la
+// ludothèque (saves/<système>/<jeu>/), sens unique.
+func copyGameSaves(name string, g uiGames) {
+	saves := savesDir + "/" + name
+	img := gameImage(name)
+	if img == "" {
+		g.line(stSkip, name, "image inconnue (aucun lancement enregistré), ignoré")
+		return
+	}
+	wsquashfsFile = img
+	gameName = name
+	dest, ok := batoceraSavesDir()
+	if !ok {
+		g.line(stSkip, name, "hors d'un dossier roms/<système>/ (définir WSQUASHFS_BATOCERA_SAVES), ignoré")
+		return
+	}
+	if gameUsesSaveDir(name) {
 		g.line(stSkip, name, "déjà dans "+dest+" (SAVEDIR/SAVEFILES)")
 		return
 	}
@@ -1207,42 +1230,25 @@ func copyGameSaves(name string, g uiGames) {
 		return
 	}
 	copied, total, bytesCopied := 0, 0, int64(0)
-	entries, _ := os.ReadDir(users)
-	for _, u := range entries {
-		switch u.Name() {
-		case "Public", "All Users", "Default User", "LocalService", "NetworkService":
+	for _, f := range collectSaveFiles(users) {
+		total++
+		src := users + "/" + f.Rel
+		rel := "drive_c/users/" + f.Rel
+		target := dest + "/" + rel
+		// Date à la nanoseconde (collectSaveFiles ne garde que la seconde) : copie si la source est plus récente.
+		info, err := os.Lstat(src)
+		if err != nil {
+			warn(name + " : copie impossible de " + rel)
 			continue
 		}
-		udir := users + "/" + u.Name()
-		for _, sub := range saveProfileDirs {
-			src := udir + "/" + sub
-			if st, err := os.Lstat(src); err != nil || !st.IsDir() {
-				continue
-			}
-			_ = filepath.Walk(src, func(f string, info os.FileInfo, err error) error {
-				if err != nil {
-					return nil
-				}
-				if info.IsDir() && isCacheDirName(info.Name()) {
-					return filepath.SkipDir
-				}
-				if !info.Mode().IsRegular() || strings.HasPrefix(info.Name(), ".wh.") {
-					return nil
-				}
-				rel := strings.TrimPrefix(f, saves+"/")
-				total++
-				target := dest + "/" + rel
-				if tst, err := os.Stat(target); err == nil && !info.ModTime().After(tst.ModTime()) {
-					return nil
-				}
-				if os.MkdirAll(filepath.Dir(target), 0o755) == nil && copyPreserve(f, target) == nil {
-					copied++
-					bytesCopied += info.Size()
-				} else {
-					warn(name + " : copie impossible de " + rel)
-				}
-				return nil
-			})
+		if tst, err := os.Stat(target); err == nil && !info.ModTime().After(tst.ModTime()) {
+			continue
+		}
+		if os.MkdirAll(filepath.Dir(target), 0o755) == nil && copyPreserve(src, target) == nil {
+			copied++
+			bytesCopied += info.Size()
+		} else {
+			warn(name + " : copie impossible de " + rel)
 		}
 	}
 	switch {
@@ -1273,22 +1279,27 @@ func copyPreserve(src, dst string) error {
 	return nil
 }
 
-// cmdSaves : --saves [jeu].
-func cmdSaves(args []string) int {
-	var targets []string
-	if len(args) > 0 {
-		name := gameNameOf(args[0])
-		if !isDirPath(savesDir + "/" + name) {
-			die("aucune sauvegarde pour " + name)
-		}
-		targets = []string{name}
-	} else {
-		targets = savedGames()
+// cmdSave : --save <jeu>, les sauvegardes d'un seul jeu vers la ludothèque.
+func cmdSave(args []string) int {
+	name := gameNameOf(args[0])
+	if !isDirPath(savesDir + "/" + name) {
+		die("aucune sauvegarde pour " + name)
 	}
+	return copySavesTo([]string{name})
+}
+
+// cmdSaves : --saves, les sauvegardes de tous les jeux (sans argument).
+func cmdSaves() int {
+	targets := savedGames()
 	if len(targets) == 0 {
 		uiStatusLine(stSkip, "Aucune sauvegarde ("+savesDir+")")
 		return 0
 	}
+	return copySavesTo(targets)
+}
+
+// copySavesTo : copie les sauvegardes des jeux donnés (--save et --saves).
+func copySavesTo(targets []string) int {
 	uiTitle("Copie des sauvegardes de partie", "vers la ludothèque (saves/<système>/<jeu>/)")
 	g := newUIGames(targets)
 	for _, name := range targets {

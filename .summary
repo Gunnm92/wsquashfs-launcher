@@ -15,7 +15,9 @@ avec son empreinte (wsquashfs-launcher.sha256). Sources : cmd/wsquashfs-launcher
 - Compatible avec l'autorun.cmd de Batocera ; réglages par couches
 - Wine (wine-tkg, wine-ge) ou Proton via umu ; DXVK, VKD3D-Proton, d7vk, NVAPI
 - Installeur intégré (--setup), mise à jour (--update), diagnostic (--doctor)
-- Agent HTTPS pour wsquashfs-manager (--agent, --pair)
+- Agent HTTPS pour wsquashfs-manager (--agent lancé en arrière-plan, --agent stop|status, --pair attend l'association)
+- Sauvegardes vers la ludothèque : --save <jeu> (un jeu), --saves (tous les jeux)
+- Synchro manuelle des sauvegardes entre machines du réseau local : --sync (via l'agent, --pair)
 
 ## Données
 ~/.local/share/wsquashfs/saves/   sauvegardes (upperdir de l'overlay), par jeu

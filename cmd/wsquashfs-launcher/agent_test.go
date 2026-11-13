@@ -6,7 +6,9 @@ package main
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"encoding/pem"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -15,7 +17,9 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 )
 
 // agentFixture : configuration isolée, une racine roms/ avec une image, et un
@@ -106,16 +110,73 @@ func TestResolveImageRefusesEscapes(t *testing.T) {
 	}
 }
 
+// TestMaintenanceOnlyListedActions : seules les actions de la table sont acceptées, et la règle sur
+// le jeu (rel) est respectée : interdit pour list, obligatoire pour save.
 func TestMaintenanceOnlyListedActions(t *testing.T) {
 	_, h, _ := agentFixture(t)
-	if rec := do(h, "POST", "/v1/maintenance", "secret-token", `{"action":"clear"}`); rec.Code != http.StatusBadRequest {
-		t.Errorf("--clear accepté (code %d) : doit être refusé", rec.Code)
-	}
-	if rec := do(h, "POST", "/v1/maintenance", "secret-token", `{"action":"list","rel":"win/Jeu.wsquashfs"}`); rec.Code != http.StatusBadRequest {
-		t.Errorf("--list avec un jeu accepté (code %d)", rec.Code)
+	for _, body := range []string{
+		`{"action":"clear"}`, `{"action":"erase"}`, `{"action":"pack"}`, `{"action":"install"}`,
+		`{"action":"trial"}`, `{"action":"agent"}`, `{"action":"update"}`, `{"action":"saves-all"}`,
+		`{"action":"list","rel":"win/Jeu.wsquashfs"}`,
+		`{"action":"umount","rel":"win/Jeu.wsquashfs"}`,
+		`{"action":"save"}`,
+		`{"action":"saves","rel":"win/Jeu.wsquashfs"}`,
+		`{"action":"sync-status","rel":"win/Jeu.wsquashfs"}`,
+		`{"action":"save","rel":"../Jeu.wsquashfs"}`,
+	} {
+		if rec := do(h, "POST", "/v1/maintenance", "secret-token", body); rec.Code != http.StatusBadRequest {
+			t.Errorf("%s accepté (code %d) : doit être refusé", body, rec.Code)
+		}
 	}
 	if rec := do(h, "POST", "/v1/maintenance", "secret-token", `{"action":"list"}`); rec.Code != http.StatusOK {
 		t.Errorf("--list refusé (code %d)", rec.Code)
+	}
+}
+
+// TestMaintenanceArgs : arguments réellement passés au lanceur pour chaque action de la table. Le
+// faux lanceur affiche chaque argument entre chevrons.
+func TestMaintenanceArgs(t *testing.T) {
+	_, h, roms := agentFixture(t)
+	fake := filepath.Join(t.TempDir(), "fake-launcher")
+	if err := os.WriteFile(fake, []byte("#!/bin/sh\nfor a in \"$@\"; do printf '<%s>' \"$a\"; done\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	selfPath = fake
+	image, err := filepath.EvalSymlinks(filepath.Join(roms, "win", "Jeu.wsquashfs"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct{ body, want string }{
+		{`{"action":"save","rel":"win/Jeu.wsquashfs"}`, "<--save><" + image + ">"},
+		{`{"action":"saves"}`, "<--saves>"},
+		{`{"action":"sync"}`, "<--sync>"},
+		{`{"action":"sync","rel":"win/Jeu.wsquashfs"}`, "<--sync><" + image + ">"},
+		{`{"action":"sync-status"}`, "<--sync><status>"},
+		{`{"action":"list"}`, "<--list>"},
+		{`{"action":"umount"}`, "<--umount>"},
+		{`{"action":"clean"}`, "<--clean>"},
+	}
+	for _, c := range cases {
+		rec := do(h, "POST", "/v1/maintenance", "secret-token", c.body)
+		var got struct {
+			Output string `json:"output"`
+		}
+		if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &got) != nil {
+			t.Errorf("%s : code %d, réponse %s", c.body, rec.Code, rec.Body.String())
+			continue
+		}
+		if got.Output != c.want {
+			t.Errorf("%s : arguments %q, attendus %q", c.body, got.Output, c.want)
+		}
+	}
+	// save sans jeu : 400 avec le motif.
+	rec := do(h, "POST", "/v1/maintenance", "secret-token", `{"action":"save"}`)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "--save attend un jeu") {
+		t.Errorf("save sans jeu : code %d, %s", rec.Code, rec.Body.String())
+	}
+	// Version de l'API : 3 depuis la table (save, saves, sync, sync-status).
+	if rec := do(h, "GET", "/v1/info", "secret-token", ""); !strings.Contains(rec.Body.String(), `"version":"3"`) {
+		t.Errorf("version de l'agent : %s", rec.Body.String())
 	}
 }
 
@@ -139,6 +200,7 @@ func TestRunnerRoutesOnlyInstalledRunners(t *testing.T) {
 }
 
 func TestPairCodeMatchesCertificate(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	cfg := agentConfig{Port: 8790, Token: "jeton_TEST-123"}
 	if err := ensureAgentCert(); err != nil {
 		t.Fatal(err)
@@ -166,6 +228,7 @@ func TestPairCodeMatchesCertificate(t *testing.T) {
 }
 
 func TestCertificateIsEcdsaTenYears(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	if err := ensureAgentCert(); err != nil {
 		t.Fatal(err)
 	}
@@ -213,16 +276,37 @@ func TestAgentStop(t *testing.T) {
 	if err := os.MkdirAll(agentDir(), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	// Faux agent : sa ligne de commande contient « --agent ».
-	fake := exec.Command("sh", "-c", "sleep 30", "--agent")
+	// Faux agent : sa ligne de commande contient « --agent » (argument $0 de
+	// sh). Piège : avec « sh -c "sleep 30" », dash exécute directement sleep
+	// (exec du dernier ordre), « --agent » disparaît de /proc/<pid>/cmdline et
+	// cmdAgentStop croit le PID périmé. « ; : » interdit ce remplacement : sh
+	// reste le processus inscrit et meurt sur SIGTERM. Son enfant « sleep »
+	// survit alors à sh : il est dans un groupe de processus propre, tué
+	// entièrement au nettoyage.
+	fake := exec.Command("sh", "-c", "sleep 30; :", "--agent")
+	fake.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := fake.Start(); err != nil {
 		t.Fatal(err)
+	}
+	// Course : Start rend la main dès l'execve réussi, mais le noyau n'a pas
+	// encore renseigné les arguments du nouveau processus : /proc/<pid>/cmdline
+	// est vide un bref instant. On attend qu'il contienne « --agent ».
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(5 * time.Millisecond) {
+		if data, _ := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", fake.Process.Pid)); strings.Contains(string(data), "--agent\x00") {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("faux agent : « --agent » absent de sa ligne de commande")
+		}
 	}
 	// Récupéré dès sa fin (comme le ferait le système pour un agent lancé
 	// hors du shell) : sinon il reste zombie et « kill 0 » le voit encore.
 	reaped := make(chan struct{})
 	go func() { fake.Wait(); close(reaped) }()
-	t.Cleanup(func() { fake.Process.Kill(); <-reaped })
+	t.Cleanup(func() {
+		_ = syscall.Kill(-fake.Process.Pid, syscall.SIGKILL) // groupe : sh et sleep
+		<-reaped
+	})
 	if err := os.WriteFile(agentPidFile(), []byte(strconv.Itoa(fake.Process.Pid)+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -254,4 +338,34 @@ func TestAgentStop(t *testing.T) {
 func pathExistsFile(p string) bool {
 	_, err := os.Stat(p)
 	return err == nil
+}
+
+// TestMaintenanceReturnsExitCode : la réponse porte le code de sortie du lanceur (0 ou 3), comme le
+// mode local ; wsquashfs-manager s'en sert pour signaler un échec.
+func TestMaintenanceReturnsExitCode(t *testing.T) {
+	_, h, _ := agentFixture(t)
+	fake := filepath.Join(t.TempDir(), "fake-launcher")
+	for _, c := range []struct {
+		script string
+		code   int
+	}{{"echo sortie\nexit 3", 3}, {"echo sortie\nexit 0", 0}} {
+		if err := os.WriteFile(fake, []byte("#!/bin/sh\n"+c.script+"\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		selfPath = fake
+		rec := do(h, "POST", "/v1/maintenance", "secret-token", `{"action":"list"}`)
+		var got struct {
+			Code   *int   `json:"code"`
+			Output string `json:"output"`
+		}
+		if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &got) != nil {
+			t.Fatalf("exit %d : code HTTP %d, %s", c.code, rec.Code, rec.Body.String())
+		}
+		if got.Code == nil || *got.Code != c.code {
+			t.Errorf("exit %d : code %v, attendu %d", c.code, got.Code, c.code)
+		}
+		if !strings.Contains(got.Output, "sortie") {
+			t.Errorf("sortie absente : %q", got.Output)
+		}
+	}
 }

@@ -53,6 +53,10 @@ BG_PIDS=()
 finish() {
     local m pid
     for pid in "${BG_PIDS[@]}"; do kill "$pid" 2>/dev/null; done
+    # Agent de la machine simulée B (scénarios sync-*) : arrêté même si le scénario a échoué
+    if [[ -n "${SYNC_AGENT_B:-}" ]]; then
+        env HOME="$ROOT/syncB/home" XDG_CONFIG_HOME="$ROOT/syncB/config" "$LAUNCHER" --agent stop >/dev/null 2>&1
+    fi
     # Montages restés en place (test interrompu)
     mount | grep -F "$ROOT" | sed -E 's/^[^ ]+ on (.*) type .*/\1/' | sort -r \
         | while IFS= read -r m; do fusermount3 -uz "$m" 2>/dev/null; done
@@ -112,6 +116,12 @@ export WSQUASHFS_OVERLAY=fuse
 # Avant (01/11), ceux de SteamBox entraient dans la trace.
 export WSQUASHFS_SYSROOT="${ROOT}/sysroot"
 mkdir -p "$WSQUASHFS_SYSROOT"
+# Nom d'hôte : une machine simulée s'annonce sous ce nom (--sync l'affiche) ;
+# normalize le remplace par HOTE. Trop court pour être unique : ignoré.
+# Lu dans /proc : la commande hostname manque dans SteamBox (13/11).
+SYNC_NAME=$(cat /proc/sys/kernel/hostname 2>/dev/null || true)
+SYNC_HOST=$SYNC_NAME
+((${#SYNC_HOST} >= 6)) || SYNC_HOST="@aucun-nom-d-hote@"
 
 # mkwine <racine> : faux runner Wine (classique, avec i386-unix) dont bin/wine
 # journalise ses appels ; wineboot crée un prefix minimal.
@@ -339,7 +349,7 @@ normalize() {
     # Barres de progression (mksquashfs, unsquashfs) : leur sortie dépend de la
     # version des outils et du terminal (\r) ; elles ne sont pas comparées.
     sed -e 's/\r//g' -e '/^\[=*|\] [0-9]*\/[0-9]* 100%$/d' \
-        -e "s#${ROOT}#ROOT#g" -e "s#${LAUNCHER}#LAUNCHER#g" \
+        -e "s#${ROOT}#ROOT#g" -e "s#${LAUNCHER}#LAUNCHER#g" -e "s#${SYNC_HOST}#HOTE#g" \
         -e 's/-[0-9]\{8\}-[0-9]\{6\}\(-[0-9]*\)\{0,1\}\.tar\./-DATE.tar./g' \
         -e 's#^\(  ✓ [a-z0-9-]*\) (\(/\|ROOT/sysbin/\)[^)]*)#\1 (PATH)#' \
         -e 's#^\(  ✓ dualsense-usb-bridge\) (.*)#\1 (PATH)#' \
@@ -714,7 +724,7 @@ EOF
 chmod +x "$ROOT/gs/gamescope"
 step headless      env WSQUASHFS_UMU=0 PATH="$ROOT/gs:$PATH" "$L" --headless "$LR/Layer Game.wsquashfs"
 
-# --saves : sauvegardes de partie de l'overlay copiées dans
+# --save / --saves : sauvegardes de partie de l'overlay copiées dans
 # userdata/saves/<système>/<jeu>, caches et fichiers supprimés exclus
 U="$ROOT/saves/Layer Game/drive_c/users/wsqtest"
 mkdir -p "$U/Documents/My Game" "$U/AppData/Roaming/Studio" "$U/AppData/Local/Temp" \
@@ -725,11 +735,12 @@ echo cfg > "$U/AppData/Roaming/Studio/options.ini"
 echo prog > "$U/AppData/Local/Studio/progress.dat"
 echo tmp > "$U/AppData/Local/Temp/junk.tmp"
 echo cache > "$U/AppData/Local/NVIDIA/DXCache/x.bin"
-step saves-one     "$L" --saves "Layer Game.wsquashfs"
+step saves-one     "$L" --save "Layer Game.wsquashfs"
 note "copie : $(cd "$ROOT/userdata/saves/layers/Layer Game" && find . -type f | sort | tr '\n' ' ')"
-step saves-again   "$L" --saves "Layer Game"
-step saves-unknown "$L" --saves "Unknown"
+step saves-again   "$L" --save "Layer Game"
+step saves-unknown "$L" --save "Unknown"
 step saves-all     "$L" --saves
+step saves-arg     "$L" --saves "Layer Game"
 step umount-layers "$L" --umount
 # Layer Game retiré : la trace de l'overlay noyau, plus bas, ne le voit pas.
 rm -rf "$ROOT/saves/Layer Game" "$ROOT/saves/.images/Layer Game" "$ROOT/saves/.work/Layer Game" \
@@ -745,6 +756,93 @@ step erase-none    "$L" --erase "Unknown"
 step erase-all     "$L" --erase
 snapshot after-erase
 note "archives après --erase : $(ls "$BACKUPS" 2>/dev/null | normalize | paste -sd ' ')"
+
+# ── Synchro entre machines (--sync) ────────────────────────────────────
+#
+# Deux machines simulées, chacune avec son HOME, sa configuration, ses
+# sauvegardes et ses backups : B (--pair, puis --agent) et A (--sync). Le code
+# wsq:// de B est lu dans la sortie de --pair, sans entrer dans la trace
+# (jeton, adresse). Le nom d'hôte, celui de B comme de A, devient HOTE.
+SYNC_PORT=18791
+sync_raw() { # sync_raw <A|B> <commande...> : lanceur sur la machine A ou B, sans trace
+    local m="$1" base
+    shift
+    base="$ROOT/sync$m"
+    env HOME="$base/home" XDG_CONFIG_HOME="$base/config" WSQUASHFS_CACHE="$base/cache" \
+        WSQUASHFS_SAVES_DIR="$base/saves" WSQUASHFS_BACKUP_DIR="$base/backups" "$L" "$@"
+}
+sync_step() { # sync_step <titre> <A|B> <commande...> : comme step, sur la machine A ou B
+    local title="$1" m="$2"
+    shift 2
+    step "$title" env HOME="$ROOT/sync$m/home" XDG_CONFIG_HOME="$ROOT/sync$m/config" \
+        WSQUASHFS_CACHE="$ROOT/sync$m/cache" WSQUASHFS_SAVES_DIR="$ROOT/sync$m/saves" \
+        WSQUASHFS_BACKUP_DIR="$ROOT/sync$m/backups" "$L" "$@"
+}
+sync_files() { # sync_files <A|B> : sauvegardes de la machine, une ligne
+    # (sans .sync/ : l'état y est rangé sous l'empreinte d'un certificat neuf à chaque essai)
+    ( cd "$ROOT/sync$1/saves" 2>/dev/null && find . -path ./.sync -prune -o -type f -print | sort | paste -sd ' ' ) | normalize
+}
+mkdir -p "$ROOT/syncA/home" "$ROOT/syncB/home"
+
+# B s'annonce : --pair affiche le code et attend l'association, en arrière-plan
+# (PID gardé). Lancé directement, sans sync_raw : $! est le lanceur lui-même.
+env HOME="$ROOT/syncB/home" XDG_CONFIG_HOME="$ROOT/syncB/config" WSQUASHFS_CACHE="$ROOT/syncB/cache" \
+    WSQUASHFS_SAVES_DIR="$ROOT/syncB/saves" WSQUASHFS_BACKUP_DIR="$ROOT/syncB/backups" \
+    "$L" --pair --port "$SYNC_PORT" > "$ROOT/pair.out" 2>&1 &
+PAIR_PID=$!
+BG_PIDS+=("$PAIR_PID")
+# Le code est wsq://JETON@HÔTE:PORT#EMPREINTE ; la note de --pair cite « wsq://… » sans @.
+for _ in $(seq 100); do grep -q 'wsq://[^[:space:]]*@' "$ROOT/pair.out" && break; sleep 0.1; done
+CODE=$(grep -o 'wsq://[^[:space:]]*@[^[:space:]]*' "$ROOT/pair.out" | head -1)
+note "--pair sur B : code wsq:// affiché : $([[ -n "$CODE" ]] && echo oui || echo non)"
+
+sync_step sync-pair    A --sync "$CODE"
+wait "$PAIR_PID"
+PAIR_RC=$?
+note "--pair sur B : rc=$PAIR_RC, $(grep -o 'Associé.*' "$ROOT/pair.out" | sed -E 's/[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/ADRESSE/g' | normalize)"
+
+# Agent de B lancé en arrière-plan (--agent), puis son état. sync-self (B --sync son
+# propre code) vient après : refusé avant tout appel réseau, mais pas une association.
+SYNC_AGENT_B=1
+sync_raw B --agent > "$ROOT/agent.out" 2>&1
+note "agent B : lancement, rc=$?"
+sed -e 's/pid [0-9]*/pid N/' "$ROOT/agent.out" | normalize | sed 's/^/## /' >> "$OUT"
+sync_raw B --agent status > "$ROOT/status.out" 2>&1
+note "agent B : état, rc=$?"
+sed -e 's/pid [0-9]*/pid N/' "$ROOT/status.out" | normalize | sed 's/^/## /' >> "$OUT"
+
+sync_step sync-self    B --sync "$CODE"            # une machine ne s'associe pas elle-même
+mkdir -p "$ROOT/syncA/saves/Sync Game/drive_c/users/steamuser/Documents"
+echo partie-A > "$ROOT/syncA/saves/Sync Game/drive_c/users/steamuser/Documents/x.sav"
+sync_step sync-status  A --sync status             # rien ne change
+note "A avant synchro : $(sync_files A)"
+note "B avant synchro : $(sync_files B)"
+sync_step sync-send    A --sync                    # A envoie à B
+note "B après envoi : $(sync_files B)"
+sync_step sync-again   A --sync                    # rien ne change
+sync_step sync-unknown A --sync "Inconnu"
+# B joue de son côté : A reçoit
+echo partie-B > "$ROOT/syncB/saves/Sync Game/drive_c/users/steamuser/Documents/y.sav"
+sync_step sync-receive A --sync "Sync Game"
+note "A après réception : $(sync_files A)"
+note "archives de conflit : $(ls "$ROOT/syncA/backups" 2>/dev/null | wc -l)"
+# Les deux jouent sans synchro : la plus récente (A) gagne, celle de B est archivée sur B
+echo partie-B2 > "$ROOT/syncB/saves/Sync Game/drive_c/users/steamuser/Documents/y.sav"
+touch -d '2026-01-01 12:00' "$ROOT/syncB/saves/Sync Game/drive_c/users/steamuser/Documents/y.sav"
+echo partie-A2 > "$ROOT/syncA/saves/Sync Game/drive_c/users/steamuser/Documents/x.sav"
+sync_step sync-conflict A --sync
+note "B après conflit : y.sav = $(cat "$ROOT/syncB/saves/Sync Game/drive_c/users/steamuser/Documents/y.sav"), x.sav = $(cat "$ROOT/syncB/saves/Sync Game/drive_c/users/steamuser/Documents/x.sav")"
+note "archives sur B : $(ls "$ROOT/syncB/backups" 2>/dev/null | normalize | paste -sd ' ')"
+sync_step sync-forget  A --sync forget "$SYNC_NAME"
+sync_step sync-none    A --sync
+
+# Arrêt de l'agent de B : le port se ferme
+sync_raw B --agent stop > "$ROOT/stop.out" 2>&1
+rc=$?
+unset SYNC_AGENT_B
+note "agent B arrêté : rc=$rc, $(sed -e 's/(pid [0-9]*)/(pid N)/' "$ROOT/stop.out" | normalize)"
+if (exec 3<>"/dev/tcp/127.0.0.1/$SYNC_PORT") 2>/dev/null; then port=ouvert; else port=fermé; fi
+note "port de B après arrêt : $port"
 
 # ── Overlay noyau (namespace utilisateur) ──────────────────────────────
 #
