@@ -77,7 +77,8 @@ Usage :
         Synchronise à la main les sauvegardes de partie avec les autres
         machines du réseau local (pas à distance), par leur agent (--pair).
           wsq://…           associe une machine (code affiché par --pair sur elle)
-          (rien) ou <jeu>   synchronise tous les jeux, ou un seul
+          (rien)            les jeux qui ont des sauvegardes des deux côtés
+          <jeu>             ce jeu, copié sur l'autre machine s'il n'y est pas
           status            montre ce qui serait fait, sans rien changer
           forget <machine>  retire une machine associée
         Conflit (les deux côtés ont changé) : la version la plus lourde gagne

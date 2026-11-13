@@ -78,7 +78,8 @@ Usage :
         Synchronise à la main les sauvegardes de partie avec les autres
         machines du réseau local (pas à distance), par leur agent (--pair).
           wsq://…           associe une machine (code affiché par --pair sur elle)
-          (rien) ou <jeu>   synchronise tous les jeux, ou un seul
+          (rien)            les jeux qui ont des sauvegardes des deux côtés
+          <jeu>             ce jeu, copié sur l'autre machine s'il n'y est pas
           status            montre ce qui serait fait, sans rien changer
           forget <machine>  retire une machine associée
         Conflit (les deux côtés ont changé) : la version la plus lourde gagne
@@ -10131,11 +10132,22 @@ Erreur : c'est cette machine : coller le code affiché par --pair sur l'AUTRE ma
 ╰─────────────────────────────────╯
 
 ▍HOTE
-  → Sync Game  envoi
+– 1 jeu(x) avec des sauvegardes d'un seul côté, non synchronisé(s) : --sync "<jeu>" pour en copier un
   Réseau local uniquement. Versions écartées en cas de conflit : ROOT/syncA/backups
 == rc=0
 ## A avant synchro : ./Sync Game/drive_c/users/steamuser/Documents/x.sav
 ## B avant synchro : 
+################ sync-oneside
+╭─────────────────────────────────╮
+│ Synchronisation des sauvegardes │
+│ réseau local                    │
+╰─────────────────────────────────╯
+
+▍HOTE
+– 1 jeu(x) avec des sauvegardes d'un seul côté, non synchronisé(s) : --sync "<jeu>" pour en copier un
+  Réseau local uniquement. Versions écartées en cas de conflit : ROOT/syncA/backups
+== rc=0
+## B après --sync sans jeu : 
 ################ sync-send
 ╭─────────────────────────────────╮
 │ Synchronisation des sauvegardes │

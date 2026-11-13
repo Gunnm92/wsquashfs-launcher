@@ -817,7 +817,9 @@ echo partie-A > "$ROOT/syncA/saves/Sync Game/drive_c/users/steamuser/Documents/x
 sync_step sync-status  A --sync status             # rien ne change
 note "A avant synchro : $(sync_files A)"
 note "B avant synchro : $(sync_files B)"
-sync_step sync-send    A --sync                    # A envoie à B
+sync_step sync-oneside A --sync                    # le jeu n'est que sur A : non synchronisé
+note "B après --sync sans jeu : $(sync_files B)"
+sync_step sync-send    A --sync "Sync Game"        # explicite : A l'envoie à B
 note "B après envoi : $(sync_files B)"
 sync_step sync-again   A --sync                    # rien ne change
 sync_step sync-unknown A --sync "Inconnu"

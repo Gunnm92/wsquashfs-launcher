@@ -417,9 +417,9 @@ wsquashfs-launcher --sync wsq://…
 # Sur B, pour les synchros suivantes : l'agent tourne en arrière-plan
 wsquashfs-launcher --agent                   # --agent stop l'arrête, --agent status le montre
 
-# Ensuite, sur A : tous les jeux, avec chaque machine enregistrée joignable
+# Ensuite, sur A : les jeux présents des deux côtés, avec chaque machine joignable
 wsquashfs-launcher --sync
-wsquashfs-launcher --sync "Nom du jeu"       # un jeu
+wsquashfs-launcher --sync "Nom du jeu"       # un jeu, copié même s'il manque en face
 wsquashfs-launcher --sync status             # ce qui serait fait, sans rien changer
 wsquashfs-launcher --sync forget <machine>   # retirer une machine
 ```
@@ -427,6 +427,10 @@ wsquashfs-launcher --sync forget <machine>   # retirer une machine
 - **Réseau local uniquement** : les machines doivent se joindre directement
   (même réseau, agent lancé sur celle qui reçoit). Pas de synchro à distance.
 - Synchroniser **avant de partir** et **en rentrant**.
+- **Jeux d'un seul côté** : `--sync` sans jeu ne touche pas un jeu qui n'a de
+  sauvegardes que sur une des deux machines (AIBox ou le Deck n'ont qu'une
+  partie des jeux) ; il les compte en une ligne. `--sync "Nom du jeu"` le copie
+  sur l'autre machine.
 - Ce qui est synchronisé : Documents, Saved Games et AppData des profils
   Windows du prefix, comme `--save`. Les caches sont exclus.
 - **Conflit** (les deux machines ont changé depuis la dernière synchro) : la

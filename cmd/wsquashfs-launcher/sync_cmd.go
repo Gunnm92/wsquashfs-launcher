@@ -13,6 +13,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -256,12 +257,27 @@ func syncRun(cfg syncConfig, game string, dryRun bool) int {
 			names = []string{game}
 		}
 		g := newUIGames(names)
+		oneSide := 0
 		for _, name := range names {
+			// --sync sans jeu : un jeu qui n'a de sauvegardes que d'un côté n'est pas une
+			// différence (machine à plus petit stockage, jeu pas installé). Le copier sur
+			// l'autre machine : --sync "<jeu>", explicite.
+			if game == "" {
+				users := syncUsersDir(name)
+				if here := saveFingerprint(users, collectSaveFiles(users)) != ""; here != (byName[name].Fingerprint != "") {
+					oneSide++
+					continue
+				}
+			}
 			st, msg := syncGameWith(client, peer.Name, peerID, stateRoot, name, syncUsersDir(name), byName[name], dryRun)
 			g.line(st, name, msg)
 			if st == stFail {
 				failed = true
 			}
+		}
+		if oneSide > 0 {
+			uiStatusLine(stSkip, fmt.Sprintf("%d jeu(x) avec des sauvegardes d'un seul côté, non synchronisé(s) : "+
+				"--sync \"<jeu>\" pour en copier un", oneSide))
 		}
 	}
 	uiNote("Réseau local uniquement. Versions écartées en cas de conflit : " + backupDir())
