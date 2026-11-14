@@ -49,17 +49,18 @@ import (
 )
 
 const (
-	agentVersion     = "5"
+	agentVersion     = "6"
 	agentDefaultPort = 8790
 	agentIdleExit    = 60 * time.Second // sans requête, quand systemd tient la socket
 )
 
 // agentConfig : agent.json.
 type agentConfig struct {
-	Port    int      `json:"port"`
-	Token   string   `json:"token"`
-	Roms    []string `json:"roms"`
-	Session string   `json:"session_process"`
+	Port     int      `json:"port"`
+	Token    string   `json:"token"`
+	Roms     []string `json:"roms"`
+	Session  string   `json:"session_process"`
+	GamesDir string   `json:"games_dir,omitempty"` // dossier d'installation choisi (vide : détection, games_http.go)
 }
 
 // agentDir : dossier de configuration de l'agent.

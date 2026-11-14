@@ -50,6 +50,12 @@ type agentServer struct {
 	clientAddr    string
 	clientMachine string
 	clientAt      time.Time
+	// Installation des images (games_http.go) : dossier détecté (cache de 10 min), envois en
+	// cours par nom. gamesMu protège aussi cfg.GamesDir.
+	gamesMu          sync.Mutex
+	gamesDetectedDir string
+	gamesDetectedAt  time.Time
+	uploads          map[string]bool
 }
 
 func newAgentServer(cfg agentConfig, logOn bool) *agentServer {
@@ -72,6 +78,12 @@ func (s *agentServer) httpServer() *http.Server {
 	mux.HandleFunc("PUT /v1/saves/tar", s.syncMachine(s.savesPut))
 	mux.HandleFunc("DELETE /v1/saves/tar", s.syncMachine(s.savesDelete))
 	mux.HandleFunc("POST /v1/saves/state", s.syncMachine(s.savesState))
+	mux.HandleFunc("GET /v1/games/list", s.auth(s.gamesList))
+	mux.HandleFunc("POST /v1/games/dir", s.auth(s.gamesSetDir))
+	mux.HandleFunc("GET /v1/games/part", s.auth(s.gamesPart))
+	mux.HandleFunc("PUT /v1/games/file", s.auth(s.gamesPut))
+	mux.HandleFunc("POST /v1/games/commit", s.auth(s.gamesCommit))
+	mux.HandleFunc("DELETE /v1/games/file", s.auth(s.gamesDelete))
 	var h http.Handler = mux
 	if s.logOn {
 		h = s.logged(mux)
@@ -173,6 +185,7 @@ func launcherExe() string {
 
 func (s *agentServer) info(w http.ResponseWriter, r *http.Request) {
 	host, _ := os.Hostname()
+	gamesDir, gamesSet, _, _ := s.gamesDir()
 	writeJSON(w, http.StatusOK, map[string]any{
 		"version":         agentVersion,
 		"host":            host,
@@ -181,6 +194,8 @@ func (s *agentServer) info(w http.ResponseWriter, r *http.Request) {
 		"roms":            s.cfg.Roms,
 		"session_process": s.cfg.Session,
 		"os":              osID("/etc/os-release"),
+		"games_dir":       gamesDir,
+		"games_dir_set":   gamesSet,
 	})
 }
 

@@ -59,19 +59,50 @@ processus de session), `cert.pem`, `key.pem` (droits 600).
 
 | Route | Rôle |
 |---|---|
-| `GET /v1/info` | version, machine, utilisateur, dossiers roms/, `os` (ID de `/etc/os-release`, `linux` par défaut) |
+| `GET /v1/info` | version, machine, utilisateur, dossiers roms/, `os` (ID de `/etc/os-release`, `linux` par défaut), `games_dir` (dossier d'installation effectif) et `games_dir_set` (choix manuel en vigueur) |
 | `GET /v1/doctor[?refresh=1]` | rapport `--doctor --json` (mis en cache 5 min) |
 | `POST /v1/trial` `{rel, duration}` | essai : rapport `--trial` et capture (base64) |
 | `POST /v1/maintenance` `{action, rel?}` | voir la table ci-dessous |
 | `GET /v1/runner/list?path=` | fichiers d'un runner installé |
 | `GET /v1/runner/tar?path=` | runner en tar (liens conservés) |
 
+### Installation des images (`/v1/games/*`)
+
+wsquashfs-manager installe une image `.wsquashfs` sur la machine de jeu et la désinstalle, par
+ces routes (`games_http.go`). Toutes exigent le jeton ; aucune ne sort du dossier d'installation.
+
+**Règle HOME** : le dossier d'installation est toujours un sous-dossier strict de HOME, une fois
+les liens symboliques résolus (`filepath.EvalSymlinks` sur le dossier et sur HOME, puis
+comparaison de préfixe avec séparateur). Hors de HOME (`/usr/local`, carte SD, lien qui sort) :
+400. L'agent n'écrit que sous HOME.
+
+**Dossier d'installation** : `games_dir` dans `agent.json` (choix manuel, défini par
+`POST /v1/games/dir`) ; vide, il est détecté. Détection : parmi les dossiers sous HOME (4 niveaux
+au plus) et ceux de `roms/` situés sous HOME (le dossier roms et 3 niveaux en dessous), sans suivre
+les liens et en ignorant les dossiers cachés, celui qui contient directement le plus de fichiers
+`.wsquashfs` ; à égalité, celui qui finit par `Games/non-steam`, sinon le premier par ordre
+alphabétique ; sans image, `HOME/Games/non-steam`. Le résultat est gardé 10 minutes. Le dossier est créé
+au premier envoi.
+
+| Route | Rôle |
+|---|---|
+| `GET /v1/games/list` | `{dir, set, free, games: [{name, size, mtime}], parts: [{name, size}]}` : images installées et envois en cours (`.wsquashfs.part`) ; `free` en octets (dossier absent : espace du premier parent existant, listes vides) |
+| `POST /v1/games/dir` `{dir}` | choisit le dossier (absolu, existant, sous HOME : 400 sinon) ; `{"dir": ""}` revient à la détection. Réponse `{dir, set}` |
+| `GET /v1/games/part?name=` | `{part_size, installed, size}` : taille de l'envoi en cours (0 sans envoi), image installée ou non et sa taille |
+| `PUT /v1/games/file?name=&offset=` | en-tête `X-Wsq-Total-Size` (taille totale de l'image). Ajoute le corps au `<nom>.part`. Réponse `{part_size}`. 409 `{detail: "décalage", part_size}` si `offset` n'est pas la taille reçue (reprendre là) ; 409 `déjà installé` ; 409 `envoi en cours` (un envoi à la fois par nom) ; 507 `{detail: "espace insuffisant", free}` si l'espace ne couvre pas le reste plus 1 Gio ; 413 si le corps dépasse le total |
+| `POST /v1/games/commit` `{name, size, sha256}` | valide le `.part` : 404 sans envoi, 409 `{detail: "taille", part_size}` si la taille diffère, 422 `empreinte incorrecte, envoi à refaire` (le `.part` est supprimé), 409 `déjà installé`, sinon renommage en image installée. Réponse `{name, size}` |
+| `DELETE /v1/games/file?name=` | supprime l'image installée et son `.part` ; 409 `jeu monté ou en cours` si le jeu tourne, est monté ou verrouillé. Réponse `{removed}` |
+
+`name` est un nom de fichier seul (`Jeu.wsquashfs`) dont la tige passe le contrôle des noms de
+jeu : sinon 400. Une coupure pendant un envoi laisse le `.part` avec ce qui a été reçu : on reprend
+avec `GET /v1/games/part`, puis `PUT` à partir de `part_size`.
+
 ### Synchro des sauvegardes (`--sync`)
 
 ### Maintenance (`POST /v1/maintenance`)
 
 Table fermée (`maintenanceActions` dans `agent_http.go`), contrat commun avec
-wsquashfs-manager (version de l'agent : **5**, route `GET /v1/info`).
+wsquashfs-manager (version de l'agent : **6**, route `GET /v1/info`).
 
 | `action` | Lanceur | `rel` (image du jeu) |
 |---|---|---|

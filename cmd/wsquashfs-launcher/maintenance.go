@@ -7,6 +7,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -1321,8 +1322,42 @@ func copySavesTo(targets []string) int {
 // s'accompagne de wsquashfs-launcher.sha256 (make build) : déjà identique,
 // rien n'est téléchargé ; sinon le fichier téléchargé doit avoir cette
 // empreinte et un en-tête ELF avant de remplacer le lanceur.
+// updateRepo : dépôt GitHub du lanceur publié (binaire et wsquashfs-launcher.sha256 sur main).
+const updateRepo = "Gunnm92/wsquashfs-launcher"
+
+// updateBase : base des téléchargements de --update. Le CDN de raw.githubusercontent.com garde
+// chaque fichier de main jusqu'à 5 minutes, indépendamment : juste après une publication, il peut
+// servir le nouveau binaire avec l'ancienne empreinte (ou l'inverse). On demande donc à l'API le
+// dernier commit de main et on télécharge à son adresse, qui ne change jamais : binaire et
+// empreinte sont toujours du même commit. API injoignable (limite de requêtes) : main.
+// WSQUASHFS_UPDATE_URL remplace le tout (tests, miroir).
+func updateBase() string {
+	if v := os.Getenv("WSQUASHFS_UPDATE_URL"); v != "" {
+		return v
+	}
+	raw := "https://raw.githubusercontent.com/" + updateRepo + "/"
+	if body, err := downloadBytes("https://api.github.com/repos/" + updateRepo + "/commits/main"); err == nil {
+		if sha := commitSHA(body); sha != "" {
+			return raw + sha
+		}
+	}
+	return raw + "main"
+}
+
+// commitSHA : empreinte d'un commit dans une réponse de l'API GitHub (40 caractères hexadécimaux),
+// "" si la réponse n'en contient pas.
+func commitSHA(body []byte) string {
+	var c struct {
+		SHA string `json:"sha"`
+	}
+	if json.Unmarshal(body, &c) != nil || len(c.SHA) != 40 || strings.Trim(c.SHA, "0123456789abcdef") != "" {
+		return ""
+	}
+	return c.SHA
+}
+
 func cmdUpdate() int {
-	base := envOr("WSQUASHFS_UPDATE_URL", "https://raw.githubusercontent.com/Gunnm92/wsquashfs-launcher/main")
+	base := updateBase()
 	self, err := os.Executable()
 	if err != nil {
 		die("chemin du lanceur inconnu")
@@ -1350,7 +1385,8 @@ func cmdUpdate() int {
 		die("téléchargement du lanceur impossible")
 	}
 	if got, err := fileSHA256(fresh); err != nil || got != want {
-		die("somme de contrôle du lanceur téléchargé incorrecte : rien n'a été modifié")
+		die("somme de contrôle du lanceur téléchargé incorrecte : rien n'a été modifié " +
+			"(cache de GitHub juste après une publication : réessayer dans 5 minutes)")
 	}
 	data, _ := os.ReadFile(fresh)
 	if !bytes.HasPrefix(data, []byte("\x7fELF")) {

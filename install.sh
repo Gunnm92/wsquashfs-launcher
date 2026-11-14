@@ -16,7 +16,14 @@
 #   --uninstall, -u  désinstalle le lanceur (sauvegardes et runners gardés)
 #   --help, -h       aide de --setup
 
-REPO_RAW="https://raw.githubusercontent.com/Gunnm92/wsquashfs-launcher/main"
+REPO="Gunnm92/wsquashfs-launcher"
+# Le CDN de raw.githubusercontent.com garde chaque fichier de main jusqu'à 5 minutes,
+# séparément : juste après une publication, binaire et empreinte peuvent différer. On
+# télécharge donc à l'adresse du dernier commit de main (API GitHub), qui ne change
+# jamais ; API injoignable : main.
+COMMIT="$(curl -fsSL -A wsquashfs-launcher-installeur "https://api.github.com/repos/${REPO}/commits/main" 2>/dev/null \
+    | grep -o '"sha": *"[0-9a-f]\{40\}"' | head -n1 | grep -o '[0-9a-f]\{40\}' || true)"
+REPO_RAW="https://raw.githubusercontent.com/${REPO}/${COMMIT:-main}"
 
 if [[ "$(id -u)" -eq 0 ]]; then
     BIN_DIR="/usr/local/bin"

@@ -421,3 +421,27 @@ func TestParseArgsMaintenanceActions(t *testing.T) {
 		t.Errorf("--sync : action %v, erreur %v", o, err)
 	}
 }
+
+func TestCommitSHA(t *testing.T) {
+	sha := "bf66458e0123456789abcdef0123456789abcdef"[:40]
+	cases := map[string]string{
+		`{"sha":"` + sha + `","commit":{}}`:                  sha,
+		`{"sha":"BF66458E0123456789ABCDEF0123456789ABCDEF"}`: "", // l'API répond en minuscules
+		`{"sha":"bf66458"}`:                                  "",
+		`{"message":"API rate limit exceeded"}`:              "",
+		`pas du json`:                                        "",
+		`{"sha":"../../evil/0123456789abcdef0123456789ab"}`:  "",
+	}
+	for body, want := range cases {
+		if got := commitSHA([]byte(body)); got != want {
+			t.Errorf("commitSHA(%s) = %q, attendu %q", body, got, want)
+		}
+	}
+}
+
+func TestUpdateBaseHonoursOverride(t *testing.T) {
+	t.Setenv("WSQUASHFS_UPDATE_URL", "http://miroir.local/x")
+	if got := updateBase(); got != "http://miroir.local/x" {
+		t.Fatalf("updateBase = %q", got)
+	}
+}
