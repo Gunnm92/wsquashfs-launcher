@@ -2,19 +2,18 @@
 #
 # install.sh — amorce l'installation de wsquashfs-launcher.
 #
-# Le binaire Go fait tout le reste (paquets système, runners, DXVK, lanceur,
-# agent) : ce script ne fait que le télécharger s'il est absent, puis lancer
+# Le binaire Go fait tout le reste (paquets système, runners, DXVK, lanceur) :
+# ce script ne fait que le télécharger s'il est absent, puis lancer
 # son installeur, « wsquashfs-launcher --setup ».
 #
 # Usage local  : bash install.sh [options]
-# Usage distant: curl -fsSL https://raw.githubusercontent.com/Gunnm92/wsquashfs-launcher/main/install.sh | bash
+# Usage distant: curl -fsSL https://raw.githubusercontent.com/Gunnm92/wsquashfs-launcher/main/install.sh | bash -s -- [options]
 #
-# Options (transmises à --setup) :
-#   --yes, -y        répond oui à toutes les questions
-#   --dry-run, -n    montre ce qui serait fait, sans rien installer
-#   --agent          installe l'agent pour wsquashfs-manager
-#   --uninstall, -u  désinstalle le lanceur (sauvegardes et runners gardés)
-#   --help, -h       aide de --setup
+# Options (transmises à --setup, sans tirets) :
+#   yes        répond oui à toutes les questions
+#   dry-run    montre ce qui serait fait, sans rien installer
+#   uninstall  désinstalle le lanceur (sauvegardes et runners gardés)
+#   help       aide de --setup
 
 REPO="Gunnm92/wsquashfs-launcher"
 # Le CDN de raw.githubusercontent.com garde chaque fichier de main jusqu'à 5 minutes,
@@ -35,7 +34,7 @@ BIN="${BIN_DIR}/wsquashfs-launcher"
 dry_run=false
 for arg in "$@"; do
     case "$arg" in
-        --dry-run|-n) dry_run=true ;;
+        dry-run) dry_run=true ;;
     esac
 done
 

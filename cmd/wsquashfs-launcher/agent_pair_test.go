@@ -113,23 +113,6 @@ func TestAgentLogWithoutRunIsUsageError(t *testing.T) {
 	}
 }
 
-func TestInheritedSocketPredicate(t *testing.T) {
-	t.Setenv("LISTEN_PID", strconv.Itoa(os.Getpid()))
-	t.Setenv("LISTEN_FDS", "1")
-	if !inheritedSocket() {
-		t.Error("socket héritée non reconnue")
-	}
-	t.Setenv("LISTEN_PID", strconv.Itoa(os.Getpid()+1))
-	if inheritedSocket() {
-		t.Error("socket d'un autre processus reconnue")
-	}
-	t.Setenv("LISTEN_PID", strconv.Itoa(os.Getpid()))
-	t.Setenv("LISTEN_FDS", "")
-	if inheritedSocket() {
-		t.Error("LISTEN_FDS vide reconnu")
-	}
-}
-
 // TestAgentStartAlreadyRunning : un agent écoute déjà le port : rien n'est lancé, code 0.
 func TestAgentStartAlreadyRunning(t *testing.T) {
 	agentEnv(t)
@@ -247,8 +230,8 @@ func TestAgentHelperProcess(t *testing.T) {
 	time.Sleep(time.Minute)
 }
 
-// TestAgentStatusStates : non configuré, non lancé, port pris par un autre processus, socket
-// systemd en attente ; toujours code 0.
+// TestAgentStatusStates : non configuré, non lancé, port pris par un autre processus ; toujours
+// code 0.
 func TestAgentStatusStates(t *testing.T) {
 	agentEnv(t)
 	out, _ := capteUI(t)
@@ -268,18 +251,9 @@ func TestAgentStatusStates(t *testing.T) {
 	if _, err := agentInit(nil, port); err != nil {
 		t.Fatal(err)
 	}
-	orig := agentSocketActive
-	t.Cleanup(func() { agentSocketActive = orig })
-	agentSocketActive = func() bool { return false }
 	out.Reset()
 	if code := cmdAgentStatus(); code != 0 || !strings.Contains(out.String(), "occupé par un autre processus") {
-		t.Errorf("port pris, sans socket systemd : code %d, sortie %q", code, out.String())
-	}
-	// Socket systemd actif (--setup --agent) : systemd tient le port, l'agent démarre à la connexion
-	agentSocketActive = func() bool { return true }
-	out.Reset()
-	if code := cmdAgentStatus(); code != 0 || !strings.Contains(out.String(), "systemd écoute le port") {
-		t.Errorf("socket systemd : code %d, sortie %q", code, out.String())
+		t.Errorf("port pris : code %d, sortie %q", code, out.String())
 	}
 	if !strings.Contains(out.String(), "Journal") {
 		t.Errorf("journal absent : %q", out.String())
@@ -335,25 +309,6 @@ func execFakeAgent(t *testing.T) int {
 		}
 	}
 	return cmd.Process.Pid
-}
-
-// TestSystemdUnitRunsForeground : l'unité systemd lance « --agent run » (premier plan).
-func TestSystemdUnitRunsForeground(t *testing.T) {
-	agentEnv(t)
-	oldDir, oldInstall := agentUnitDir, installDir
-	t.Cleanup(func() { agentUnitDir, installDir = oldDir, oldInstall })
-	agentUnitDir = t.TempDir()
-	installDir = "/opt/wsq"
-	if err := writeAgentUnits(); err != nil {
-		t.Fatal(err)
-	}
-	data, err := os.ReadFile(filepath.Join(agentUnitDir, "wsquashfs-agent.service"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(data), "ExecStart=/opt/wsq/wsquashfs-launcher --agent run\n") {
-		t.Errorf("unité : %s", data)
-	}
 }
 
 // TestAgentStatusIgnoresPidOfOtherProcess : un PID inscrit qui n'est pas un agent n'est pas annoncé.
@@ -534,7 +489,7 @@ func TestPairCommandCtrlC(t *testing.T) {
 	port := freePort(t)
 	out, _ := capteUI(t)
 	done := make(chan int, 1)
-	go func() { done <- cmdPair([]string{"--port", strconv.Itoa(port)}) }()
+	go func() { done <- cmdPair([]string{"port", strconv.Itoa(port)}) }()
 	var hook *func()
 	for deadline := time.Now().Add(5 * time.Second); hook == nil; time.Sleep(10 * time.Millisecond) {
 		hook = interruptHook.Load()
@@ -633,43 +588,51 @@ func TestDurationText(t *testing.T) {
 	}
 }
 
-// TestAgentStopAndStartWithSystemdSocket : --agent stop arrête le socket et le service (le port
-// est libéré) ; --agent relance le socket installé plutôt qu'un agent détaché.
-func TestAgentStopAndStartWithSystemdSocket(t *testing.T) {
+// TestAgentStopRemovesSystemdUnits : les unités systemd d'une ancienne installation (socket qui
+// gardait le port ouvert à chaque session) sont désactivées et supprimées par --agent stop ; status
+// les signale tant qu'elles sont là.
+func TestAgentStopRemovesSystemdUnits(t *testing.T) {
 	agentEnv(t)
 	if _, err := agentInit(nil, freePort(t)); err != nil {
 		t.Fatal(err)
 	}
-	origActive, origCtl := agentSocketActive, agentSystemctl
-	t.Cleanup(func() { agentSocketActive, agentSystemctl = origActive, origCtl })
-	active := true
+	orig := agentSystemctl
+	t.Cleanup(func() { agentSystemctl = orig })
 	var calls []string
-	agentSocketActive = func() bool { return active }
 	agentSystemctl = func(action string, units ...string) error {
-		calls = append(calls, action+" "+strings.Join(units, " "))
-		active = action == "start"
+		calls = append(calls, strings.TrimSpace(action+" "+strings.Join(units, " ")))
 		return nil
 	}
-	out, _ := capteUI(t)
-	if code := cmdAgentStop(); code != 0 || !strings.Contains(out.String(), "le port est libéré") {
-		t.Fatalf("stop : code %d, sortie %q", code, out.String())
-	}
-	if len(calls) != 1 || calls[0] != "stop wsquashfs-agent.socket wsquashfs-agent.service" {
-		t.Fatalf("stop : appels systemctl %q", calls)
-	}
-	// Socket installé et arrêté : --agent le relance
 	unit := agentSocketUnit()
+	service := filepath.Join(filepath.Dir(unit), "wsquashfs-agent.service")
 	if err := os.MkdirAll(filepath.Dir(unit), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(unit, []byte("[Socket]\n"), 0o644); err != nil {
-		t.Fatal(err)
+	for _, f := range []string{unit, service} {
+		if err := os.WriteFile(f, []byte("[Unit]\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	out, _ := capteUI(t)
+	if cmdAgentStatus(); !strings.Contains(out.String(), "Démarrage automatique par systemd") {
+		t.Errorf("status : unités non signalées : %q", out.String())
 	}
 	out.Reset()
-	if code := cmdAgentStart(); code != 0 || !strings.Contains(out.String(), "systemd écoute le port") {
-		t.Fatalf("start : code %d, sortie %q", code, out.String())
+	if code := cmdAgentStop(); code != 0 || !strings.Contains(out.String(), "Démarrage automatique par systemd retiré") {
+		t.Fatalf("stop : code %d, sortie %q", code, out.String())
 	}
-	if len(calls) != 2 || calls[1] != "start wsquashfs-agent.socket" || !active {
-		t.Fatalf("start : appels systemctl %q", calls)
+	if isFile(unit) || isFile(service) {
+		t.Error("unités toujours présentes")
+	}
+	want := []string{"disable --now wsquashfs-agent.socket", "stop wsquashfs-agent.service", "daemon-reload"}
+	if strings.Join(calls, "|") != strings.Join(want, "|") {
+		t.Errorf("appels systemctl %q, attendu %q", calls, want)
+	}
+	// Sans unité : rien n'est appelé
+	calls = nil
+	out.Reset()
+	cmdAgentStop()
+	if len(calls) != 0 {
+		t.Errorf("appels sans unité : %q", calls)
 	}
 }

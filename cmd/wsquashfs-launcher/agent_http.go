@@ -25,7 +25,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -39,9 +38,7 @@ const trialStopDelay = 60 * time.Second
 type agentServer struct {
 	cfg    agentConfig
 	logOn  bool
-	last   atomic.Int64 // dernière requête (UnixNano)
-	busy   atomic.Int32 // requêtes en cours (pas d'arrêt pendant un essai)
-	trial  sync.Mutex   // un essai à la fois
+	trial  sync.Mutex // un essai à la fois
 	docMu  sync.Mutex
 	docOut []byte
 	docAt  time.Time
@@ -59,9 +56,7 @@ type agentServer struct {
 }
 
 func newAgentServer(cfg agentConfig, logOn bool) *agentServer {
-	s := &agentServer{cfg: cfg, logOn: logOn}
-	s.last.Store(time.Now().UnixNano())
-	return s
+	return &agentServer{cfg: cfg, logOn: logOn}
 }
 
 // httpServer : routes, authentification et trace.
@@ -101,12 +96,9 @@ func (s *agentServer) httpServer() *http.Server {
 }
 
 // auth : jeton « Bearer » comparé à temps constant ; la configuration est
-// relue à chaque requête (un --pair --reset prend effet tout de suite).
+// relue à chaque requête (un --pair reset prend effet tout de suite).
 func (s *agentServer) auth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		s.last.Store(time.Now().UnixNano())
-		s.busy.Add(1)
-		defer s.busy.Add(-1)
 		want := "Bearer " + loadAgentConfig().Token
 		got := r.Header.Get("Authorization")
 		if loadAgentConfig().Token == "" || subtle.ConstantTimeCompare([]byte(got), []byte(want)) != 1 {
@@ -157,17 +149,6 @@ func (r *statusRecorder) WriteHeader(code int) {
 	r.ResponseWriter.WriteHeader(code)
 }
 
-// idleWatchdog : arrêt après agentIdleExit sans requête (socket systemd).
-func (s *agentServer) idleWatchdog(srv *http.Server) {
-	for range time.Tick(5 * time.Second) {
-		idle := time.Since(time.Unix(0, s.last.Load()))
-		if s.busy.Load() == 0 && idle > agentIdleExit {
-			_ = srv.Shutdown(context.Background())
-			return
-		}
-	}
-}
-
 func writeJSON(w http.ResponseWriter, code int, v any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(code)
@@ -216,14 +197,14 @@ func osID(path string) string {
 	return "linux"
 }
 
-// doctor : --doctor --json, mis en cache quelques minutes.
+// doctor : --doctor json, mis en cache quelques minutes.
 func (s *agentServer) doctor(w http.ResponseWriter, r *http.Request) {
 	s.docMu.Lock()
 	defer s.docMu.Unlock()
 	if s.docOut == nil || r.URL.Query().Get("refresh") == "1" || time.Since(s.docAt) > doctorTTL {
 		ctx, cancel := context.WithTimeout(r.Context(), 120*time.Second)
 		defer cancel()
-		out, _ := exec.CommandContext(ctx, launcherExe(), "--doctor", "--json").Output()
+		out, _ := exec.CommandContext(ctx, launcherExe(), "--doctor", "json").Output()
 		if len(out) == 0 {
 			writeDetail(w, http.StatusServiceUnavailable, "rapport --doctor indisponible")
 			return
@@ -311,7 +292,7 @@ func (s *agentServer) trialRoute(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), time.Duration(req.Duration+180)*time.Second)
 	defer cancel()
-	args := []string{"--trial", image, fmt.Sprint(req.Duration), "--session", s.cfg.Session, "--screenshot", shot.Name()}
+	args := []string{"--trial", image, fmt.Sprint(req.Duration), "session", s.cfg.Session, "screenshot", shot.Name()}
 	cmd := exec.CommandContext(ctx, launcherExe(), args...)
 	// Interruption (délai, client parti) : SIGTERM, pour que --trial arrête
 	// le jeu et démonte ; SIGKILL seulement s'il ne s'est pas arrêté à temps.

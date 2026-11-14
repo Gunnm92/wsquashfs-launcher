@@ -6,10 +6,8 @@ package main
 
 import (
 	"fmt"
-	"net"
 	"os"
 	"os/exec"
-	"os/user"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -27,8 +25,6 @@ var (
 	fsr4Dir          string
 	protonInstallDir string
 	desktopFile      string
-	agentPort        = 8790
-	agentUnitDir     string
 )
 
 // setupInit : calcule les emplacements à partir de HOME et XDG_CONFIG_HOME.
@@ -51,7 +47,6 @@ func setupInit() {
 	fsr4Dir = filepath.Join(wsqData, "fsr4")
 	protonInstallDir = filepath.Join(home, ".local/share/Steam/compatibilitytools.d")
 	desktopFile = filepath.Join(home, ".local/share/applications/wsquashfs-launcher.desktop")
-	agentUnitDir = filepath.Join(configHome, "systemd/user")
 }
 
 // checkRoot : dossier d'installation et préfixe sudo selon l'utilisateur.
@@ -304,105 +299,6 @@ func agentDefaultRoms() string {
 	return filepath.Join(home, "roms")
 }
 
-// portFree : vrai si le port TCP peut être ouvert sur cette machine.
-func portFree(port int) bool {
-	ln, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", port))
-	if err != nil {
-		return false
-	}
-	ln.Close()
-	return true
-}
-
-// writeAgentUnits : socket et service systemd utilisateur de l'agent.
-func writeAgentUnits() error {
-	if err := os.MkdirAll(agentUnitDir, 0o755); err != nil {
-		return err
-	}
-	socket := fmt.Sprintf(`[Unit]
-Description=Socket de wsquashfs-agent (machine de jeu pour wsquashfs-manager)
-
-[Socket]
-ListenStream=%d
-
-[Install]
-WantedBy=sockets.target
-`, agentPort)
-	service := fmt.Sprintf(`[Unit]
-Description=wsquashfs-agent (à la demande, lancé par sa socket)
-
-[Service]
-ExecStart=%s/wsquashfs-launcher --agent run
-`, installDir)
-	if err := os.WriteFile(filepath.Join(agentUnitDir, "wsquashfs-agent.socket"), []byte(socket), 0o644); err != nil {
-		return err
-	}
-	return os.WriteFile(filepath.Join(agentUnitDir, "wsquashfs-agent.service"), []byte(service), 0o644)
-}
-
-// installAgent : initialisation de l'agent (jeton, certificat) par le lanceur
-// installé, puis socket et service systemd utilisateur.
-func installAgent() bool {
-	if os.Geteuid() == 0 {
-		setupFail("L'agent s'installe pour l'utilisateur de la session graphique, pas pour root :")
-		uiNote("relancer l'installeur sans sudo avec --agent")
-		return false
-	}
-	roms := askValue("Dossier roms/ de cette machine", agentDefaultRoms())
-	rawPort := askValue("Port de l'agent (doit être libre sur cette machine)", strconv.Itoa(agentPort))
-	port, err := strconv.Atoi(rawPort)
-	if err != nil || port < 1024 || port > 65535 {
-		setupFail("Port invalide : " + rawPort)
-		return false
-	}
-	agentPort = port
-	if !portFree(port) {
-		setupFail(fmt.Sprintf("Port %d déjà utilisé sur cette machine : en choisir un autre (--setup --agent, puis répondre au port)", port))
-		return false
-	}
-	launcher := filepath.Join(installDir, "wsquashfs-launcher")
-	if dryRun {
-		simLine("configuration : dossier roms/ " + roms + ", port " + strconv.Itoa(port) + " (jeton, certificat dans " + agentDir() + ")")
-		simLine("socket " + agentUnitDir + fmt.Sprintf("/wsquashfs-agent.socket (port %d) et service", port))
-		simLine("systemctl --user enable --now wsquashfs-agent.socket")
-		return true
-	}
-	// Configuration, jeton et certificat : fait par le lanceur lui-même.
-	// Initialisation seulement (jeton, certificat, roms/) : --pair attendrait l'association.
-	if _, err := agentInit([]string{roms}, port); err != nil {
-		setupFail("Initialisation de l'agent en échec : " + err.Error())
-		return false
-	}
-	setupDone("Agent : " + launcher + " --agent (configuration dans " + agentDir() + ")")
-
-	// Ancien agent (script Python) : son moteur et sa commande ne servent plus
-	removeLegacyAgent()
-	if err := writeAgentUnits(); err != nil {
-		setupFail("Unités de l'agent impossibles : " + err.Error())
-		return false
-	}
-	setupDone("Unités : " + agentUnitDir + "/wsquashfs-agent.{socket,service}")
-
-	if cmdOK("systemctl", "--user", "daemon-reload") && cmdOK("systemctl", "--user", "enable", "--now", "wsquashfs-agent.socket") {
-		setupDone("Socket activée : l'agent démarre à la première connexion du gestionnaire")
-		if !assumeYes && askYesNo("Répondre aussi sans session ouverte (loginctl enable-linger) ?", false) {
-			if u, err := user.Current(); err == nil && cmdOK("loginctl", "enable-linger", u.Username) {
-				setupDone("Linger activé")
-			} else {
-				setupFail("loginctl enable-linger en échec : à faire à la main")
-			}
-		}
-	} else {
-		setupSkip("systemd utilisateur indisponible : lancer « "+launcher+" --agent » à la main",
-			"(cas d'un conteneur sans systemd, comme SteamBox)")
-	}
-	if code, err := currentPairCode(loadAgentConfig()); err == nil {
-		uiNote("Code d'association à coller dans wsquashfs-manager (Réglages → Machine de jeu → Agent réseau) :")
-		uiCode(code)
-	}
-	return true
-}
-
 // removeLegacyAgent : retire le moteur Python de l'ancien agent (ses données
 // et sa commande). Les anciens fichiers de configuration sont laissés en place.
 func removeLegacyAgent() {
@@ -470,16 +366,8 @@ func uninstall() {
 	if bridge := filepath.Join(installDir, "dualsense-usb-bridge"); pathExists(bridge) {
 		_ = removePaths(bridge)
 	}
-	socket := filepath.Join(agentUnitDir, "wsquashfs-agent.socket")
-	if isFile(socket) {
-		if !dryRun {
-			_ = exec.Command("systemctl", "--user", "disable", "--now", "wsquashfs-agent.socket").Run()
-		}
-		_ = removePaths(socket, filepath.Join(agentUnitDir, "wsquashfs-agent.service"))
-		if !dryRun {
-			_ = exec.Command("systemctl", "--user", "daemon-reload").Run()
-		}
-		uiItem(stOK, "Unités de l'agent supprimées")
+	if !dryRun {
+		removeAgentUnits()
 	}
 	removeLegacyAgent()
 	stale := filepath.Join(installDir, "wsquashfs-agent")
@@ -526,16 +414,15 @@ func pathExists(p string) bool {
 
 // ── Point d'entrée (section 10) ────────────────────────────────────────
 
-const setupUsage = `Usage : wsquashfs-launcher --setup [--yes] [--dry-run] [--agent] [--uninstall] [--help]
+const setupUsage = `Usage : wsquashfs-launcher --setup [yes] [dry-run] [uninstall] [help]
 
   --setup            installe wsquashfs-launcher et ce dont il a besoin
                      (paquets système, runners Wine et Proton, DXVK, VKD3D,
                      d7vk, NVAPI, FSR4, entrée de bureau, PATH).
-  --yes, -y          répond oui à toutes les questions (installation complète)
-  --dry-run, -n      montre ce qui serait fait, sans rien installer ni modifier
-  --agent            installe l'agent pour wsquashfs-manager (sans question)
-  --uninstall, -u    désinstalle le lanceur (sauvegardes et runners gardés)
-  --help, -h         cette aide
+  yes                répond oui à toutes les questions (installation complète)
+  dry-run            montre ce qui serait fait, sans rien installer ni modifier
+  uninstall          désinstalle le lanceur (sauvegardes et runners gardés)
+  help               cette aide
 
 Distributions prises en charge pour les paquets système :
   - Debian, Ubuntu et dérivés (apt)
@@ -582,20 +469,11 @@ func installAll() int {
 	}
 	setupStage("Association des .wsquashfs et entrée de bureau")
 	createMimeType()
-	if agentWanted || !assumeYes {
-		setupStage("Agent pour wsquashfs-manager")
-		switch {
-		case agentWanted:
-			if !installAgent() {
-				return setupEnd("Installation interrompue : agent non installé")
-			}
-		case askYesNo("Installer l'agent pour wsquashfs-manager (machine de jeu sur le réseau) ?", false):
-			if !installAgent() {
-				setupFail("Agent non installé")
-			}
-		default:
-			setupSkip("Agent non installé")
-		}
+	if !dryRun {
+		// Restes des anciennes versions de l'agent : démarrage automatique par systemd (port
+		// ouvert à chaque session), moteur Python. L'agent se lance à la main : --pair, --agent.
+		removeAgentUnits()
+		removeLegacyAgent()
 	}
 	setupStage("PATH du shell")
 	checkPath()
@@ -653,18 +531,16 @@ func runSetup(args []string) int {
 	action := "install"
 	for _, a := range args {
 		switch a {
-		case "--yes", "-y":
+		case "yes":
 			assumeYes = true
-		case "--dry-run", "-n":
+		case "dry-run":
 			dryRun = true
-		case "--agent":
-			agentWanted = true
-		case "--uninstall", "-u":
+		case "uninstall":
 			action = "uninstall"
-		case "--help", "-h":
+		case "help":
 			action = "help"
 		default:
-			uiError("Option inconnue : " + a)
+			uiError("Option inconnue pour --setup : " + a + " (yes, dry-run, uninstall, help)")
 			uiHelp(setupUsage)
 			return 1
 		}

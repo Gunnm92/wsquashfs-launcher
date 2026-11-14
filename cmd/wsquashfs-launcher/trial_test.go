@@ -133,7 +133,7 @@ func TestLaunchesGame(t *testing.T) {
 		"--mount Jeu.wsquashfs":        true,
 		"--umount Jeu.wsquashfs":       true,
 		"--exec Jeu.wsquashfs cmd.exe": true,
-		"--doctor --json":              false,
+		"--doctor json":                false,
 		"--list":                       false,
 		"--agent log":                  false,
 		"--trial Jeu.wsquashfs 60":     false,

@@ -31,7 +31,7 @@ package main
 //       uiAsk*     questions, une seule forme
 //       warn       « Attention : » sur stderr, la commande continue
 //       die        « Erreur : » sur stderr, la commande s'arrête (code 1)
-//  5. Sorties machine hors charte : JSON (--doctor --json, --trial, agent
+//  5. Sorties machine hors charte : JSON (--doctor json, --trial, agent
 //     HTTP) et journal de l'agent passent par encoding/json ou fmt directement.
 //  6. Retraits : 0 pour titres, sections, statuts globaux, clés-valeurs au fil
 //     de l'eau et verdicts ; 2 pour les éléments, listes, notes et lignes de
@@ -465,7 +465,7 @@ func usageError(syntax string) {
 // Une seule forme : « ␣␣? Question [o/n] (défaut : non) » ; toujours
 // « o/n » dans cet ordre, la réponse par défaut écrite en toutes lettres
 // (uiYesNo). Réponse automatique affichée
-// en clair : « o (--yes) », « n (pas de terminal) ».
+// en clair : « o (yes) », « n (pas de terminal) ».
 
 func uiQuestion(q, hint string) string {
 	return "  " + sCode.Render("?") + " " + q + " " + sMuted.Render(hint)

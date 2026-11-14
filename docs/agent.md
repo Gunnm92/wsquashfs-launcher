@@ -7,7 +7,7 @@ lanceur (`wsquashfs-launcher --agent`) : aucun Python, aucun `openssl`.
 
 ## Associer une machine
 
-1. Sur la machine de jeu : `wsquashfs-launcher --pair --roms /chemin/roms`
+1. Sur la machine de jeu : `wsquashfs-launcher --pair roms /chemin/roms`
    (initialise jeton, certificat et dossiers roms/, affiche le code, puis
    attend l'association).
 2. Dans wsquashfs-manager (Réglages → Machine de jeu → Agent réseau), coller le
@@ -19,25 +19,25 @@ lanceur (`wsquashfs-launcher --agent`) : aucun Python, aucun `openssl`.
 `--pair` attend la première requête authentifiée reçue après l'affichage du
 code (le manager ou `--sync wsq://…` sur l'autre machine), puis se ferme. Sans
 agent en marche, il sert un agent temporaire, arrêté après l'association ; avec
-un agent déjà lancé (systemd, `--agent`), il s'appuie sur lui. Ctrl-C annule
+un agent déjà lancé (`--agent`), il s'appuie sur lui. Ctrl-C annule
 (code 130), 10 min sans association : code 1. La trace de la dernière requête
 authentifiée est dans `last-client.json`, à côté de `agent.json`.
 
-`--pair --reset` renouvelle le jeton (l'ancien ne fonctionne plus).
+`--pair reset` renouvelle le jeton (l'ancien ne fonctionne plus).
 
 ## Lancer l'agent
 
-- Sans systemd (conteneur, SteamBox) : `wsquashfs-launcher --agent` lance
-  l'agent en arrière-plan et rend la main ; `--agent stop` l'arrête,
-  `--agent status` dit s'il tourne (pid, port, journal). Le journal est
-  `~/.local/state/wsquashfs/agent.log`.
-- Avec systemd utilisateur : `--setup --agent` installe une socket et un
-  service (`ExecStart=… --agent run`). L'agent démarre à la première connexion et
-  s'arrête seul après 60 s sans requête. `--agent stop` arrête la socket et le
-  service (le port est libéré, jusqu'à la prochaine session) ; `--agent` relance
-  la socket ; `--agent status` dit « prêt » quand systemd écoute le port. Pour qu'il réponde sans session
-  ouverte : `loginctl enable-linger`.
-- `wsquashfs-launcher --agent run [log]` : premier plan, pour systemd et le
+- `wsquashfs-launcher --agent` lance l'agent en arrière-plan et rend la main ;
+  `--agent stop` l'arrête (le port est fermé), `--agent status` dit s'il tourne
+  (pid, port, journal). Le journal est `~/.local/state/wsquashfs/agent.log`.
+- **Rien ne le démarre tout seul** : pas de service ni de socket systemd, aucun
+  port ouvert en dehors de `--pair` (le temps de l'association) et d'un
+  `--agent` lancé à la main. `--pair` et `--agent` initialisent l'agent (jeton,
+  certificat) s'il ne l'est pas. Les unités systemd des anciennes versions
+  (`wsquashfs-agent.socket`, qui gardait le port ouvert à chaque session) sont
+  retirées par `--agent`, `--agent stop`, `--setup` et `--update` ;
+  `--agent status` les signale tant qu'elles sont là.
+- `wsquashfs-launcher --agent run [log]` : premier plan, pour le
   débogage. `log` trace chaque requête (méthode, chemin, code, durée), sans
   jamais écrire le jeton.
 
@@ -62,7 +62,7 @@ processus de session), `cert.pem`, `key.pem` (droits 600).
 | Route | Rôle |
 |---|---|
 | `GET /v1/info` | version, machine, utilisateur, dossiers roms/, `os` (ID de `/etc/os-release`, `linux` par défaut), `games_dir` (dossier d'installation effectif) et `games_dir_set` (choix manuel en vigueur) |
-| `GET /v1/doctor[?refresh=1]` | rapport `--doctor --json` (mis en cache 5 min) |
+| `GET /v1/doctor[?refresh=1]` | rapport `--doctor json` (mis en cache 5 min) |
 | `POST /v1/trial` `{rel, duration}` | essai : rapport `--trial` et capture (base64) |
 | `POST /v1/maintenance` `{action, rel?}` | voir la table ci-dessous |
 | `GET /v1/runner/list?path=` | fichiers d'un runner installé |

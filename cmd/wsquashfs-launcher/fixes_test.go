@@ -445,3 +445,20 @@ func TestUpdateBaseHonoursOverride(t *testing.T) {
 		t.Fatalf("updateBase = %q", got)
 	}
 }
+
+// TestSetupOptionsWithoutDashes : les options de --setup s'écrivent sans tirets (comme --agent stop,
+// --sync status) ; les anciennes formes (--yes, -y, --agent…) sont refusées sans rien installer.
+func TestSetupOptionsWithoutDashes(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Cleanup(func() { assumeYes, dryRun = false, false })
+	capteUI(t)
+	for _, old := range []string{"--yes", "-y", "--dry-run", "-n", "--uninstall", "-u", "--help", "-h", "--agent", "agent"} {
+		if code := runSetup([]string{old}); code != 1 {
+			t.Errorf("--setup %s : code %d, attendu 1 (option refusée)", old, code)
+		}
+	}
+	if code := runSetup([]string{"help"}); code != 0 {
+		t.Errorf("--setup help : code %d", code)
+	}
+}

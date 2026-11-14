@@ -12,7 +12,7 @@ L'installeur détecte la distribution — **Debian/Ubuntu** (apt) ou **Arch,
 CachyOS, Manjaro, EndeavourOS** (pacman) — installe les paquets système
 (squashfuse, fuse-overlayfs, bibliothèques 32 bits…), puis propose wine-tkg,
 umu et un Proton, DXVK, VKD3D-Proton et d7vk. Il pose ses questions au
-terminal ; `--yes` pour tout accepter, `--dry-run` pour voir ce qu'il ferait
+terminal ; `yes` pour tout accepter, `dry-run` pour voir ce qu'il ferait
 sans rien modifier.
 
 ## 2. Vérifier

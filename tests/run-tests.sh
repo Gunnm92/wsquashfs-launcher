@@ -431,7 +431,7 @@ step doctor        env HIDRAW_SYSFS="$ROOT/sysfs" "$L" --doctor
 step doctor-amd    env WSQUASHFS_DRM_SYSFS="$ROOT/drm-amd" WSQUASHFS_VK_ICD_DIR="$ROOT/icd" WSQUASHFS_FSR4_DIR="$ROOT/fsr4" "$L" --doctor
 step doctor-nvidia env WSQUASHFS_DRM_SYSFS="$ROOT/drm-nvidia" "$L" --doctor
 step doctor-both   env WSQUASHFS_DRM_SYSFS="$ROOT/drm-both" "$L" --doctor
-note "doctor --json avec CLICOLOR_FORCE=1 : $(CLICOLOR_FORCE=1 "$L" --doctor --json 2>&1 | grep -c $'\x1b') code(s) de couleur"
+note "doctor json avec CLICOLOR_FORCE=1 : $(CLICOLOR_FORCE=1 "$L" --doctor json 2>&1 | grep -c $'\x1b') code(s) de couleur"
 step list-empty    "$L" --list
 step backup-removed "$L" --backup
 step noarg         "$L"
@@ -788,7 +788,7 @@ mkdir -p "$ROOT/syncA/home" "$ROOT/syncB/home"
 # (PID gardé). Lancé directement, sans sync_raw : $! est le lanceur lui-même.
 env HOME="$ROOT/syncB/home" XDG_CONFIG_HOME="$ROOT/syncB/config" WSQUASHFS_CACHE="$ROOT/syncB/cache" \
     WSQUASHFS_SAVES_DIR="$ROOT/syncB/saves" WSQUASHFS_BACKUP_DIR="$ROOT/syncB/backups" \
-    "$L" --pair --port "$SYNC_PORT" > "$ROOT/pair.out" 2>&1 &
+    "$L" --pair port "$SYNC_PORT" > "$ROOT/pair.out" 2>&1 &
 PAIR_PID=$!
 BG_PIDS+=("$PAIR_PID")
 # Le code est wsq://JETON@HÔTE:PORT#EMPREINTE ; la note de --pair cite « wsq://… » sans @.

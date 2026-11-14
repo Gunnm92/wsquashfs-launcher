@@ -41,7 +41,7 @@ l'affichage ; toute autre dépendance doit être justifiée.
   section, clés-valeurs, statuts ✓ ✗ – →, tableaux, listes, notes, questions,
   `warn` et `die`. Jamais de `fmt.Print` d'un texte stylé : les couleurs ne
   sont retirées hors terminal que par `ui.go`.
-- Le JSON (`--doctor --json`, `--trial`, agent) et le journal de l'agent
+- Le JSON (`--doctor json`, `--trial`, agent) et le journal de l'agent
   restent hors de `ui.go`, sans couleur.
 
 - `make build` régénère le binaire versionné `wsquashfs-launcher` ; à committer

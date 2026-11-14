@@ -260,7 +260,7 @@ func printDoctorText(fatal bool) {
 	uiVerdict(true, "Prêt à lancer des jeux")
 }
 
-// doctorJSON : rapport structuré (--doctor --json, route /v1/doctor de l'agent).
+// doctorJSON : rapport structuré (--doctor json, route /v1/doctor de l'agent).
 type doctorJSON struct {
 	Code     int             `json:"code"`
 	Sections []doctorSection `json:"sections"`
@@ -278,11 +278,11 @@ func printDoctorJSON(fatal bool) {
 	fmt.Println(string(data))
 }
 
-// cmdDoctorMain : --doctor [--json]. Le JSON est le rapport structuré, lu par
+// cmdDoctorMain : --doctor [json]. Le JSON est le rapport structuré, lu par
 // l'agent et par wsquashfs-manager ; le texte est la sortie humaine.
 func cmdDoctorMain(args []string) int {
 	for _, a := range args {
-		if a == "--json" {
+		if a == "json" {
 			fatal := runDoctorChecks()
 			printDoctorJSON(fatal)
 			if fatal {

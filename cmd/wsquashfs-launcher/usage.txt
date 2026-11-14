@@ -59,20 +59,20 @@ Usage :
   wsquashfs-launcher --list
         Liste les jeux connus : état (en cours, monté), version, taille des
         sauvegardes et image.
-  wsquashfs-launcher --doctor [--json]
+  wsquashfs-launcher --doctor [json]
         Vérifie l'installation : FUSE, Wine/Proton et runners, umu, DXVK,
         VKD3D, d7vk, manettes, dossiers ; indique ce qui manque (texte ;
-        --json : rapport structuré).
-  wsquashfs-launcher --trial <jeu.wsquashfs> [durée] [--session NOM] [--screenshot FICHIER]
+        json : rapport structuré).
+  wsquashfs-launcher --trial <jeu.wsquashfs> [durée] [session NOM] [screenshot FICHIER]
         Lance le jeu pendant la durée (60 s par défaut), observe ses processus
         et fenêtres, l'arrête, et écrit le rapport en JSON.
-  wsquashfs-launcher --pair [--reset] [--roms DIR]... [--port N]
+  wsquashfs-launcher --pair [reset] [roms DIR]... [port N]
         Affiche le code d'association (wsq://…) à coller dans wsquashfs-manager
         (Réglages → Machine de jeu ou onglet Sauvegardes) ou sur l'autre machine
         (--sync wsq://…), puis
         attend l'association (10 min au plus, Ctrl-C annule) et se ferme. Sans
         agent en marche, sert un agent temporaire le temps de l'attente.
-        Initialise jeton, certificat et dossiers roms/. --reset : nouveau jeton.
+        Initialise jeton, certificat et dossiers roms/. reset : nouveau jeton.
   wsquashfs-launcher --sync [jeu | status [jeu] | forget <machine> | wsq://…]
         Synchronise à la main les sauvegardes de partie avec les autres
         machines du réseau local (pas à distance), par leur agent (--pair).
@@ -89,12 +89,11 @@ Usage :
         arrière-plan, puis rend la main. Sans configuration, l'initialise
         comme --pair. Journal : ~/.local/state/wsquashfs/agent.log.
   wsquashfs-launcher --agent run [log]
-        Agent au premier plan (systemd, débogage). Sert en HTTPS, sur le port
+        Agent au premier plan (débogage). Sert en HTTPS, sur le port
         configuré ; « log » : trace de chaque requête sur la sortie d'erreur.
   wsquashfs-launcher --agent stop | status
-        Arrête l'agent, ou dit s'il tourne (pid, port, journal). Installé avec
-        --setup --agent, il est démarré par systemd à la première connexion :
-        stop arrête aussi ce socket (port libéré), --agent le relance.
+        Arrête l'agent (port fermé), ou dit s'il tourne (pid, port, journal).
+        Rien ne le démarre tout seul : il ne tourne que lancé par --agent.
   wsquashfs-launcher --update
         Met à jour le lanceur depuis GitHub (rien si déjà identique ; binaire
         vérifié par sa somme SHA-256 publiée avant remplacement).

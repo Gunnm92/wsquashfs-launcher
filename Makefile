@@ -34,7 +34,7 @@ install:
 	@./wsquashfs-launcher --setup
 
 uninstall:
-	@./wsquashfs-launcher --setup --uninstall
+	@./wsquashfs-launcher --setup uninstall
 
 test:
 	@cd cmd/wsquashfs-launcher && go test ./...

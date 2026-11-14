@@ -137,7 +137,7 @@ func githubAssetSHA256(repo, tag, file string) (digest string, reachable bool) {
 // verifyGithubAsset : archive conforme à l'empreinte publiée par GitHub.
 // Faux si elle diffère. GitHub n'en publie pas pour ce fichier : acceptée
 // avec un avertissement. API injoignable : refusée, sauf accord donné au
-// terminal (jamais avec --yes ni sans terminal).
+// terminal (jamais avec yes ni sans terminal).
 func verifyGithubAsset(archive, repo, tag, file string) bool {
 	want, reachable := githubAssetSHA256(repo, tag, file)
 	if !reachable {

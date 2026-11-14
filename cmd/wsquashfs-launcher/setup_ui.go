@@ -12,13 +12,12 @@ import (
 
 // État de l'installeur (install.sh, section 1).
 var (
-	dryRun      bool   // --dry-run : rien n'est installé ni modifié
-	assumeYes   bool   // --yes : oui à toutes les questions
-	agentWanted bool   // --agent : installer l'agent sans question
-	installDir  string // /usr/local/bin en root, ~/.local/bin sinon
-	sudoCmd     []string
-	distro      string // debian | arch | autre
-	distroName  string
+	dryRun     bool   // --setup dry-run : rien n'est installé ni modifié
+	assumeYes  bool   // --setup yes : oui à toutes les questions
+	installDir string // /usr/local/bin en root, ~/.local/bin sinon
+	sudoCmd    []string
+	distro     string // debian | arch | autre
+	distroName string
 )
 
 // Parcours : numéro de l'étape courante, nombre total (setupPlanTotal) et
@@ -38,9 +37,6 @@ func setupPlanTotal() int {
 		n++
 	}
 	if hasGPU("0x1002") {
-		n++
-	}
-	if agentWanted || !assumeYes {
 		n++
 	}
 	return n
@@ -119,12 +115,12 @@ func readTTY() string {
 // autoReason : raison d'une réponse automatique.
 func autoReason() string {
 	if assumeYes {
-		return "--yes"
+		return "yes"
 	}
 	return "pas de terminal"
 }
 
-// askYesNo : vrai pour oui. --yes : oui ; sans terminal : la réponse par défaut.
+// askYesNo : vrai pour oui. yes : oui ; sans terminal : la réponse par défaut.
 func askYesNo(question string, def bool) bool {
 	hint := uiYesNo(def)
 	defWord := "n"
@@ -132,7 +128,7 @@ func askYesNo(question string, def bool) bool {
 		defWord = "o"
 	}
 	if assumeYes {
-		uiAuto(question, hint, "o", "--yes")
+		uiAuto(question, hint, "o", "yes")
 		return true
 	}
 	if !hasTTY() {
@@ -147,7 +143,7 @@ func askYesNo(question string, def bool) bool {
 	return strings.HasPrefix(reply, "o") || strings.HasPrefix(reply, "y")
 }
 
-// askChoice : une réponse ; --yes ou sans terminal : le défaut.
+// askChoice : une réponse ; yes ou sans terminal : le défaut.
 func askChoice(question, hint, def string) string {
 	if assumeYes || !hasTTY() {
 		uiAuto(question, hint, def, autoReason())
@@ -159,18 +155,4 @@ func askChoice(question, hint, def string) string {
 		return def
 	}
 	return reply[:1]
-}
-
-// askValue : saisie sur le terminal ; le défaut avec --yes ou sans terminal.
-func askValue(question, def string) string {
-	hint := "[" + def + "]"
-	if assumeYes || !hasTTY() {
-		uiAuto(question, hint, def, autoReason())
-		return def
-	}
-	uiPrompt(question, hint)
-	if answer := strings.TrimSpace(readTTY()); answer != "" {
-		return answer
-	}
-	return def
 }

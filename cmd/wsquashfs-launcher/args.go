@@ -46,7 +46,7 @@ func parseArgs(args []string) (*options, error) {
 			o.action = "help"
 			return o, nil
 		case "--setup":
-			// Installeur : le reste de la ligne lui appartient (--yes, --dry-run...)
+			// Installeur : le reste de la ligne lui appartient (yes, dry-run, uninstall, help)
 			o.action = "setup"
 			o.cmdArgs = args[i+1:]
 			return o, nil

@@ -81,8 +81,8 @@ Puis il propose, quelle que soit la distribution :
   `~/.local/share/wsquashfs/{dxvk,vkd3d-proton,d7vk}` : rendu Vulkan des jeux
   lancés par Wine.
 
-Il termine par `wsquashfs-launcher --doctor`. Options : `--dry-run` (montre ce
-qui serait fait sans rien modifier), `--yes` (sans questions), `--uninstall`.
+Il termine par `wsquashfs-launcher --doctor`. Options, sans tirets : `dry-run` (montre ce
+qui serait fait sans rien modifier), `yes` (sans questions), `uninstall`.
 Les questions sont posées au terminal, y compris avec `curl … | bash`.
 
 ### Prérequis

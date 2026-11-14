@@ -402,10 +402,10 @@ func countMounts(stem string) int {
 	return n
 }
 
-// cmdTrialMain : --trial <image> [durée] [--session NOM] [--screenshot FICHIER].
+// cmdTrialMain : --trial <image> [durée] [session NOM] [screenshot FICHIER].
 func cmdTrialMain(args []string) int {
 	if len(args) == 0 {
-		usageError(os.Args[0] + " --trial <jeu.wsquashfs> [durée] [--session NOM] [--screenshot FICHIER]")
+		usageError(os.Args[0] + " --trial <jeu.wsquashfs> [durée] [session NOM] [screenshot FICHIER]")
 	}
 	image := args[0]
 	seconds := 60
@@ -413,16 +413,16 @@ func cmdTrialMain(args []string) int {
 	shot := ""
 	for i := 1; i < len(args); i++ {
 		switch args[i] {
-		case "--session":
+		case "session":
 			session = argAt(args, i+1)
 			i++
-		case "--screenshot":
+		case "screenshot":
 			shot = argAt(args, i+1)
 			i++
 		default:
 			n, err := strconv.Atoi(args[i])
 			if err != nil {
-				usageError(os.Args[0] + " --trial <jeu.wsquashfs> [durée] [--session NOM] [--screenshot FICHIER]")
+				usageError(os.Args[0] + " --trial <jeu.wsquashfs> [durée] [session NOM] [screenshot FICHIER]")
 			}
 			seconds = n
 		}

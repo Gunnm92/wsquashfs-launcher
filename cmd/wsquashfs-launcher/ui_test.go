@@ -564,7 +564,7 @@ func captureStdout(t *testing.T, fn func()) string {
 	return string(b)
 }
 
-// TestDoctorJSONSansCouleur : --doctor --json reste du JSON pur, sans ESC,
+// TestDoctorJSONSansCouleur : --doctor json reste du JSON pur, sans ESC,
 // même avec CLICOLOR_FORCE=1.
 func TestDoctorJSONSansCouleur(t *testing.T) {
 	horsTerminal(t)
