@@ -33,7 +33,9 @@ authentifiée est dans `last-client.json`, à côté de `agent.json`.
   `~/.local/state/wsquashfs/agent.log`.
 - Avec systemd utilisateur : `--setup --agent` installe une socket et un
   service (`ExecStart=… --agent run`). L'agent démarre à la première connexion et
-  s'arrête seul après 60 s sans requête. Pour qu'il réponde sans session
+  s'arrête seul après 60 s sans requête. `--agent stop` arrête la socket et le
+  service (le port est libéré, jusqu'à la prochaine session) ; `--agent` relance
+  la socket ; `--agent status` dit « prêt » quand systemd écoute le port. Pour qu'il réponde sans session
   ouverte : `loginctl enable-linger`.
 - `wsquashfs-launcher --agent run [log]` : premier plan, pour systemd et le
   débogage. `log` trace chaque requête (méthode, chemin, code, durée), sans

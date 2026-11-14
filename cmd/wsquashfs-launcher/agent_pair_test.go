@@ -247,8 +247,8 @@ func TestAgentHelperProcess(t *testing.T) {
 	time.Sleep(time.Minute)
 }
 
-// TestAgentStatusStates : non configuré, non lancé, port en écoute sans processus (socket systemd
-// ou --pair) ; toujours code 0.
+// TestAgentStatusStates : non configuré, non lancé, port pris par un autre processus, socket
+// systemd en attente ; toujours code 0.
 func TestAgentStatusStates(t *testing.T) {
 	agentEnv(t)
 	out, _ := capteUI(t)
@@ -268,9 +268,18 @@ func TestAgentStatusStates(t *testing.T) {
 	if _, err := agentInit(nil, port); err != nil {
 		t.Fatal(err)
 	}
+	orig := agentSocketActive
+	t.Cleanup(func() { agentSocketActive = orig })
+	agentSocketActive = func() bool { return false }
 	out.Reset()
-	if code := cmdAgentStatus(); code != 0 || !strings.Contains(out.String(), "socket systemd en attente") {
-		t.Errorf("socket sans PID : code %d, sortie %q", code, out.String())
+	if code := cmdAgentStatus(); code != 0 || !strings.Contains(out.String(), "occupé par un autre processus") {
+		t.Errorf("port pris, sans socket systemd : code %d, sortie %q", code, out.String())
+	}
+	// Socket systemd actif (--setup --agent) : systemd tient le port, l'agent démarre à la connexion
+	agentSocketActive = func() bool { return true }
+	out.Reset()
+	if code := cmdAgentStatus(); code != 0 || !strings.Contains(out.String(), "systemd écoute le port") {
+		t.Errorf("socket systemd : code %d, sortie %q", code, out.String())
 	}
 	if !strings.Contains(out.String(), "Journal") {
 		t.Errorf("journal absent : %q", out.String())
@@ -621,5 +630,46 @@ func TestDurationText(t *testing.T) {
 	}
 	if got := durationText(300 * time.Millisecond); got != "300ms" {
 		t.Errorf("300 ms : %q", got)
+	}
+}
+
+// TestAgentStopAndStartWithSystemdSocket : --agent stop arrête le socket et le service (le port
+// est libéré) ; --agent relance le socket installé plutôt qu'un agent détaché.
+func TestAgentStopAndStartWithSystemdSocket(t *testing.T) {
+	agentEnv(t)
+	if _, err := agentInit(nil, freePort(t)); err != nil {
+		t.Fatal(err)
+	}
+	origActive, origCtl := agentSocketActive, agentSystemctl
+	t.Cleanup(func() { agentSocketActive, agentSystemctl = origActive, origCtl })
+	active := true
+	var calls []string
+	agentSocketActive = func() bool { return active }
+	agentSystemctl = func(action string, units ...string) error {
+		calls = append(calls, action+" "+strings.Join(units, " "))
+		active = action == "start"
+		return nil
+	}
+	out, _ := capteUI(t)
+	if code := cmdAgentStop(); code != 0 || !strings.Contains(out.String(), "le port est libéré") {
+		t.Fatalf("stop : code %d, sortie %q", code, out.String())
+	}
+	if len(calls) != 1 || calls[0] != "stop wsquashfs-agent.socket wsquashfs-agent.service" {
+		t.Fatalf("stop : appels systemctl %q", calls)
+	}
+	// Socket installé et arrêté : --agent le relance
+	unit := agentSocketUnit()
+	if err := os.MkdirAll(filepath.Dir(unit), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(unit, []byte("[Socket]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if code := cmdAgentStart(); code != 0 || !strings.Contains(out.String(), "systemd écoute le port") {
+		t.Fatalf("start : code %d, sortie %q", code, out.String())
+	}
+	if len(calls) != 2 || calls[1] != "start wsquashfs-agent.socket" || !active {
+		t.Fatalf("start : appels systemctl %q", calls)
 	}
 }

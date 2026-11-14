@@ -92,7 +92,9 @@ Usage :
         Agent au premier plan (systemd, débogage). Sert en HTTPS, sur le port
         configuré ; « log » : trace de chaque requête sur la sortie d'erreur.
   wsquashfs-launcher --agent stop | status
-        Arrête l'agent lancé par --agent, ou dit s'il tourne (pid, port, journal).
+        Arrête l'agent, ou dit s'il tourne (pid, port, journal). Installé avec
+        --setup --agent, il est démarré par systemd à la première connexion :
+        stop arrête aussi ce socket (port libéré), --agent le relance.
   wsquashfs-launcher --update
         Met à jour le lanceur depuis GitHub (rien si déjà identique ; binaire
         vérifié par sa somme SHA-256 publiée avant remplacement).

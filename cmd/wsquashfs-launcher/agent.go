@@ -565,8 +565,21 @@ func cmdAgentStart() int {
 		uiNote("Code d'association : wsquashfs-launcher --pair")
 	}
 	cfg := loadAgentConfig()
+	// Socket systemd installé (--setup --agent) mais arrêté (--agent stop) : c'est lui qu'on relance
+	if !agentSocketActive() && isFile(agentSocketUnit()) && !agentListening(cfg.Port) {
+		if err := agentSystemctl("start", "wsquashfs-agent.socket"); err != nil {
+			uiStatusLine(stFail, "Agent : socket systemd non relancé ("+err.Error()+")")
+			return 1
+		}
+		uiStatusLine(stOK, fmt.Sprintf("Agent prêt : systemd écoute le port %d et le démarre à la première connexion", cfg.Port))
+		uiNote("Arrêter : wsquashfs-launcher --agent stop")
+		return 0
+	}
 	if agentListening(cfg.Port) {
 		msg := fmt.Sprintf("Agent : déjà en marche sur le port %d", cfg.Port)
+		if agentSocketActive() {
+			msg = fmt.Sprintf("Agent : géré par systemd (wsquashfs-agent.socket), il démarre à la première connexion sur le port %d", cfg.Port)
+		}
 		if pid, ok := runningAgentPid(); ok {
 			msg += fmt.Sprintf(" (pid %d)", pid)
 		}
@@ -611,10 +624,17 @@ func cmdAgentStatus() int {
 		return 0
 	}
 	cfg := loadAgentConfig()
+	socket := agentSocketActive()
 	if pid, ok := runningAgentPid(); ok {
-		uiStatusLine(stOK, fmt.Sprintf("Agent en marche (pid %d, port %d)", pid, cfg.Port))
+		by := ""
+		if socket {
+			by = ", démarré par systemd"
+		}
+		uiStatusLine(stOK, fmt.Sprintf("Agent en marche (pid %d, port %d%s)", pid, cfg.Port, by))
+	} else if socket {
+		uiStatusLine(stOK, fmt.Sprintf("Agent prêt : systemd écoute le port %d (wsquashfs-agent.socket) et le démarre à la première connexion", cfg.Port))
 	} else if agentListening(cfg.Port) {
-		uiStatusLine(stInfo, fmt.Sprintf("Agent : port %d en écoute sans processus : socket systemd en attente (ou --pair en cours)", cfg.Port))
+		uiStatusLine(stInfo, fmt.Sprintf("Agent : port %d occupé par un autre processus (--pair en cours ?)", cfg.Port))
 	} else {
 		uiStatusLine(stSkip, fmt.Sprintf("Agent : non lancé (port %d)", cfg.Port))
 	}
@@ -631,6 +651,19 @@ func agentPidFile() string {
 // dans agentPidFile, seulement si ce processus est bien un agent (sinon, le
 // fichier est périmé et retiré). Rien à arrêter : code 0.
 func cmdAgentStop() int {
+	// Socket systemd actif : il tient le port et relancerait l'agent à la connexion suivante.
+	// --agent stop arrête tout : le socket et le service. Il revient à la prochaine session
+	// (socket activé par --setup --agent), ou tout de suite avec --agent.
+	if agentSocketActive() {
+		if err := agentSystemctl("stop", "wsquashfs-agent.socket", "wsquashfs-agent.service"); err != nil {
+			uiStatusLine(stFail, "Agent : socket systemd non arrêté ("+err.Error()+")")
+			return 1
+		}
+		_ = os.Remove(agentPidFile())
+		uiStatusLine(stOK, "Agent arrêté (socket systemd et service : le port est libéré)")
+		uiNote("Il revient à la prochaine session, ou tout de suite avec : wsquashfs-launcher --agent")
+		return 0
+	}
 	data, err := os.ReadFile(agentPidFile())
 	if err != nil {
 		uiStatusLine(stSkip, "Agent : non lancé")
@@ -656,6 +689,33 @@ func cmdAgentStop() int {
 	}
 	uiStatusLine(stFail, fmt.Sprintf("Agent (pid %d) toujours en cours après 5 s", pid))
 	return 1
+}
+
+// agentSocketActive : le socket systemd de l'agent (--setup --agent) est actif : systemd tient
+// le port et démarre l'agent à la première connexion. Variable : remplacée dans les tests.
+// Seulement si l'unité est installée dans la configuration courante : un HOME isolé (tests,
+// scénarios) ne doit jamais voir ni arrêter le socket de la vraie session.
+var agentSocketActive = func() bool {
+	return isFile(agentSocketUnit()) &&
+		exec.Command("systemctl", "--user", "is-active", "--quiet", "wsquashfs-agent.socket").Run() == nil
+}
+
+// agentSystemctl : systemctl --user <action> <unités> (variable : remplacée dans les tests).
+var agentSystemctl = func(action string, units ...string) error {
+	out, err := exec.Command("systemctl", append([]string{"--user", action}, units...)...).CombinedOutput()
+	if err != nil && len(out) > 0 {
+		return fmt.Errorf("%s", strings.TrimSpace(string(out)))
+	}
+	return err
+}
+
+// agentSocketUnit : fichier du socket systemd installé par --setup --agent.
+func agentSocketUnit() string {
+	base := os.Getenv("XDG_CONFIG_HOME")
+	if base == "" {
+		base = filepath.Join(os.Getenv("HOME"), ".config")
+	}
+	return filepath.Join(base, "systemd", "user", "wsquashfs-agent.socket")
 }
 
 // isAgentProcess : le processus est un « wsquashfs-launcher --agent ».
