@@ -67,3 +67,4 @@ tar -cf - fakeping.c dinput8.def | docker run --rm -i debian:stable-slim bash -c
 Pour Yu-Gi-Oh! DT6 : `drive_c/game/Yugioh 5DS Duel Terminal 6/contents/exe/`.
 SHA-256 du DLL intégré à l'image le 30/09/2026 :
 `186c2d6b37f218111fb7b56d0271cdacdca440c64a65ae5cd3e497727bafde49`.
+Ce DLL a été compilé avant les corrections de robustesse du 14/11/2026 (fonctions relayées vérifiées, table de faux sockets pleine, longueur du chemin) ; sans effet sur ce jeu, il n'est pas recompilé.

@@ -25,13 +25,26 @@ HRESULT WINAPI my_DirectInput8Create(HINSTANCE a, DWORD b, REFIID c, LPVOID *d, 
 {
     return ((HRESULT (WINAPI *)(HINSTANCE, DWORD, REFIID, LPVOID *, LPUNKNOWN))d_create)(a, b, c, d, e);
 }
-HRESULT WINAPI my_DllCanUnloadNow(void) { return ((HRESULT (WINAPI *)(void))d_canunload)(); }
+HRESULT WINAPI my_DllCanUnloadNow(void)
+{
+    if (!d_canunload) return S_FALSE;
+    return ((HRESULT (WINAPI *)(void))d_canunload)();
+}
 HRESULT WINAPI my_DllGetClassObject(REFCLSID a, REFIID b, LPVOID *c)
 {
+    if (!d_getclass) return E_FAIL;
     return ((HRESULT (WINAPI *)(REFCLSID, REFIID, LPVOID *))d_getclass)(a, b, c);
 }
-HRESULT WINAPI my_DllRegisterServer(void) { return ((HRESULT (WINAPI *)(void))d_register)(); }
-HRESULT WINAPI my_DllUnregisterServer(void) { return ((HRESULT (WINAPI *)(void))d_unregister)(); }
+HRESULT WINAPI my_DllRegisterServer(void)
+{
+    if (!d_register) return E_FAIL;
+    return ((HRESULT (WINAPI *)(void))d_register)();
+}
+HRESULT WINAPI my_DllUnregisterServer(void)
+{
+    if (!d_unregister) return E_FAIL;
+    return ((HRESULT (WINAPI *)(void))d_unregister)();
+}
 
 /* ---- faux ping ---- */
 
@@ -70,16 +83,18 @@ static int is_fake(SOCKET s)
     return r;
 }
 
-static void set_fake(SOCKET s, int add)
+/* Rend 1 si l'ajout ou le retrait a eu lieu, 0 sinon (table pleine ou socket absent). */
+static int set_fake(SOCKET s, int add)
 {
-    int i;
+    int i, r = 0;
     EnterCriticalSection(&lock);
     for (i = 0; i < MAX_FAKE; i++)
     {
-        if (add && fake[i] == INVALID_SOCKET) { fake[i] = s; break; }
-        if (!add && fake[i] == s) { fake[i] = INVALID_SOCKET; break; }
+        if (add && fake[i] == INVALID_SOCKET) { fake[i] = s; r = 1; break; }
+        if (!add && fake[i] == s) { fake[i] = INVALID_SOCKET; r = 1; break; }
     }
     LeaveCriticalSection(&lock);
+    return r;
 }
 
 /* Socket UDP local à la place du socket brut ICMP refusé. */
@@ -87,6 +102,7 @@ static SOCKET make_fake(int af)
 {
     struct sockaddr_in a;
     SOCKET s;
+    DWORD err = GetLastError(); /* erreur du vrai appel, avant les appels ci-dessous */
 
     if (af != AF_INET) return INVALID_SOCKET;
     s = r_socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
@@ -96,7 +112,13 @@ static SOCKET make_fake(int af)
     a.sin_family = AF_INET;
     a.sin_addr.s_addr = 0x0100007F; /* 127.0.0.1, ordre réseau */
     r_bind(s, (struct sockaddr *)&a, sizeof(a));
-    set_fake(s, 1);
+    if (!set_fake(s, 1))
+    {
+        r_closesocket(s);
+        OutputDebugStringA("fakeping : table des faux sockets pleine\n");
+        SetLastError(err);
+        return INVALID_SOCKET;
+    }
     OutputDebugStringA("fakeping : socket ICMP refusé, faux ping UDP\n");
     return s;
 }
@@ -280,13 +302,15 @@ BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID reserved)
     {
         WCHAR path[MAX_PATH];
         HMODULE real;
+        UINT len;
         int i;
 
         DisableThreadLibraryCalls(inst);
         InitializeCriticalSection(&lock);
         for (i = 0; i < MAX_FAKE; i++) fake[i] = INVALID_SOCKET;
         /* Le vrai dinput8 du système (processus 32 bits : syswow64). */
-        if (!GetSystemDirectoryW(path, MAX_PATH)) return FALSE;
+        len = GetSystemDirectoryW(path, MAX_PATH);
+        if (!len || (int)len + lstrlenW(L"\\dinput8.dll") + 1 > MAX_PATH) return FALSE;
         lstrcatW(path, L"\\dinput8.dll");
         real = LoadLibraryW(path);
         if (!real || real == inst) return FALSE;
@@ -295,6 +319,7 @@ BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID reserved)
         d_getclass = GetProcAddress(real, "DllGetClassObject");
         d_register = GetProcAddress(real, "DllRegisterServer");
         d_unregister = GetProcAddress(real, "DllUnregisterServer");
+        if (!d_create) return FALSE;
         install_hooks(inst);
     }
     return TRUE;
