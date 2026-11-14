@@ -126,7 +126,8 @@ func syncPeerNames(cfg syncConfig) string {
 	return strings.Join(names, ", ")
 }
 
-// syncPair : associe la machine dont le code (wsq://…) est donné, ou remplace son association.
+// syncPair : associe la machine dont le code (wsq://…) est donné, ou remplace son association. Le
+// code (à usage unique) est échangé contre un jeton durable propre à cette machine, qui seul est gardé.
 func syncPair(cfg syncConfig, code string) int {
 	peer, err := parsePairCode(code)
 	if err != nil {
@@ -136,14 +137,15 @@ func syncPair(cfg syncConfig, code string) int {
 	if fp, err := certFingerprint(); err == nil && fp == peer.Fingerprint {
 		die("c'est cette machine : coller le code affiché par --pair sur l'AUTRE machine")
 	}
-	host, err := newSyncClient(peer, cfg.ID).info()
+	reply, err := newSyncClient(peer, cfg.ID).pair()
 	if err != nil {
 		if isUnreachable(err) {
 			die(peer.URL + " injoignable : l'autre machine est-elle allumée, sur le même réseau, et son agent lancé (--agent) ?")
 		}
 		die(err.Error())
 	}
-	peer.Name = host
+	peer.Token = reply.Token
+	peer.Name = reply.Host
 	if peer.Name == "" {
 		peer.Name = peer.URL
 	}

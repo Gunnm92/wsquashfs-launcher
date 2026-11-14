@@ -27,15 +27,11 @@ var (
 	desktopFile      string
 )
 
-// setupInit : calcule les emplacements à partir de HOME et XDG_CONFIG_HOME.
+// setupInit : calcule les emplacements à partir de HOME.
 func setupInit() {
 	home := os.Getenv("HOME")
 	if home == "" {
 		home, _ = os.UserHomeDir()
-	}
-	configHome := os.Getenv("XDG_CONFIG_HOME")
-	if configHome == "" {
-		configHome = filepath.Join(home, ".config")
 	}
 	wsqData = filepath.Join(home, ".local/share/wsquashfs")
 	wineInstallDir = filepath.Join(wsqData, "wine")
@@ -397,7 +393,7 @@ func uninstall() {
 	}
 	kept := []string{wsqData + "/ (sauvegardes, runners, DXVK/VKD3D/d7vk, archives)", "~/.cache/wsquashfs/ (cache)"}
 	if pathExists(agentDir()) {
-		kept = append(kept, agentDir()+"/ (jeton et certificat de l'agent)")
+		kept = append(kept, agentDir()+"/ (machines associées et certificat de l'agent)")
 	}
 	kept = append(kept, protonInstallDir+"/ (partagé avec Steam et Heroic)")
 	uiList("Conservés", kept)

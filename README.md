@@ -421,8 +421,15 @@ wsquashfs-launcher --agent                   # --agent stop l'arrête, --agent s
 wsquashfs-launcher --sync
 wsquashfs-launcher --sync "Nom du jeu"       # un jeu, copié même s'il manque en face
 wsquashfs-launcher --sync status             # ce qui serait fait, sans rien changer
-wsquashfs-launcher --sync forget <machine>   # retirer une machine
+wsquashfs-launcher --sync forget <machine>   # retirer une machine (côté A)
+# Sur B : couper l'accès d'une machine (--pair forget), ou de toutes (--pair reset)
+wsquashfs-launcher --pair forget <machine>
 ```
+
+- **Code à usage unique** : le code `wsq://…` ne sert qu'à une association, pendant
+  les 10 minutes d'attente de `--pair`. Chaque machine associée a son propre jeton
+  (l'agent n'en garde que l'empreinte) ; `--pair forget` coupe une machine sans
+  toucher aux autres.
 
 - **Réseau local uniquement** : les machines doivent se joindre directement
   (même réseau, agent lancé sur celle qui reçoit). Pas de synchro à distance.

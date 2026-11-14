@@ -7,33 +7,53 @@ lanceur (`wsquashfs-launcher --agent`) : aucun Python, aucun `openssl`.
 
 ## Associer une machine
 
+Le code d'association `wsq://SECRET@HÔTE:PORT#EMPREINTE` est **à usage unique** : il
+ne sert qu'à une association, et seulement pendant la durée d'attente de `--pair`
+(10 min). Chaque machine associée reçoit son **propre jeton durable** ; les machines
+ont toutes les mêmes droits (sauvegardes, images, essais, maintenance).
+
 1. Sur la machine de jeu : `wsquashfs-launcher --pair roms /chemin/roms`
-   (initialise jeton, certificat et dossiers roms/, affiche le code, puis
-   attend l'association).
+   (initialise certificat et dossiers roms/, affiche le code, puis attend
+   l'association).
 2. Dans wsquashfs-manager (Réglages → Machine de jeu → Agent réseau), coller le
    code `wsq://…` et cliquer sur **Associer**. Le manager vérifie que le
    certificat correspond au code : aucune comparaison manuelle. Pour la
    réserve de sauvegardes du manager, même code dans Réglages → Sauvegardes ;
    entre machines, `wsquashfs-launcher --sync wsq://…` sur l'autre machine.
 
-`--pair` attend la première requête authentifiée reçue après l'affichage du
-code (le manager ou `--sync wsq://…` sur l'autre machine), puis se ferme. Sans
-agent en marche, il sert un agent temporaire, arrêté après l'association ; avec
-un agent déjà lancé (`--agent`), il s'appuie sur lui. Ctrl-C annule
-(code 130), 10 min sans association : code 1. La trace de la dernière requête
-authentifiée est dans `last-client.json`, à côté de `agent.json`.
+L'association est un échange : la machine qui a le code appelle `POST /v1/pair`
+(secret du code en `Authorization`, identifiant de sa machine en `X-Wsq-Machine`),
+et reçoit son jeton durable en réponse. Le code est retiré à cet usage.
 
-`--pair reset` renouvelle le jeton (l'ancien ne fonctionne plus).
+`--pair` attend l'association (la route `POST /v1/pair` écrit `last-pair.json`),
+puis se ferme : « Associé : <nom> (<adresse>) ». Une requête authentifiée d'une
+machine déjà associée ne termine pas `--pair`. Sans agent en marche, il sert un
+agent temporaire, arrêté après l'association ; avec un agent déjà lancé
+(`--agent`), il s'appuie sur lui. Ctrl-C annule (code 130), 10 min sans
+association : code 1. Dans tous les cas de fin, le code en attente (`pair.json`)
+est retiré. Un code expiré, déjà utilisé ou faux : 401 (« relancer --pair »).
+
+- `--pair reset` : retire **toutes** les machines associées (révocation générale),
+  le dit, puis attend une nouvelle association comme `--pair`.
+- `--pair forget <machine>` : retire la machine dont le nom (sans tenir compte de
+  la casse) ou l'identifiant est donné, affiche le résultat, et se termine sans
+  association. Effet immédiat : son jeton est refusé à la requête suivante, agent
+  en marche ou non. Machine inconnue : erreur avec la liste des noms.
+- `wsquashfs-launcher --agent status` liste les machines associées (nom, date).
 
 ## Lancer l'agent
 
 - `wsquashfs-launcher --agent` lance l'agent en arrière-plan et rend la main ;
   `--agent stop` l'arrête (le port est fermé), `--agent status` dit s'il tourne
-  (pid, port, journal). Le journal est `~/.local/state/wsquashfs/agent.log`.
+  (pid, port, journal). L'arrêt (`--agent stop`, SIGTERM, Ctrl-C) est propre :
+  le port se ferme tout de suite, les requêtes en cours ont 3 s pour finir,
+  puis elles sont coupées (un envoi de sauvegardes coupé ne remplace rien). Le journal est `~/.local/state/wsquashfs/agent.log`.
 - **Rien ne le démarre tout seul** : pas de service ni de socket systemd, aucun
   port ouvert en dehors de `--pair` (le temps de l'association) et d'un
-  `--agent` lancé à la main. `--pair` et `--agent` initialisent l'agent (jeton,
-  certificat) s'il ne l'est pas. Les unités systemd des anciennes versions
+  `--agent` lancé à la main. `--pair` et `--agent` initialisent l'agent
+  (certificat ; les jetons n'existent que par machine associée) s'il ne l'est
+  pas. Un agent sans machine associée tourne et refuse tout sauf `POST /v1/pair`.
+  Les unités systemd des anciennes versions
   (`wsquashfs-agent.socket`, qui gardait le port ouvert à chaque session) sont
   retirées par `--agent`, `--agent stop`, `--setup` et `--update` ;
   `--agent status` les signale tant qu'elles sont là.
@@ -45,7 +65,14 @@ authentifiée est dans `last-client.json`, à côté de `agent.json`.
 
 - HTTPS uniquement, TLS 1.3 ; certificat auto-signé ECDSA P-256 (10 ans), dont
   l'empreinte SHA-256 est dans le code d'association.
-- Jeton de 32 octets (`Authorization: Bearer`), comparé à temps constant.
+- Un jeton durable de 32 octets par machine associée (`Authorization: Bearer`).
+  L'agent ne garde que son SHA-256 (`token_sha256`) : jamais le jeton en clair.
+  Le jeton ne vaut que pour sa machine : un en-tête `X-Wsq-Machine` différent de
+  l'identifiant de la machine du jeton est refusé (401). Les jetons sont comparés à
+  temps constant, agent.json relu à chaque requête (un `forget` ou `reset` prend
+  effet tout de suite).
+- Le code d'association n'est gardé que par son empreinte (`pair.json`, droits 600) :
+  usage unique, expiration, un mauvais secret ne le consomme pas.
 - Aucune commande fournie par le client : chaque route correspond à une action
   fixe. Les images sont des chemins relatifs à un dossier roms/ configuré ; les
   liens qui sortent de ces dossiers sont refusés. Les runners ne sont lus que
@@ -54,13 +81,23 @@ authentifiée est dans `last-client.json`, à côté de `agent.json`.
 
 ## Configuration
 
-`~/.config/wsquashfs/agent/` : `agent.json` (port, jeton, dossiers roms/,
-processus de session), `cert.pem`, `key.pem` (droits 600).
+`~/.config/wsquashfs/agent/` :
+
+- `agent.json` : port, dossiers roms/, processus de session, `games_dir` ; `machines`,
+  une entrée par machine associée : `{"id", "name", "token_sha256", "paired"}`. Pas de
+  champ `token` : un ancien fichier qui en a un se lit sans erreur, le champ disparaît
+  à la prochaine écriture (et son jeton ne donne plus accès : les associations sont
+  à refaire une fois).
+- `pair.json` (droits 600) : code d'association en attente, `{"secret_sha256", "expires"}`.
+  Écrit par `--pair`, retiré à l'usage, à l'expiration constatée et à la fin de `--pair`.
+- `last-pair.json` (droits 600) : dernière association réussie, `{"at", "addr", "id", "name"}`.
+- `cert.pem`, `key.pem` (droits 600).
 
 ## Routes
 
 | Route | Rôle |
 |---|---|
+| `POST /v1/pair` | association (hors du contrôle de jeton), voir ci-dessous |
 | `GET /v1/info` | version, machine, utilisateur, dossiers roms/, `os` (ID de `/etc/os-release`, `linux` par défaut), `games_dir` (dossier d'installation effectif) et `games_dir_set` (choix manuel en vigueur) |
 | `GET /v1/doctor[?refresh=1]` | rapport `--doctor json` (mis en cache 5 min) |
 | `POST /v1/trial` `{rel, duration}` | essai : rapport `--trial` et capture (base64) |
@@ -68,6 +105,26 @@ processus de session), `cert.pem`, `key.pem` (droits 600).
 | `GET /v1/runner/list?path=` | fichiers d'un runner installé |
 | `GET /v1/runner/tar?path=` | runner en tar (liens conservés) |
 
+Toutes les routes sauf `POST /v1/pair` exigent un jeton de machine associée (401
+« jeton refusé » sinon).
+
+### Association (`POST /v1/pair`)
+
+- En-têtes : `Authorization: Bearer <secret du code>` ; `X-Wsq-Machine: <identifiant>`
+  obligatoire et valide (400 sinon).
+- Corps JSON, 4096 octets au plus : `{"name": "<nom de la machine>"}`. Nom nettoyé
+  (espaces de bord et caractères de contrôle retirés, 64 caractères au plus) ; vide :
+  l'adresse du client. 413 au-delà de 4096 octets.
+- Sous un verrou : `pair.json` absent, illisible ou expiré (il est alors retiré) ;
+  secret différent (comparé à temps constant) : **401**
+  `{"detail": "code d'association expiré ou déjà utilisé : relancer --pair"}`. Un
+  mauvais secret ne consomme pas le code.
+- Succès : `pair.json` est retiré d'abord (usage unique ; s'il ne peut l'être, 500 et
+  rien n'est délivré) ; un jeton durable est créé ; l'entrée de même identifiant de
+  `agent.json` est remplacée, ou ajoutée ; `last-pair.json` est écrit ; réponse **200**
+  `{"token": "<jeton durable>", "host": "<nom d'hôte de l'agent>", "version": "7"}`.
+  C'est la seule fois où le jeton sort de l'agent.
+- 404 : la machine qui s'associe a un lanceur trop ancien (`--update` là-bas).
 ### Installation des images (`/v1/games/*`)
 
 wsquashfs-manager installe une image `.wsquashfs` sur la machine de jeu et la désinstalle, par
@@ -104,7 +161,7 @@ avec `GET /v1/games/part`, puis `PUT` à partir de `part_size`.
 ### Maintenance (`POST /v1/maintenance`)
 
 Table fermée (`maintenanceActions` dans `agent_http.go`), contrat commun avec
-wsquashfs-manager (version de l'agent : **6**, route `GET /v1/info`).
+wsquashfs-manager (version de l'agent : **7**, route `GET /v1/info`).
 
 | `action` | Lanceur | `rel` (image du jeu) |
 |---|---|---|
@@ -125,7 +182,7 @@ est alors ajouté à `output`. Le manager tient un code différent de 0 pour un 
 
 Ces routes servent la synchro manuelle des sauvegardes entre machines (commande
 `--sync` dans `sync_cmd.go` ; cœur dans `sync.go`, client dans `sync_http.go`). Elles exigent l'en-tête `X-Wsq-Machine` (identifiant
-aléatoire de la machine cliente, 400 sinon) : l'état de synchro est tenu par
+aléatoire de la machine cliente, 400 sinon, et celui de la machine du jeton, 401 sinon) : l'état de synchro est tenu par
 machine, dans `savesDir/.sync/<identifiant>/<jeu>.json`. Le périmètre est celui de
 `--save` / `--saves` (sous users/, sans caches ni comptes système). La liste des jeux
 (`GET /v1/saves/list`) est celle de `--sync` (`syncGames`, sync.go) : overlay, copie de travail
@@ -135,7 +192,7 @@ et mise de côté du mode copy.
 |---|---|
 | `GET /v1/saves/list` | jeux à sauvegardes (empreinte, plus récente date, `size` : taille totale en octets) et état enregistré pour cette machine |
 | `GET /v1/saves/tar?game=` | archive tar.gz du périmètre (en-têtes `X-Wsq-Fingerprint`, `X-Wsq-Profile`) ; 404 sans sauvegarde |
-| `PUT /v1/saves/tar?game=` | remplace le périmètre par l'archive (2 Gio max, 413 sinon) ; si la version locale a changé depuis la dernière synchro avec cette machine, elle est archivée dans le dossier backups d'abord (réponse `archived`) |
+| `PUT /v1/saves/tar?game=` | remplace le périmètre par l'archive (2 Gio max, 413 sinon) ; une archive sans fichier est refusée (« archive vide »), et une archive qui dépasse 4 Gio décompressés aussi : dans les deux cas rien n'est modifié (la même garde vaut à la réception côté client) ; si la version locale a changé depuis la dernière synchro avec cette machine, elle est archivée dans le dossier backups d'abord (réponse `archived`) |
 | `POST /v1/saves/state` `{game, fingerprint}` | enregistre l'empreinte commune après une réception (409 si le jeu a changé entre-temps) |
 | `DELETE /v1/saves/tar?game=` | supprime les sauvegardes du jeu sur cette machine : le périmètre est archivé d'abord dans le dossier backups (réponse `archived`, en 500 sans rien supprimer si l'archivage échoue) ; seuls les fichiers du périmètre partent, puis les dossiers devenus vides (caches et fichiers hors périmètre restent) ; l'état de synchro de la machine appelante pour ce jeu est effacé (réponse `removed`, nombre de fichiers). Sans sauvegarde : 200 `removed: 0`, rien d'archivé |
 

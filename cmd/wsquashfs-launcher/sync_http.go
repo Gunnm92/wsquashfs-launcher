@@ -29,8 +29,8 @@ import (
 // syncPeer : une machine distante, telle qu'elle est enregistrée dans sync.json.
 type syncPeer struct {
 	Name        string `json:"name"`
-	URL         string `json:"url"` // https://hôte:port
-	Token       string `json:"token"`
+	URL         string `json:"url"`   // https://hôte:port
+	Token       string `json:"token"` // jeton durable de cette machine chez l'autre (jamais le secret du code)
 	Fingerprint string `json:"fingerprint"`
 }
 
@@ -155,7 +155,17 @@ type syncClient struct {
 	peer syncPeer
 	id   string
 	http *http.Client
+	slow *http.Client // réception d'une archive : en-têtes attendus plus longtemps (syncFetchHeaderTimeout)
 }
+
+// syncHeaderTimeout : attente des en-têtes d'une réponse ; au-delà, la machine est dite
+// injoignable. Variable pour les tests.
+var syncHeaderTimeout = 30 * time.Second
+
+// syncFetchHeaderTimeout : attente des en-têtes pour la seule réception d'une archive
+// (GET /v1/saves/tar) : l'agent écrit toute l'archive avant de répondre, une grosse sauvegarde
+// est longue à compresser. Variable pour les tests.
+var syncFetchHeaderTimeout = 10 * time.Minute
 
 // remoteSave : une entrée de /v1/saves/list (côté client).
 // (Le type est partagé avec la route : voir agent_http.go.)
@@ -168,7 +178,7 @@ func newSyncClient(peer syncPeer, id string) *syncClient {
 		Proxy:                 nil, // réseau local : pas de proxy d'environnement
 		DialContext:           (&net.Dialer{Timeout: 3 * time.Second}).DialContext,
 		TLSHandshakeTimeout:   5 * time.Second,
-		ResponseHeaderTimeout: 30 * time.Second,
+		ResponseHeaderTimeout: syncHeaderTimeout,
 		TLSClientConfig: &tls.Config{
 			MinVersion: tls.VersionTLS13,
 			// La chaîne de confiance n'existe pas (certificat auto-signé) : c'est l'empreinte
@@ -186,7 +196,10 @@ func newSyncClient(peer syncPeer, id string) *syncClient {
 			},
 		},
 	}
-	return &syncClient{peer: peer, id: id, http: &http.Client{Transport: tr}}
+	// Même transport, seul le délai des en-têtes change.
+	slow := tr.Clone()
+	slow.ResponseHeaderTimeout = syncFetchHeaderTimeout
+	return &syncClient{peer: peer, id: id, http: &http.Client{Transport: tr}, slow: &http.Client{Transport: slow}}
 }
 
 // label : nom de la machine pour les messages (le nom, à défaut l'adresse).
@@ -200,6 +213,24 @@ func (c *syncClient) label() string {
 // do : requête authentifiée. Un statut autre que 200 devient une erreur (statusError).
 // body et headers sont facultatifs ; le corps peut être un flux.
 func (c *syncClient) do(method, path string, query url.Values, body io.Reader, headers map[string]string) (*http.Response, error) {
+	return c.doWith(c.http, method, path, query, body, headers)
+}
+
+// doWith : do avec le client donné (c.http, ou c.slow pour la réception d'une archive).
+func (c *syncClient) doWith(hc *http.Client, method, path string, query url.Values, body io.Reader, headers map[string]string) (*http.Response, error) {
+	resp, err := c.raw(hc, method, path, query, body, headers)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, c.statusError(resp)
+	}
+	return resp, nil
+}
+
+// raw : requête authentifiée, réponse rendue telle quelle (tout code de statut). Une machine qui ne
+// répond pas, ou un certificat qui n'a pas l'empreinte du code, sont des erreurs.
+func (c *syncClient) raw(hc *http.Client, method, path string, query url.Values, body io.Reader, headers map[string]string) (*http.Response, error) {
 	u := c.peer.URL + path
 	if query != nil {
 		u += "?" + query.Encode()
@@ -213,17 +244,59 @@ func (c *syncClient) do(method, path string, query url.Values, body io.Reader, h
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
-	resp, err := c.http.Do(req)
+	resp, err := hc.Do(req)
 	if err != nil {
 		if errors.Is(err, errCertPin) {
 			return nil, fmt.Errorf("%s : empreinte du certificat différente (machine réinstallée ? refaire --pair puis --sync wsq://…)", c.label())
 		}
 		return nil, &unreachableError{err: err}
 	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, c.statusError(resp)
-	}
 	return resp, nil
+}
+
+// errPairCode : le code d'association est refusé (expiré, déjà utilisé, ou faux) : 401 de POST /v1/pair.
+var errPairCode = errors.New("code d'association expiré ou déjà utilisé : relancer --pair sur l'autre machine")
+
+// errPairOld : l'autre machine n'a pas la route d'association : son lanceur est trop ancien.
+var errPairOld = errors.New("lanceur trop ancien sur l'autre machine : --update là-bas, puis --pair")
+
+// pairReply : réponse de POST /v1/pair : le jeton durable de cette machine et le nom d'hôte distant.
+type pairReply struct {
+	Token string
+	Host  string
+}
+
+// pair : échange le code d'association (le secret, dans c.peer.Token) contre un jeton durable propre à
+// cette machine. Le nom d'hôte local est envoyé pour que l'autre machine l'affiche.
+func (c *syncClient) pair() (pairReply, error) {
+	name, _ := os.Hostname()
+	body, err := json.Marshal(map[string]string{"name": name})
+	if err != nil {
+		return pairReply{}, err
+	}
+	resp, err := c.raw(c.http, http.MethodPost, "/v1/pair", nil, bytes.NewReader(body),
+		map[string]string{"Content-Type": "application/json"})
+	if err != nil {
+		return pairReply{}, err
+	}
+	defer resp.Body.Close()
+	switch resp.StatusCode {
+	case http.StatusOK:
+	case http.StatusUnauthorized:
+		return pairReply{}, errPairCode
+	case http.StatusNotFound:
+		return pairReply{}, errPairOld
+	default:
+		return pairReply{}, c.statusError(resp)
+	}
+	var v struct {
+		Token string `json:"token"`
+		Host  string `json:"host"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&v); err != nil || v.Token == "" {
+		return pairReply{}, fmt.Errorf("%s : réponse d'association illisible", c.label())
+	}
+	return pairReply{Token: v.Token, Host: v.Host}, nil
 }
 
 // statusError : erreur d'une réponse non 200. Le corps est lu puis fermé.
@@ -281,7 +354,8 @@ func (c *syncClient) list() ([]remoteSave, error) {
 // est détectée avant toute modification). L'archivage de la version locale est à la charge de
 // l'appelant. Retourne l'empreinte distante.
 func (c *syncClient) fetch(game, users string) (string, error) {
-	resp, err := c.do(http.MethodGet, "/v1/saves/tar", url.Values{"game": {game}}, nil, nil)
+	// L'agent prépare toute l'archive avant de répondre : en-têtes attendus plus longtemps.
+	resp, err := c.doWith(c.slow, http.MethodGet, "/v1/saves/tar", url.Values{"game": {game}}, nil, nil)
 	if err != nil {
 		return "", err
 	}

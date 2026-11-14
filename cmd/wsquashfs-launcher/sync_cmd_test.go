@@ -6,6 +6,7 @@ package main
 // (syncLockGame remplacée), et ses dossiers (users, stateRoot) sont explicites.
 
 import (
+	"errors"
 	"net"
 	"os"
 	"os/exec"
@@ -460,12 +461,17 @@ func TestSyncPeersAddReplaceRemove(t *testing.T) {
 	}
 }
 
-// TestSyncPairAssociates : --sync wsq:// enregistre la machine (nom, adresse, empreinte), et la
-// deuxième association du même serveur la remplace.
+// TestSyncPairAssociates : --sync wsq:// échange le code contre un jeton durable : la machine est
+// enregistrée (nom reçu, adresse, empreinte) avec ce jeton, jamais avec le secret du code. Une
+// deuxième association la remplace ; un code déjà utilisé est refusé (errPairCode).
 func TestSyncPairAssociates(t *testing.T) {
 	r := newSyncRig(t)
 	out, _ := capteUI(t)
-	code := "wsq://secret-token@" + strings.TrimPrefix(r.srv.URL, "https://") + "#" + r.peer.Fingerprint
+	const secret = "secret-sync-pair-01"
+	if err := beginPairing(secret, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	code := "wsq://" + secret + "@" + strings.TrimPrefix(r.srv.URL, "https://") + "#" + r.peer.Fingerprint
 	if rc := syncPair(loadSyncConfig(), code); rc != 0 {
 		t.Fatalf("association : code %d", rc)
 	}
@@ -474,15 +480,35 @@ func TestSyncPairAssociates(t *testing.T) {
 		t.Fatalf("machines : %+v", cfg.Peers)
 	}
 	p := cfg.Peers[0]
-	if p.URL != r.srv.URL || p.Fingerprint != r.peer.Fingerprint || p.Name == "" || p.Token != "secret-token" {
+	if p.URL != r.srv.URL || p.Fingerprint != r.peer.Fingerprint || p.Name == "" {
 		t.Errorf("machine enregistrée : %+v", p)
+	}
+	if p.Token == "" || p.Token == secret {
+		t.Errorf("jeton enregistré : %q (le secret du code ne doit pas l'être)", p.Token)
 	}
 	if !strings.Contains(out.String(), "enregistrée") || !strings.Contains(out.String(), "wsquashfs-launcher --sync") {
 		t.Errorf("sortie : %q", out.String())
 	}
-	syncPair(cfg, code)
+	// Le jeton enregistré ouvre les routes de synchro.
+	if _, err := newSyncClient(p, cfg.ID).list(); err != nil {
+		t.Errorf("jeton durable refusé : %v", err)
+	}
+	// Deuxième association, avec un code neuf : elle remplace la première.
+	const secret2 = "secret-sync-pair-02"
+	if err := beginPairing(secret2, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	syncPair(cfg, "wsq://"+secret2+"@"+strings.TrimPrefix(r.srv.URL, "https://")+"#"+r.peer.Fingerprint)
 	if n := len(loadSyncConfig().Peers); n != 1 {
 		t.Errorf("deuxième association : %d machines", n)
+	}
+	// L'ancien code, déjà utilisé, est refusé.
+	peer, err := parsePairCode(code)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := newSyncClient(peer, cfg.ID).pair(); !errors.Is(err, errPairCode) {
+		t.Errorf("code réutilisé : erreur %v, attendu errPairCode", err)
 	}
 }
 

@@ -23,7 +23,7 @@ help:
 # Binaire Go statique (cmd/wsquashfs-launcher/), une seule dépendance : lipgloss. Le binaire
 # versionné à la racine est régénéré par cette cible.
 build:
-	@command -v go >/dev/null || { echo "go absent (Go 1.26.7 ou plus récent)"; exit 1; }
+	@command -v go >/dev/null || { echo "go absent (Go 1.26.7 ou plus récent ; go1.27.4 pour reproduire l'empreinte du binaire versionné)"; exit 1; }
 	@cd cmd/wsquashfs-launcher && CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w" -o ../../wsquashfs-launcher .
 	@sha256sum wsquashfs-launcher > wsquashfs-launcher.sha256
 	@echo "✓ wsquashfs-launcher compilé (empreinte : wsquashfs-launcher.sha256, à committer avec lui)"

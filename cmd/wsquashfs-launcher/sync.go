@@ -390,9 +390,15 @@ func checkSyncDests(users string, moves []syncMove) error {
 	return nil
 }
 
+// syncMaxUnpacked : taille décompressée maximale d'une archive reçue (somme des fichiers). Au-delà,
+// l'extraction s'arrête et rien n'est modifié. Variable pour les tests.
+var syncMaxUnpacked int64 = 4 << 30
+
 // applySaveArchive : remplace le périmètre de users/ par le contenu de l'archive. Tout est extrait
 // d'abord dans un dossier temporaire frère : une archive refusée ne modifie rien. Seuls les fichiers du
 // périmètre actuel sont retirés ; le reste de users/ n'est jamais touché. Le jeu doit être arrêté.
+// Refusées avant toute modification : une archive sans fichier (« archive vide »), une archive qui
+// dépasse syncMaxUnpacked décompressés.
 func applySaveArchive(r io.Reader, users string, origProfile string) error {
 	parent := filepath.Dir(users)
 	if err := os.MkdirAll(parent, 0o755); err != nil {
@@ -415,6 +421,7 @@ func applySaveArchive(r io.Reader, users string, origProfile string) error {
 	defer func() { _ = zr.Close() }()
 
 	var moves []syncMove
+	var unpacked int64
 	tr := tar.NewReader(zr)
 	for {
 		hdr, err := tr.Next()
@@ -427,6 +434,13 @@ func applySaveArchive(r io.Reader, users string, origProfile string) error {
 		e, err := checkSyncEntry(hdr)
 		if err != nil {
 			return err
+		}
+		// Taille annoncée par l'en-tête : une archive truquée ne fait pas écrire plus que la limite.
+		if !e.isDir {
+			unpacked += hdr.Size
+			if unpacked > syncMaxUnpacked {
+				return fmt.Errorf("archive trop volumineuse : plus de %s décompressés", sizeText(syncMaxUnpacked))
+			}
 		}
 		profile := e.profile
 		if profile == syncProfileToken {
@@ -464,6 +478,10 @@ func applySaveArchive(r io.Reader, users string, origProfile string) error {
 		})
 	}
 
+	// Une archive sans fichier effacerait le périmètre local : refusée.
+	if len(moves) == 0 {
+		return errors.New("archive vide")
+	}
 	// Tout a été extrait sans erreur, et rien n'est encore modifié : les destinations ne doivent pas
 	// passer par un lien (MkdirAll et Rename suivraient le lien et écriraient hors de users/).
 	if err := checkSyncDests(users, moves); err != nil {

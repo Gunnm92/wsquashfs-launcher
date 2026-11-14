@@ -11,8 +11,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -36,6 +38,12 @@ const syncRigGame = "Game"
 // newSyncRig : agent de test (agentFixture) servi en TLS, savesDir/cacheDir isolés, client prêt.
 func newSyncRig(t *testing.T) *syncRig {
 	t.Helper()
+	return newSyncRigWith(t, nil)
+}
+
+// newSyncRigWith : newSyncRig, avec un réglage du serveur avant son démarrage (délais, handler).
+func newSyncRigWith(t *testing.T, setup func(*httptest.Server)) *syncRig {
+	t.Helper()
 	_, h, _ := agentFixture(t)
 	oldSaves, oldCache := savesDir, cacheDir
 	t.Cleanup(func() { savesDir, cacheDir = oldSaves, oldCache })
@@ -45,6 +53,9 @@ func newSyncRig(t *testing.T) *syncRig {
 
 	srv := httptest.NewUnstartedServer(h)
 	srv.TLS = &tls.Config{MinVersion: tls.VersionTLS13}
+	if setup != nil {
+		setup(srv)
+	}
 	srv.StartTLS()
 	t.Cleanup(srv.Close)
 	sum := sha256.Sum256(srv.Certificate().Raw)
@@ -76,6 +87,99 @@ func doSync(h http.Handler, method, target, machine string, body []byte) *httpte
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	return rec
+}
+
+// slowBody : corps de requête livré en deux morceaux ; pause est appelée entre les deux.
+type slowBody struct {
+	data  []byte
+	sent  int
+	pause func()
+}
+
+func (b *slowBody) Read(p []byte) (int, error) {
+	half := len(b.data) / 2
+	switch {
+	case b.sent < half:
+		n := copy(p, b.data[b.sent:half])
+		b.sent += n
+		return n, nil
+	case b.sent == half && b.pause != nil:
+		b.pause()
+		b.pause = nil
+	}
+	if b.sent == len(b.data) {
+		return 0, io.EOF
+	}
+	n := copy(p, b.data[b.sent:])
+	b.sent += n
+	return n, nil
+}
+
+// syncTestSaveArchive : archive des sauvegardes d'une machine neuve (profil « deck »).
+func syncTestSaveArchive(t *testing.T) []byte {
+	t.Helper()
+	local := clientUsers(t)
+	syncTestPopulate(t, local, "deck")
+	files := collectSaveFiles(local)
+	var buf bytes.Buffer
+	if _, err := writeSaveArchive(&buf, local, files); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+// TestSyncSendSlowBodyOutlivesReadTimeout : un envoi dont le corps dure plus que le ReadTimeout
+// de l'agent (60 s en vrai, 1 s ici) aboutit : savesPut pose son propre délai de lecture
+// (savesPutTimeout). Sans lui : 400 « archive refusée : … i/o timeout ».
+func TestSyncSendSlowBodyOutlivesReadTimeout(t *testing.T) {
+	r := newSyncRigWith(t, func(srv *httptest.Server) {
+		base := (&agentServer{}).httpServer()
+		srv.Config.ReadHeaderTimeout = base.ReadHeaderTimeout
+		srv.Config.ReadTimeout = time.Second
+	})
+	archive := syncTestSaveArchive(t)
+	body := &slowBody{data: archive, pause: func() { time.Sleep(1500 * time.Millisecond) }}
+	resp, err := r.client.do(http.MethodPut, "/v1/saves/tar", url.Values{"game": {syncRigGame}}, body,
+		map[string]string{"X-Wsq-Profile": "deck"})
+	if err != nil {
+		t.Fatalf("envoi lent refusé : %v", err)
+	}
+	resp.Body.Close()
+	// Le profil du serveur (steamuser) a reçu le contenu envoyé.
+	got, err := os.ReadFile(filepath.Join(r.users, "steamuser", "Documents", "Game", "save1.sav"))
+	if err != nil || string(got) != "sauvegarde" {
+		t.Errorf("sauvegarde reçue : %q, %v", got, err)
+	}
+}
+
+// TestSyncFetchWaitsLongerForHeaders : l'agent prépare toute l'archive avant de répondre ; la
+// réception attend ses en-têtes plus longtemps (syncFetchHeaderTimeout) que les autres requêtes,
+// qui échouent toujours vite sur une machine qui ne répond pas (syncHeaderTimeout).
+func TestSyncFetchWaitsLongerForHeaders(t *testing.T) {
+	oldShort, oldLong := syncHeaderTimeout, syncFetchHeaderTimeout
+	t.Cleanup(func() { syncHeaderTimeout, syncFetchHeaderTimeout = oldShort, oldLong })
+	syncHeaderTimeout, syncFetchHeaderTimeout = 200*time.Millisecond, 30*time.Second
+	r := newSyncRigWith(t, func(srv *httptest.Server) {
+		h := srv.Config.Handler
+		srv.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			time.Sleep(800 * time.Millisecond) // machine lente : en-têtes tardifs
+			h.ServeHTTP(w, req)
+		})
+	})
+	want := saveFingerprint(r.users, collectSaveFiles(r.users))
+	fp, err := r.client.fetch(syncRigGame, clientUsers(t))
+	if err != nil {
+		t.Fatalf("réception avec en-têtes tardifs : %v", err)
+	}
+	if fp != want {
+		t.Errorf("empreinte reçue %s, attendue %s", fp, want)
+	}
+	if _, err := r.client.info(); !isUnreachable(err) {
+		t.Errorf("info sur une machine lente : %v, attendu machine injoignable", err)
+	}
+	if _, err := r.client.list(); !isUnreachable(err) {
+		t.Errorf("list sur une machine lente : %v, attendu machine injoignable", err)
+	}
 }
 
 // clientUsers : users/ d'un client vide (le dossier n'existe pas encore).
@@ -310,8 +414,13 @@ func TestSyncMachineHeaderRequired(t *testing.T) {
 			t.Errorf("%s %s sans X-Wsq-Machine : code %d, attendu 400", c.method, c.target, rec.Code)
 		}
 	}
-	if rec := doSync(r.h, "GET", "/v1/saves/list", "pas valide/x", nil); rec.Code != http.StatusBadRequest {
-		t.Errorf("identifiant invalide : code %d", rec.Code)
+	// Identifiant présent mais qui n'est pas celui de la machine du jeton : refusé par l'authentification
+	// (401), avant la validation de l'identifiant.
+	if rec := doSync(r.h, "GET", "/v1/saves/list", "pas valide/x", nil); rec.Code != http.StatusUnauthorized {
+		t.Errorf("identifiant invalide : code %d, attendu 401", rec.Code)
+	}
+	if rec := doSync(r.h, "GET", "/v1/saves/list", "autre-machine-02", nil); rec.Code != http.StatusUnauthorized {
+		t.Errorf("identifiant d'une autre machine : code %d, attendu 401", rec.Code)
 	}
 }
 
@@ -556,5 +665,79 @@ func TestSyncDeleteArchiveFailureKeepsSaves(t *testing.T) {
 	}
 	if got := saveFingerprint(r.users, collectSaveFiles(r.users)); got != before {
 		t.Error("sauvegardes supprimées alors que l'archivage a échoué")
+	}
+}
+
+// TestSyncPairTooOldLauncher : l'autre machine n'a pas POST /v1/pair (404) : « lanceur trop ancien »,
+// et non une erreur de code.
+func TestSyncPairTooOldLauncher(t *testing.T) {
+	r := newSyncRigWith(t, func(srv *httptest.Server) {
+		h := srv.Config.Handler
+		srv.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			if req.URL.Path == "/v1/pair" {
+				http.NotFound(w, req)
+				return
+			}
+			h.ServeHTTP(w, req)
+		})
+	})
+	peer := r.peer
+	peer.Token = "secret-peu-importe"
+	if _, err := newSyncClient(peer, "client-machine-01").pair(); !errors.Is(err, errPairOld) {
+		t.Errorf("lanceur ancien : erreur %v, attendu errPairOld", err)
+	}
+}
+
+// TestSyncArchiveVideRefusee : une archive sans aucun fichier est refusée avant toute modification :
+// le périmètre local reste intact (sans cette garde, elle l'effacerait).
+func TestSyncArchiveVideRefusee(t *testing.T) {
+	r := newSyncRig(t)
+	before := saveFingerprint(r.users, collectSaveFiles(r.users))
+	var buf bytes.Buffer
+	if _, err := writeSaveArchive(&buf, r.users, nil); err != nil {
+		t.Fatal(err)
+	}
+	err := applySaveArchive(bytes.NewReader(buf.Bytes()), r.users, "deck")
+	if err == nil || !strings.Contains(err.Error(), "archive vide") {
+		t.Fatalf("archive vide : erreur %v, attendue « archive vide »", err)
+	}
+	if got := saveFingerprint(r.users, collectSaveFiles(r.users)); got != before {
+		t.Error("périmètre local modifié par une archive vide")
+	}
+}
+
+// TestSyncArchiveTropVolumineuse : une archive dont le contenu décompressé dépasse la limite est
+// refusée avant toute modification ; le dossier temporaire est retiré. Sous la limite, elle passe.
+func TestSyncArchiveTropVolumineuse(t *testing.T) {
+	r := newSyncRig(t)
+	oldMax := syncMaxUnpacked
+	t.Cleanup(func() { syncMaxUnpacked = oldMax })
+	syncMaxUnpacked = 1000
+	local := clientUsers(t)
+	syncTestPut(t, filepath.Join(local, "deck", "Documents", "Game", "gros.sav"), strings.Repeat("x", 2000), syncTestTime)
+	var buf bytes.Buffer
+	if _, err := writeSaveArchive(&buf, local, collectSaveFiles(local)); err != nil {
+		t.Fatal(err)
+	}
+	before := saveFingerprint(r.users, collectSaveFiles(r.users))
+	err := applySaveArchive(bytes.NewReader(buf.Bytes()), r.users, "deck")
+	if err == nil || !strings.Contains(err.Error(), "trop volumineuse") {
+		t.Fatalf("archive au-delà du plafond : erreur %v", err)
+	}
+	if got := saveFingerprint(r.users, collectSaveFiles(r.users)); got != before {
+		t.Error("périmètre local modifié par une archive refusée")
+	}
+	entries, err := os.ReadDir(filepath.Dir(r.users))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), ".wsq-sync-") {
+			t.Errorf("dossier temporaire gardé : %s", e.Name())
+		}
+	}
+	syncMaxUnpacked = 10000
+	if err := applySaveArchive(bytes.NewReader(buf.Bytes()), r.users, "deck"); err != nil {
+		t.Errorf("archive sous le plafond refusée : %v", err)
 	}
 }

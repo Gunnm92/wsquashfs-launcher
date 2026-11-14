@@ -2,6 +2,8 @@ module wsquashfs-launcher
 
 go 1.26.7
 
+toolchain go1.27.4
+
 require (
 	charm.land/lipgloss/v2 v2.1.0
 	github.com/charmbracelet/x/ansi v0.11.8

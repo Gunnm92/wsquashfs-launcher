@@ -10,8 +10,10 @@ package main
 import (
 	"archive/tar"
 	"context"
+	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -27,6 +29,7 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	"unicode"
 )
 
 const doctorTTL = 5 * time.Minute
@@ -42,11 +45,7 @@ type agentServer struct {
 	docMu  sync.Mutex
 	docOut []byte
 	docAt  time.Time
-	// last-client.json : écrit à chaque requête authentifiée (noteClient).
-	clientMu      sync.Mutex
-	clientAddr    string
-	clientMachine string
-	clientAt      time.Time
+	pairMu sync.Mutex // POST /v1/pair : un code consommé à la fois
 	// Installation des images (games_http.go) : dossier détecté (cache de 10 min), envois en
 	// cours par nom. gamesMu protège aussi cfg.GamesDir.
 	gamesMu          sync.Mutex
@@ -62,6 +61,7 @@ func newAgentServer(cfg agentConfig, logOn bool) *agentServer {
 // httpServer : routes, authentification et trace.
 func (s *agentServer) httpServer() *http.Server {
 	mux := http.NewServeMux()
+	mux.HandleFunc("POST /v1/pair", s.pairRoute) // hors du contrôle de jeton : le code d'association
 	mux.HandleFunc("GET /v1/info", s.auth(s.info))
 	mux.HandleFunc("GET /v1/doctor", s.auth(s.doctor))
 	mux.HandleFunc("POST /v1/trial", s.auth(s.trialRoute))
@@ -95,38 +95,173 @@ func (s *agentServer) httpServer() *http.Server {
 	}
 }
 
-// auth : jeton « Bearer » comparé à temps constant ; la configuration est
-// relue à chaque requête (un --pair reset prend effet tout de suite).
+// auth : le jeton « Bearer » doit être celui d'une machine associée (agent.json, relu à chaque
+// requête : un --pair forget ou reset prend effet tout de suite). Si l'en-tête X-Wsq-Machine est
+// présent, il doit être l'identifiant de cette machine-là.
 func (s *agentServer) auth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		want := "Bearer " + loadAgentConfig().Token
-		got := r.Header.Get("Authorization")
-		if loadAgentConfig().Token == "" || subtle.ConstantTimeCompare([]byte(got), []byte(want)) != 1 {
+		m, ok := machineForToken(loadAgentConfig().Machines, r.Header.Get("Authorization"))
+		if !ok {
 			writeDetail(w, http.StatusUnauthorized, "jeton refusé")
 			return
 		}
-		s.noteClient(r)
+		if id := r.Header.Get("X-Wsq-Machine"); id != "" && id != m.ID {
+			writeDetail(w, http.StatusUnauthorized, "jeton refusé")
+			return
+		}
 		next(w, r)
 	}
 }
 
-// noteClient : note la requête authentifiée dans last-client.json (--pair attend
-// cette trace). Au plus une fois par seconde pour un même client ; un autre
-// client (adresse ou machine) est noté tout de suite.
-func (s *agentServer) noteClient(r *http.Request) {
-	addr, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		addr = r.RemoteAddr
+// machineForToken : la machine dont le SHA-256 de jeton égale celui du jeton présenté (en-tête
+// Authorization « Bearer »). La comparaison est à temps constant, toutes les machines sont lues.
+func machineForToken(machines []agentMachine, authorization string) (agentMachine, bool) {
+	token, ok := strings.CutPrefix(authorization, "Bearer ")
+	if !ok || token == "" {
+		return agentMachine{}, false
 	}
+	sum := sha256.Sum256([]byte(token))
+	got := hex.EncodeToString(sum[:])
+	var found agentMachine
+	match := false
+	for _, m := range machines {
+		if subtle.ConstantTimeCompare([]byte(got), []byte(m.TokenSHA256)) == 1 && !match {
+			found, match = m, true
+		}
+	}
+	return found, match
+}
+
+// pairDetail : refus de POST /v1/pair (code absent, expiré, déjà utilisé ou faux).
+const pairDetail = "code d'association expiré ou déjà utilisé : relancer --pair"
+
+// pairRequest : corps de POST /v1/pair.
+type pairRequest struct {
+	Name string `json:"name"`
+}
+
+// pairRoute : POST /v1/pair, hors du contrôle de jeton. Le secret du code (Authorization « Bearer »)
+// est consommé à l'usage : pair.json est retiré avant qu'un jeton durable ne soit délivré. Un
+// mauvais secret ne consomme pas le code.
+func (s *agentServer) pairRoute(w http.ResponseWriter, r *http.Request) {
 	machine := r.Header.Get("X-Wsq-Machine")
-	now := time.Now()
-	s.clientMu.Lock()
-	defer s.clientMu.Unlock()
-	if addr == s.clientAddr && machine == s.clientMachine && now.Sub(s.clientAt) < time.Second {
+	if !validSyncID(machine) {
+		writeDetail(w, http.StatusBadRequest, "identifiant de machine absent ou invalide")
 		return
 	}
-	s.clientAddr, s.clientMachine, s.clientAt = addr, machine, now
-	_ = writeLastClient(lastClient{At: now, Addr: addr, Machine: machine})
+	var req pairRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req); err != nil {
+		var tooBig *http.MaxBytesError
+		if errors.As(err, &tooBig) {
+			writeDetail(w, http.StatusRequestEntityTooLarge, "requête trop volumineuse")
+			return
+		}
+		writeDetail(w, http.StatusBadRequest, "requête illisible")
+		return
+	}
+	s.pairMu.Lock()
+	defer s.pairMu.Unlock()
+	offer, ok := readPairOffer()
+	if !ok {
+		writeDetail(w, http.StatusUnauthorized, pairDetail)
+		return
+	}
+	if !time.Now().Before(offer.Expires) {
+		_ = removePairOffer()
+		writeDetail(w, http.StatusUnauthorized, pairDetail)
+		return
+	}
+	secret, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+	sum := sha256.Sum256([]byte(secret))
+	if subtle.ConstantTimeCompare([]byte(hex.EncodeToString(sum[:])), []byte(offer.SecretSHA256)) != 1 {
+		writeDetail(w, http.StatusUnauthorized, pairDetail)
+		return
+	}
+	// Usage unique : retiré avant tout jeton délivré. Déjà retiré entre-temps : refusé.
+	if err := removePairOffer(); err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			writeDetail(w, http.StatusUnauthorized, pairDetail)
+			return
+		}
+		writeDetail(w, http.StatusInternalServerError, "code d'association non retiré, rien délivré")
+		return
+	}
+	token, err := newToken()
+	if err != nil {
+		writeDetail(w, http.StatusInternalServerError, "erreur interne de l'agent")
+		return
+	}
+	tokSum := sha256.Sum256([]byte(token))
+	addr := clientAddr(r)
+	name := cleanMachineName(req.Name)
+	if name == "" {
+		name = addr
+	}
+	now := time.Now()
+	cfg := loadAgentConfig()
+	previous := cfg.Machines
+	cfg.Machines = upsertMachine(previous, agentMachine{
+		ID:          machine,
+		Name:        name,
+		TokenSHA256: hex.EncodeToString(tokSum[:]),
+		Paired:      now,
+	})
+	if err := saveAgentConfig(cfg); err != nil {
+		writeDetail(w, http.StatusInternalServerError, "association non enregistrée : "+err.Error())
+		return
+	}
+	if err := writeJSONAtomic600(lastPairPath(), lastPair{At: now, Addr: addr, ID: machine, Name: name}); err != nil {
+		// Sans cette trace, --pair ne verrait pas l'association : elle est annulée.
+		cfg.Machines = previous
+		_ = saveAgentConfig(cfg)
+		writeDetail(w, http.StatusInternalServerError, "association non enregistrée : "+err.Error())
+		return
+	}
+	host, _ := os.Hostname()
+	writeJSON(w, http.StatusOK, map[string]any{"token": token, "host": host, "version": agentVersion})
+}
+
+// clientAddr : adresse du client (sans le port).
+func clientAddr(r *http.Request) string {
+	addr, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return addr
+}
+
+// upsertMachine : remplace l'entrée de même identifiant (sa place est gardée), ou ajoute la machine.
+// Retourne une nouvelle liste : celle reçue n'est pas modifiée.
+func upsertMachine(machines []agentMachine, m agentMachine) []agentMachine {
+	out := make([]agentMachine, 0, len(machines)+1)
+	replaced := false
+	for _, old := range machines {
+		if old.ID == m.ID {
+			out = append(out, m)
+			replaced = true
+			continue
+		}
+		out = append(out, old)
+	}
+	if !replaced {
+		out = append(out, m)
+	}
+	return out
+}
+
+// cleanMachineName : nom d'une machine tel qu'il est gardé : caractères de contrôle et espaces de
+// bord retirés, 64 caractères au plus.
+func cleanMachineName(name string) string {
+	name = strings.TrimSpace(strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return -1
+		}
+		return r
+	}, name))
+	if runes := []rune(name); len(runes) > 64 {
+		name = strings.TrimSpace(string(runes[:64]))
+	}
+	return name
 }
 
 // logged : trace (méthode, chemin, code, durée) ; jamais le jeton ni la requête.
@@ -518,6 +653,10 @@ func (s *agentServer) runnerTar(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// savesPutTimeout : délai de lecture d'une archive de sauvegardes envoyée (ReadTimeout de
+// l'agent : 60 s, trop court pour une grosse sauvegarde ou un réseau lent).
+const savesPutTimeout = 10 * time.Minute
+
 // syncMaxBody : taille maximale d'une archive reçue (--sync). Variable pour les tests.
 var syncMaxBody int64 = 2 << 30
 
@@ -669,6 +808,9 @@ func (s *agentServer) savesPut(w http.ResponseWriter, r *http.Request) {
 		}
 		archived = path
 	}
+	// Une grosse sauvegarde peut être longue à recevoir : délai de lecture propre à cet envoi,
+	// compté à partir d'ici (l'archivage local ci-dessus n'y entre pas).
+	_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(savesPutTimeout))
 	r.Body = http.MaxBytesReader(w, r.Body, syncMaxBody)
 	if err := applySaveArchive(r.Body, users, r.Header.Get("X-Wsq-Profile")); err != nil {
 		var tooBig *http.MaxBytesError

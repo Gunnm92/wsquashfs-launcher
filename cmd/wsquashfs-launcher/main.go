@@ -117,7 +117,8 @@ func installSignals() {
 				_ = syscall.Kill(int(pid), syscall.SIGTERM)
 				continue
 			}
-			// --pair attend l'association : annulation propre (son code rend 130).
+			// --pair attend l'association : annulation propre (son code rend 130) ;
+			// l'agent sert : arrêt propre, requêtes en cours finies (code 0).
 			if hook := interruptHook.Load(); hook != nil {
 				(*hook)()
 				continue

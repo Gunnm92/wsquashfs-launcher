@@ -70,14 +70,18 @@ Usage :
   wsquashfs-launcher --pair [reset] [roms DIR]... [port N]
         Affiche le code d'association (wsq://…) à coller dans wsquashfs-manager
         (Réglages → Machine de jeu ou onglet Sauvegardes) ou sur l'autre machine
-        (--sync wsq://…), puis
-        attend l'association (10 min au plus, Ctrl-C annule) et se ferme. Sans
-        agent en marche, sert un agent temporaire le temps de l'attente.
-        Initialise jeton, certificat et dossiers roms/. reset : nouveau jeton.
+        (--sync wsq://…), puis attend l'association (10 min au plus, Ctrl-C
+        annule) et se ferme. Le code sert une seule fois. Sans agent en marche,
+        sert un agent temporaire le temps de l'attente. Initialise certificat
+        et dossiers roms/. reset : retire toutes les machines associées, puis
+        attend une nouvelle association.
+  wsquashfs-launcher --pair forget <machine>
+        Retire une machine associée (nom, sans tenir compte de la casse, ou
+        identifiant) : son accès est coupé tout de suite. Ne lance pas d'association.
   wsquashfs-launcher --sync [jeu | status [jeu] | forget <machine> | wsq://…]
         Synchronise à la main les sauvegardes de partie avec les autres
         machines du réseau local (pas à distance), par leur agent (--pair).
-          wsq://…           associe une machine (code affiché par --pair sur elle)
+          wsq://…           associe une machine (code à usage unique affiché par --pair sur elle)
           (rien)            les jeux qui ont des sauvegardes des deux côtés
           <jeu>             ce jeu, copié sur l'autre machine s'il n'y est pas
           status            montre ce qui serait fait, sans rien changer
@@ -93,7 +97,8 @@ Usage :
         Agent au premier plan (débogage). Sert en HTTPS, sur le port
         configuré ; « log » : trace de chaque requête sur la sortie d'erreur.
   wsquashfs-launcher --agent stop | status
-        Arrête l'agent (port fermé), ou dit s'il tourne (pid, port, journal).
+        Arrête l'agent (port fermé), ou dit s'il tourne (pid, port, journal) et
+        liste les machines associées.
         Rien ne le démarre tout seul : il ne tourne que lancé par --agent.
   wsquashfs-launcher --update
         Met à jour le lanceur depuis GitHub (rien si déjà identique ; binaire
@@ -174,7 +179,6 @@ Variables d'environnement :
   ✓ unsquashfs (PATH) : mode copy, --info, --install
   ✓ mksquashfs (PATH) : --pack
   ✓ getfattr (PATH) : --clean (doublons des sauvegardes)
-  ✓ flock (PATH) : verrou par jeu (double lancement)
 
 ▍Wine / Proton
   ✓ Wine par défaut : wine-tkg-fake wine-9.0 (fake) (ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/bin/wine)
@@ -218,7 +222,6 @@ WINE wine-tkg-fake cwd=ROOT args: [--version]
   ✓ unsquashfs (PATH) : mode copy, --info, --install
   ✓ mksquashfs (PATH) : --pack
   ✓ getfattr (PATH) : --clean (doublons des sauvegardes)
-  ✓ flock (PATH) : verrou par jeu (double lancement)
 
 ▍Wine / Proton
   ✓ Wine par défaut : wine-tkg-fake wine-9.0 (fake) (ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/bin/wine)
@@ -264,7 +267,6 @@ WINE wine-tkg-fake cwd=ROOT args: [--version]
   ✓ unsquashfs (PATH) : mode copy, --info, --install
   ✓ mksquashfs (PATH) : --pack
   ✓ getfattr (PATH) : --clean (doublons des sauvegardes)
-  ✓ flock (PATH) : verrou par jeu (double lancement)
 
 ▍Wine / Proton
   ✓ Wine par défaut : wine-tkg-fake wine-9.0 (fake) (ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/bin/wine)
@@ -310,7 +312,6 @@ WINE wine-tkg-fake cwd=ROOT args: [--version]
   ✓ unsquashfs (PATH) : mode copy, --info, --install
   ✓ mksquashfs (PATH) : --pack
   ✓ getfattr (PATH) : --clean (doublons des sauvegardes)
-  ✓ flock (PATH) : verrou par jeu (double lancement)
 
 ▍Wine / Proton
   ✓ Wine par défaut : wine-tkg-fake wine-9.0 (fake) (ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/bin/wine)
@@ -10111,12 +10112,15 @@ l src/Arcade Game.wine/drive_c/windows/system32/dxgi.dll -> /userdata/system/win
 ✓ HOTE enregistrée
   Synchroniser : wsquashfs-launcher --sync
 == rc=0
-## --pair sur B : rc=0, Associé : ADRESSE (synchro des sauvegardes)
+## --pair sur B : rc=0, Associé : HOTE (ADRESSE)
 ## agent B : lancement, rc=0
 ## ✓ Agent lancé (pid N, port 18791), journal : ROOT/syncB/home/.local/state/wsquashfs/agent.log
 ##   Arrêter : wsquashfs-launcher --agent stop
 ## agent B : état, rc=0
 ## ✓ Agent en marche (pid N, port 18791)
+## 
+## Machines associées (N)
+##   · HOTE (associée le DATE)
 ## Journal : ROOT/syncB/home/.local/state/wsquashfs/agent.log
 ################ sync-self
 ╭────────────────────────╮

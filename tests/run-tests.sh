@@ -356,6 +356,8 @@ normalize() {
         -e 's/^\(Environnement *: \).*/\1ENV/' \
         -e 's/ \{1,\}[0-9][0-9.,]*[KMGT] │/ SIZE │/g' \
         -e 's/^\(Taille *: \).*/\1SIZE/' \
+        -e 's/associée le [0-9-]* [0-9:]*)/associée le DATE)/' \
+        -e 's/^Machines associées ([0-9]*)$/Machines associées (N)/' \
         -e 's/ (\([0-9][0-9.,]*[KMGT]\{0,1\}\))$/ (SIZE)/' \
         -e 's/gardé [0-9][0-9.,]*[KMGT]\{0,1\} /gardé SIZE /' \
         -e 's/^\(Parallel unsquashfs: Using \)[0-9]* /\1N /' \

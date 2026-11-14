@@ -98,7 +98,6 @@ func runDoctorChecks() bool {
 	doctorTool("unsquashfs", "mode copy, --info, --install", "fail")
 	doctorTool("mksquashfs", "--pack", "note")
 	doctorTool("getfattr", "--clean (doublons des sauvegardes)", "note")
-	doctorTool("flock", "verrou par jeu (double lancement)", "note")
 	_, sqErr := exec.LookPath("squashfuse")
 	_, unErr := exec.LookPath("unsquashfs")
 	if sqErr != nil && unErr != nil {

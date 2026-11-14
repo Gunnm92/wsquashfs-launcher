@@ -11,7 +11,6 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -153,7 +152,7 @@ func TestAgentStartFailsWithLogTail(t *testing.T) {
 	}
 }
 
-// TestAgentStartInitialises : sans configuration, --agent crée jeton et certificat.
+// TestAgentStartInitialises : sans configuration, --agent crée le certificat (aucun jeton).
 func TestAgentStartInitialises(t *testing.T) {
 	agentEnv(t)
 	old := agentStartWait
@@ -368,13 +367,47 @@ func pairGet(t *testing.T, c *http.Client, addr, token, machine string) int {
 	return resp.StatusCode
 }
 
-// TestPairTempAgentAssociates : l'agent temporaire sert en TLS ; une requête NON authentifiée
-// n'associe pas ; la première authentifiée associe, rend 0, arrête l'agent (port fermé) et ne
-// laisse pas de fichier de PID.
+// pairPost : POST /v1/pair sur l'agent temporaire (TLS épinglé) ; code HTTP, 0 si injoignable.
+func pairPost(t *testing.T, c *http.Client, addr, secret, machine string) int {
+	t.Helper()
+	req, err := http.NewRequest("POST", "https://"+addr+"/v1/pair", strings.NewReader(`{"name":"test"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+secret)
+	req.Header.Set("X-Wsq-Machine", machine)
+	resp, err := c.Do(req)
+	if err != nil {
+		return 0
+	}
+	_, _ = io.Copy(io.Discard, resp.Body)
+	resp.Body.Close()
+	return resp.StatusCode
+}
+
+// waitPairServed : attend que l'agent temporaire réponde (tout code HTTP).
+func waitPairServed(t *testing.T, c *http.Client, addr string) {
+	t.Helper()
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		if pairGet(t, c, addr, "", "") != 0 {
+			return
+		}
+	}
+	t.Fatal("agent temporaire ne répond pas")
+}
+
+// TestPairTempAgentAssociates : l'agent temporaire sert en TLS. Une requête authentifiée d'une machine
+// déjà associée n'associe pas, ni un mauvais secret ; le bon secret associe, rend 0, arrête l'agent
+// (port fermé), et le code en attente est retiré.
 func TestPairTempAgentAssociates(t *testing.T) {
 	agentEnv(t)
 	cfg, err := agentInit(nil, 0)
 	if err != nil {
+		t.Fatal(err)
+	}
+	enrollMachine(t, "ancienne-machine-01", "Ancienne", "jeton-ancien")
+	const secret = "secret-temp-agent"
+	if err := beginPairing(secret, 20*time.Second); err != nil {
 		t.Fatal(err)
 	}
 	ln := listenLocal(t)
@@ -384,43 +417,36 @@ func TestPairTempAgentAssociates(t *testing.T) {
 	go func() { done <- pairRun(cfg, ln, 20*time.Second, nil) }()
 
 	c := pairClient(t)
-	// Attend que l'agent temporaire réponde (401 sans jeton).
-	ready := false
-	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
-		if pairGet(t, c, addr, "", "") == http.StatusUnauthorized {
-			ready = true
-			break
-		}
-	}
-	if !ready {
-		t.Fatal("agent temporaire ne répond pas")
-	}
-	for i := 0; i < 3; i++ {
-		if pairGet(t, c, addr, "mauvais", "") != http.StatusUnauthorized {
-			t.Fatal("jeton erroné accepté")
-		}
+	waitPairServed(t, c, addr)
+	if code := pairGet(t, c, addr, "jeton-ancien", "ancienne-machine-01"); code != http.StatusOK {
+		t.Fatalf("machine déjà associée : code %d", code)
 	}
 	select {
 	case rc := <-done:
-		t.Fatalf("association sur requête non authentifiée (code %d)", rc)
+		t.Fatalf("--pair terminé sur une simple requête authentifiée (code %d)", rc)
 	case <-time.After(700 * time.Millisecond):
 	}
-	if _, ok := readLastClient(); ok {
-		t.Error("last-client.json écrit sans requête authentifiée")
+	if code := pairPost(t, c, addr, "mauvais-secret", "nouvelle-machine-02"); code != http.StatusUnauthorized {
+		t.Fatalf("mauvais secret : code %d", code)
 	}
-	if code := pairGet(t, c, addr, cfg.Token, strings.Repeat("a", 32)); code != http.StatusOK {
-		t.Fatalf("requête authentifiée : code %d", code)
+	select {
+	case rc := <-done:
+		t.Fatalf("--pair terminé sur un mauvais secret (code %d)", rc)
+	case <-time.After(300 * time.Millisecond):
+	}
+	if code := pairPost(t, c, addr, secret, "nouvelle-machine-02"); code != http.StatusOK {
+		t.Fatalf("bon secret : code %d", code)
 	}
 	var rc int
 	select {
 	case rc = <-done:
 	case <-time.After(10 * time.Second):
-		t.Fatal("pas d'association après une requête authentifiée")
+		t.Fatal("pas d'association après le bon secret")
 	}
 	if rc != 0 {
 		t.Errorf("code %d, attendu 0", rc)
 	}
-	if !strings.Contains(out.String(), "Associé : 127.0.0.1 (synchro des sauvegardes)") {
+	if !strings.Contains(out.String(), "Associé : test (127.0.0.1)") {
 		t.Errorf("sortie : %q", out.String())
 	}
 	if !strings.Contains(out.String(), "Pour les synchros suivantes") {
@@ -433,17 +459,22 @@ func TestPairTempAgentAssociates(t *testing.T) {
 	if pathExistsFile(agentPidFile()) {
 		t.Error("fichier de PID écrit par l'agent temporaire")
 	}
-	client, ok := readLastClient()
-	if !ok || client.Addr != "127.0.0.1" || client.Machine != strings.Repeat("a", 32) {
-		t.Errorf("last-client.json : %+v (%v)", client, err)
+	if pathExistsFile(pairPath()) {
+		t.Error("code d'association gardé après l'association")
+	}
+	if last, ok := readLastPair(); !ok || last.ID != "nouvelle-machine-02" || last.Addr != "127.0.0.1" {
+		t.Errorf("last-pair.json : %+v (%v)", last, ok)
 	}
 }
 
-// TestPairTimeout : sans association dans le délai, code 1 et agent temporaire arrêté.
+// TestPairTimeout : sans association dans le délai, code 1, agent temporaire arrêté, code retiré.
 func TestPairTimeout(t *testing.T) {
 	agentEnv(t)
 	cfg, err := agentInit(nil, 0)
 	if err != nil {
+		t.Fatal(err)
+	}
+	if err := beginPairing("secret-delai", time.Minute); err != nil {
 		t.Fatal(err)
 	}
 	ln := listenLocal(t)
@@ -458,13 +489,19 @@ func TestPairTimeout(t *testing.T) {
 		conn.Close()
 		t.Error("agent temporaire encore en écoute après le délai")
 	}
+	if pathExistsFile(pairPath()) {
+		t.Error("code d'association gardé après le délai")
+	}
 }
 
-// TestPairCancelled : annulation (Ctrl-C) : « Association annulée », code 130, agent arrêté.
+// TestPairCancelled : annulation (Ctrl-C) : « Association annulée », code 130, agent arrêté, code retiré.
 func TestPairCancelled(t *testing.T) {
 	agentEnv(t)
 	cfg, err := agentInit(nil, 0)
 	if err != nil {
+		t.Fatal(err)
+	}
+	if err := beginPairing("secret-annule", time.Minute); err != nil {
 		t.Fatal(err)
 	}
 	ln := listenLocal(t)
@@ -480,10 +517,13 @@ func TestPairCancelled(t *testing.T) {
 	if !strings.Contains(out.String(), "Association annulée") {
 		t.Errorf("sortie : %q", out.String())
 	}
+	if pathExistsFile(pairPath()) {
+		t.Error("code d'association gardé après l'annulation")
+	}
 }
 
 // TestPairCommandCtrlC : cmdPair complet ; le crochet d'interruption (installSignals) annule
-// l'attente : code 130, pas de sortie du processus.
+// l'attente : code 130, pas de sortie du processus, code retiré.
 func TestPairCommandCtrlC(t *testing.T) {
 	agentEnv(t)
 	port := freePort(t)
@@ -515,66 +555,148 @@ func TestPairCommandCtrlC(t *testing.T) {
 	if agentListening(port) {
 		t.Error("agent temporaire encore en écoute")
 	}
+	if pathExistsFile(pairPath()) {
+		t.Error("code d'association gardé après Ctrl-C")
+	}
 }
 
-// TestNoteClientThrottle : last-client.json est écrit par l'auth ; un même client n'y écrit pas plus
-// d'une fois par seconde, un autre client (machine) l'est tout de suite.
-func TestNoteClientThrottle(t *testing.T) {
-	_, h, _ := agentFixture(t)
-	get := func(machine string) {
-		req := httptest.NewRequest("GET", "/v1/info", nil)
-		req.Header.Set("Authorization", "Bearer secret-token")
-		req.RemoteAddr = "192.0.2.7:4242"
-		if machine != "" {
-			req.Header.Set("X-Wsq-Machine", machine)
+// TestPairCommandWaitsForAssociation : --pair (commande complète) ne se termine pas sur une simple
+// requête authentifiée d'une machine déjà associée ; il se termine sur l'association (POST /v1/pair).
+func TestPairCommandWaitsForAssociation(t *testing.T) {
+	agentEnv(t)
+	port := freePort(t)
+	if _, err := agentInit(nil, port); err != nil {
+		t.Fatal(err)
+	}
+	enrollMachine(t, "ancienne-machine-01", "Ancienne", "jeton-ancien")
+	oldSecret := pairSecretNew
+	pairSecretNew = func() (string, error) { return "secret-cmd-wait", nil }
+	t.Cleanup(func() { pairSecretNew = oldSecret })
+	out, _ := capteUI(t)
+	done := make(chan int, 1)
+	go func() { done <- cmdPair([]string{"port", strconv.Itoa(port)}) }()
+	for deadline := time.Now().Add(5 * time.Second); interruptHook.Load() == nil; time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("cmdPair n'attend pas l'association")
 		}
-		rec := httptest.NewRecorder()
-		h.ServeHTTP(rec, req)
-		if rec.Code != http.StatusOK {
-			t.Fatalf("code %d", rec.Code)
+	}
+	c := pairClient(t)
+	addr := fmt.Sprintf("127.0.0.1:%d", port)
+	waitPairServed(t, c, addr)
+	if code := pairGet(t, c, addr, "jeton-ancien", "ancienne-machine-01"); code != http.StatusOK {
+		t.Fatalf("machine déjà associée : code %d", code)
+	}
+	select {
+	case rc := <-done:
+		t.Fatalf("--pair terminé sur une requête d'une machine déjà associée (code %d)", rc)
+	case <-time.After(700 * time.Millisecond):
+	}
+	if code := pairPost(t, c, addr, "secret-cmd-wait", "nouvelle-machine-02"); code != http.StatusOK {
+		t.Fatalf("association : code %d", code)
+	}
+	select {
+	case rc := <-done:
+		if rc != 0 {
+			t.Errorf("code %d, attendu 0", rc)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("--pair ne se termine pas après l'association")
+	}
+	if !strings.Contains(out.String(), "wsq://secret-cmd-wait@") || !strings.Contains(out.String(), "Associé : test (127.0.0.1)") {
+		t.Errorf("sortie : %q", out.String())
+	}
+	if !strings.Contains(out.String(), "Usage unique") {
+		t.Errorf("précision d'usage unique absente : %q", out.String())
+	}
+}
+
+// TestPairCommandReset : --pair reset retire les machines avant d'attendre : leur jeton est refusé
+// dès l'affichage du code.
+func TestPairCommandReset(t *testing.T) {
+	agentEnv(t)
+	port := freePort(t)
+	if _, err := agentInit(nil, port); err != nil {
+		t.Fatal(err)
+	}
+	enrollMachine(t, "ancienne-machine-01", "Ancienne", "jeton-ancien")
+	out, _ := capteUI(t)
+	done := make(chan int, 1)
+	go func() { done <- cmdPair([]string{"reset", "port", strconv.Itoa(port)}) }()
+	for deadline := time.Now().Add(5 * time.Second); interruptHook.Load() == nil; time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("cmdPair n'attend pas l'association")
 		}
 	}
-	get("")
-	first, ok := readLastClient()
-	if !ok || first.Addr != "192.0.2.7" || first.Machine != "" {
-		t.Fatalf("première trace : %+v (%v)", first, ok)
+	c := pairClient(t)
+	addr := fmt.Sprintf("127.0.0.1:%d", port)
+	waitPairServed(t, c, addr)
+	if code := pairGet(t, c, addr, "jeton-ancien", "ancienne-machine-01"); code != http.StatusUnauthorized {
+		t.Errorf("jeton d'une machine retirée par --pair reset accepté : code %d", code)
 	}
-	get("")
-	if again, _ := readLastClient(); !again.At.Equal(first.At) {
-		t.Error("même client réécrit dans la seconde")
+	(*interruptHook.Load())()
+	select {
+	case rc := <-done:
+		if rc != 130 {
+			t.Errorf("code %d, attendu 130", rc)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("--pair ne rend pas la main")
 	}
-	get(strings.Repeat("b", 32))
-	if other, _ := readLastClient(); other.Machine != strings.Repeat("b", 32) {
-		t.Errorf("autre machine non notée : %+v", other)
-	}
-}
-
-// TestNoteClientNotForRefusedRequests : une requête refusée (jeton) ne touche pas last-client.json.
-func TestNoteClientNotForRefusedRequests(t *testing.T) {
-	_, h, _ := agentFixture(t)
-	req := httptest.NewRequest("GET", "/v1/info", nil)
-	req.Header.Set("Authorization", "Bearer faux")
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-	if _, ok := readLastClient(); ok {
-		t.Error("requête refusée notée comme association")
+	if !strings.Contains(out.String(), "toutes les machines associées sont retirées (Ancienne)") {
+		t.Errorf("sortie : %q", out.String())
 	}
 }
 
-// TestPairRejectsStaleClient : une trace antérieure au lancement de --pair n'associe pas.
-func TestPairRejectsStaleClient(t *testing.T) {
+// TestPairForgetReturnsAtOnce : --pair forget retire la machine et rend la main sans attendre
+// d'association (ni code, ni « En attente »).
+func TestPairForgetReturnsAtOnce(t *testing.T) {
+	agentEnv(t)
+	enrollMachine(t, "ancienne-machine-01", "Ancienne", "jeton-ancien")
+	out, _ := capteUI(t)
+	if code := cmdPair([]string{"forget", "ancienne-machine-01"}); code != 0 {
+		t.Fatalf("code %d", code)
+	}
+	if strings.Contains(out.String(), "En attente") || strings.Contains(out.String(), "wsq://") {
+		t.Errorf("--pair forget lance une association : %q", out.String())
+	}
+	if _, ok := machineNamed("ancienne-machine-01"); ok {
+		t.Error("machine non retirée")
+	}
+}
+
+// TestPairRejectsStaleAssociation : une association antérieure au début de --pair n'associe pas.
+func TestPairRejectsStaleAssociation(t *testing.T) {
 	agentEnv(t)
 	cfg, err := agentInit(nil, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	stale := lastClient{At: time.Now().Add(-time.Hour), Addr: "192.0.2.9", Machine: strings.Repeat("c", 32)}
-	if err := writeLastClient(stale); err != nil {
+	stale := lastPair{At: time.Now().Add(-time.Hour), Addr: "192.0.2.9", ID: "ancienne-machine-01", Name: "Vieille"}
+	if err := writeJSONAtomic600(lastPairPath(), stale); err != nil {
 		t.Fatal(err)
 	}
 	capteUI(t)
 	if code := pairRun(cfg, nil, 300*time.Millisecond, nil); code != 1 {
-		t.Errorf("trace périmée acceptée (code %d)", code)
+		t.Errorf("association périmée acceptée (code %d)", code)
+	}
+}
+
+// TestAgentStatusListsMachines : --agent status liste les machines associées, ou dit qu'il n'y en a pas.
+func TestAgentStatusListsMachines(t *testing.T) {
+	agentEnv(t)
+	if _, err := agentInit(nil, freePort(t)); err != nil {
+		t.Fatal(err)
+	}
+	out, _ := capteUI(t)
+	_ = cmdAgentStatus()
+	if !strings.Contains(out.String(), "aucune machine associée") {
+		t.Errorf("sans machine : %q", out.String())
+	}
+	enrollMachine(t, "ancienne-machine-01", "Ancienne", "jeton-ancien")
+	out.Reset()
+	_ = cmdAgentStatus()
+	if !strings.Contains(out.String(), "Ancienne (associée le ") {
+		t.Errorf("machine non listée : %q", out.String())
 	}
 }
 

@@ -44,8 +44,10 @@ l'affichage ; toute autre dépendance doit être justifiée.
 - Le JSON (`--doctor json`, `--trial`, agent) et le journal de l'agent
   restent hors de `ui.go`, sans couleur.
 
-- `make build` régénère le binaire versionné `wsquashfs-launcher` ; à committer
-  avec les sources
+- `make build` régénère le binaire versionné `wsquashfs-launcher` et son
+  empreinte `wsquashfs-launcher.sha256` ; à committer ensemble, avec les
+  sources. L'empreinte dépend de la version exacte de Go : elle se reproduit
+  avec go1.27.4 (ligne `toolchain` de `cmd/wsquashfs-launcher/go.mod`)
 - `make lint` lance `gofmt` et `go vet` (et `shellcheck` sur les scripts)
 - Les fonctions gardent les noms de l'ancienne version bash quand c'est possible,
   et les dates (JJ/MM) des commentaires renvoient aux constats qui ont motivé
