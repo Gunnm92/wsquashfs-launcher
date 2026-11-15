@@ -1,4 +1,6 @@
 ################ help
+Version : BUILD
+
 Usage :
   wsquashfs-launcher [--wine <version>] <jeu.wsquashfs>
         Lance le jeu (autorun.cmd).

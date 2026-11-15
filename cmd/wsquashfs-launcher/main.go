@@ -37,6 +37,8 @@ func run(args []string) int {
 	}
 	switch opts.action {
 	case "help":
+		uiKV(0, kv{"Version", launcherBuild()})
+		uiOut("")
 		uiHelp(usageText)
 		return 0
 	case "setup":

@@ -1356,6 +1356,28 @@ func commitSHA(body []byte) string {
 	return c.SHA
 }
 
+// launcherBuild : version du lanceur en cours, c'est-à-dire le début de l'empreinte SHA-256 du
+// binaire (la même que celle que publie wsquashfs-launcher.sha256). « inconnue » si illisible.
+func launcherBuild() string {
+	self, err := os.Executable()
+	if err != nil {
+		return "inconnue"
+	}
+	cur, err := fileSHA256(self)
+	if err != nil {
+		return "inconnue"
+	}
+	return shortBuild(cur)
+}
+
+// shortBuild : 12 premiers caractères d'une empreinte, de quoi la comparer à l'œil.
+func shortBuild(sha string) string {
+	if len(sha) > 12 {
+		return sha[:12]
+	}
+	return sha
+}
+
 func cmdUpdate() int {
 	base := updateBase()
 	self, err := os.Executable()
@@ -1370,7 +1392,12 @@ func cmdUpdate() int {
 	if len(want) != 64 || strings.Trim(want, "0123456789abcdef") != "" {
 		die("somme de contrôle du lanceur introuvable sur " + base + " : rien n'a été modifié")
 	}
-	if cur, err := fileSHA256(self); err == nil && cur == want {
+	cur, curErr := fileSHA256(self)
+	if curErr != nil {
+		cur = ""
+	}
+	uiKV(0, kv{"Version installée", shortBuild(cur)}, kv{"Version distribuée", shortBuild(want)})
+	if cur == want {
 		uiStatusLine(stOK, "Lanceur déjà à jour : "+self)
 		return 0
 	}
@@ -1405,7 +1432,7 @@ func cmdUpdate() int {
 		os.Remove(self + ".new")
 		die("remplacement du lanceur impossible : " + err.Error())
 	}
-	uiStatusLine(stOK, "Lanceur mis à jour : "+self)
+	uiStatusLine(stOK, "Lanceur mis à jour : "+self+" (version "+shortBuild(want)+")")
 	removeAgentUnits() // démarrage automatique par systemd des anciennes versions
 	uiKV(0, kv{"Vérification", os.Args[0] + " --help"})
 	return 0
