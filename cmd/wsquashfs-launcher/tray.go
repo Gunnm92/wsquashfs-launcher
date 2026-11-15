@@ -41,8 +41,9 @@ const (
 	trayRefresh     = 10 * time.Second
 )
 
-// pairCodeRe : code d'association dans la sortie de --pair.
-var pairCodeRe = regexp.MustCompile(`wsq://\S+`)
+// pairCodeRe : code d'association dans la sortie de --pair, au format de pairCode
+// (wsq://SECRET@HÔTE:PORT#EMPREINTE) : la note « --sync wsq://… » ne doit pas être prise pour lui.
+var pairCodeRe = regexp.MustCompile(`wsq://[A-Za-z0-9_-]+@[^\s@#]+:[0-9]+#[0-9A-Fa-f]{64}`)
 
 // trayPidFile : PID de l'icône en marche, dans le dossier de l'agent.
 func trayPidFile() string {

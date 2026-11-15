@@ -279,3 +279,15 @@ func TestManagerUIURL(t *testing.T) {
 		}
 	}
 }
+
+// TestPairCodeRe : le code est repéré dans la sortie de --pair, pas la note qui la suit ou la précède.
+func TestPairCodeRe(t *testing.T) {
+	code := pairCode("s3cr3t_-X", "192.168.1.20", 8790, strings.Repeat("AB", 32))
+	out := "Colle ce code sur l'autre machine (wsquashfs-launcher --sync wsq://…)\n  " + code + "\n"
+	if got := pairCodeRe.FindString(out); got != code {
+		t.Fatalf("code repéré %q, voulu %q", got, code)
+	}
+	if got := pairCodeRe.FindString("wsquashfs-launcher --sync wsq://…)"); got != "" {
+		t.Fatalf("note prise pour un code : %q", got)
+	}
+}
