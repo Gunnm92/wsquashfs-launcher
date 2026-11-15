@@ -57,7 +57,7 @@ func rigRemote(t *testing.T, r *syncRig, name string) remoteSave {
 // syncOne : synchronise le jeu de test avec le serveur de test, depuis le dossier local donné.
 func syncOne(t *testing.T, r *syncRig, local, stateRoot string, dryRun bool) (uiStatus, string) {
 	t.Helper()
-	return syncGameWith(r.client, "steambox", rigPeerID(r), stateRoot, syncRigGame, local, rigRemote(t, r, syncRigGame), dryRun)
+	return syncGameWith(r.client, "steambox", rigPeerID(r), stateRoot, syncRigGame, gameTarget(syncRigGame, local), rigRemote(t, r, syncRigGame), dryRun)
 }
 
 // syncArchiveWith : la seule archive de dossier backups qui contient le fichier donné.
@@ -373,7 +373,7 @@ func TestSyncArchiveNamesStash(t *testing.T) {
 	local := clientUsers(t)
 	syncTestPut(t, filepath.Join(local, "steamuser", "Documents", "Game", "client.sav"), "client", syncTestTime.Add(time.Hour))
 
-	_, archived, err := r.client.send(syncRigGame, local)
+	_, archived, err := r.client.send(gameTarget(syncRigGame, local))
 	if err != nil {
 		t.Fatalf("envoi vers une mise de côté : %v", err)
 	}

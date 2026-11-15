@@ -10,6 +10,8 @@ package main
 //   --sync <jeu>              un jeu
 //   --sync status [jeu]       ce que ferait --sync, sans rien changer
 //   --sync forget <machine>   retirer une machine associée
+//   --sync dir                dossiers déclarés et jeux Switch d'Eden
+//   --sync dir add <nom> <chemin> | dir forget <nom>   déclarer ou retirer un dossier
 
 import (
 	"errors"
@@ -20,7 +22,7 @@ import (
 	"strings"
 )
 
-const syncUsage = "wsquashfs-launcher --sync [jeu | status [jeu] | forget <machine> | wsq://…]"
+const syncUsage = "wsquashfs-launcher --sync [jeu | status [jeu] | forget <machine> | dir … | wsq://…]"
 
 // syncLockGame : verrou local d'un jeu (lockIdleGame). Variable : les tests simulent deux machines
 // dans un même processus, qui partagent les globales (et donc le fichier de verrou) ; ils la
@@ -44,6 +46,8 @@ func cmdSync(args []string) int {
 			usageError("wsquashfs-launcher --sync forget <machine>")
 		}
 		return syncForget(cfg, args[1])
+	case first == "dir":
+		return syncDirCmd(cfg, args[1:])
 	case first == "status":
 		if len(args) > 2 {
 			usageError("wsquashfs-launcher --sync status [jeu]")
@@ -60,13 +64,92 @@ func cmdSync(args []string) int {
 	return syncRun(cfg, syncGameArg(args[0]), false)
 }
 
-// syncGameArg : nom de jeu d'un argument (image, dossier ou nom) ; sortie si le nom n'est pas valide.
+// syncGameArg : nom de synchro d'un argument : dossier:<nom> ou switch:<TitleID> tel quel, sinon
+// nom de jeu (image, dossier ou nom) ; sortie si le nom n'est pas valide.
 func syncGameArg(arg string) string {
+	if strings.HasPrefix(arg, syncDirPrefix) || strings.HasPrefix(arg, syncSwitchPrefix) {
+		if !validSyncName(arg) {
+			die("nom invalide : " + arg)
+		}
+		return arg
+	}
 	game := gameNameOf(arg)
 	if !validSyncGame(game) {
 		die("jeu invalide : " + arg)
 	}
 	return game
+}
+
+// syncDirCmd : --sync dir [add <nom> <chemin> | forget <nom>].
+func syncDirCmd(cfg syncConfig, args []string) int {
+	switch {
+	case len(args) == 0:
+		syncDirList(cfg)
+		return 0
+	case args[0] == "add" && len(args) == 3:
+		next, err := addSyncDir(cfg, args[1], args[2])
+		if err != nil {
+			die(err.Error())
+		}
+		if err := saveSyncConfig(next); err != nil {
+			die("configuration non enregistrée : " + err.Error())
+		}
+		for _, d := range next.Dirs {
+			if d.Name == args[1] {
+				uiStatusLine(stOK, "Dossier déclaré : "+d.Name+" ("+d.Path+")")
+			}
+		}
+		uiNote("Le déclarer aussi sur les autres machines (même nom, leur chemin), puis --sync.")
+		return 0
+	case args[0] == "forget" && len(args) == 2:
+		next, found := removeSyncDir(cfg, args[1])
+		if !found {
+			die("dossier inconnu : " + args[1])
+		}
+		if err := saveSyncConfig(next); err != nil {
+			die("configuration non enregistrée : " + err.Error())
+		}
+		uiStatusLine(stOK, "Dossier retiré : "+args[1]+" (ses fichiers restent)")
+		return 0
+	}
+	usageError("wsquashfs-launcher --sync dir [add <nom> <chemin> | forget <nom>]")
+	return 1
+}
+
+// syncDirList : dossiers déclarés, puis les jeux Switch d'Eden.
+func syncDirList(cfg syncConfig) {
+	uiTitle("Synchronisation des sauvegardes", "dossiers et Switch")
+	uiSection("Dossiers déclarés")
+	if len(cfg.Dirs) == 0 {
+		uiNote("Aucun. Déclarer : wsquashfs-launcher --sync dir add <nom> <chemin>")
+	}
+	for _, d := range cfg.Dirs {
+		t := syncTarget{Dir: d.Path, Plain: true}
+		files := t.files()
+		detail := d.Path + " · vide"
+		if len(files) > 0 {
+			detail = d.Path + " · " + sizeText(saveSize(files))
+		}
+		uiKV(2, kv{d.Name, detail})
+	}
+	uiSection("Switch (Eden)")
+	data := edenDataDir()
+	switch user := edenSaveUser(); {
+	case data == "":
+		uiNote("Eden absent (WSQUASHFS_EDEN_DIR pour un autre emplacement).")
+	case user == "":
+		uiNote("Eden trouvé (" + data + "), sans profil : le lancer une fois.")
+	default:
+		titles := edenTitlesOf(user)
+		uiNote(fmt.Sprintf("%s · %d jeu(x), synchronisés jeu par jeu", data, len(titles)))
+		for _, id := range titles {
+			if name := edenTitleName(id); name != "" {
+				uiKV(2, kv{id, name})
+			} else {
+				uiKV(2, kv{id, "(nom inconnu : ouvrir la liste des jeux d'Eden)"})
+			}
+		}
+	}
 }
 
 // syncPeerID : identifiant local d'une machine associée, tenu dans l'état de synchro : les 32 premiers
@@ -191,7 +274,7 @@ func syncStateGames(stateRoot, peerID string) []string {
 	}
 	var out []string
 	for _, e := range entries {
-		if g, ok := strings.CutSuffix(e.Name(), ".json"); ok && validSyncGame(g) {
+		if g, ok := strings.CutSuffix(e.Name(), ".json"); ok && validSyncName(g) {
 			out = append(out, g)
 		}
 	}
@@ -212,7 +295,7 @@ func syncRun(cfg syncConfig, game string, dryRun bool) int {
 	uiTitle("Synchronisation des sauvegardes", sub)
 	stateRoot := syncStateRoot()
 	local := map[string]bool{}
-	for _, g := range syncGames() {
+	for _, g := range syncNames() {
 		local[g] = true
 	}
 	peers := append([]syncPeer{}, cfg.Peers...)
@@ -238,7 +321,7 @@ func syncRun(cfg syncConfig, game string, dryRun bool) int {
 			games[g] = true
 		}
 		for _, r := range remote {
-			if validSyncGame(r.Name) {
+			if validSyncName(r.Name) {
 				byName[r.Name] = r
 				games[r.Name] = true
 			}
@@ -258,21 +341,38 @@ func syncRun(cfg syncConfig, game string, dryRun bool) int {
 			}
 			names = []string{game}
 		}
-		g := newUIGames(names)
+		// Nom affiché : nom lisible d'un dossier ou d'un jeu Switch (d'ici, sinon de l'autre machine).
+		labels := map[string]string{}
+		shown := make([]string, 0, len(names))
+		for _, name := range names {
+			labels[name] = name
+			if t, err := syncTargetOf(name); err == nil && t.Label != "" {
+				labels[name] = t.Label
+			} else if l := byName[name].Label; l != "" {
+				labels[name] = l
+			}
+			shown = append(shown, labels[name])
+		}
+		g := newUIGames(shown)
 		oneSide := 0
 		for _, name := range names {
 			// --sync sans jeu : un jeu qui n'a de sauvegardes que d'un côté n'est pas une
 			// différence (machine à plus petit stockage, jeu pas installé). Le copier sur
 			// l'autre machine : --sync "<jeu>", explicite.
+			t, terr := syncTargetOf(name)
 			if game == "" {
-				users := syncUsersDir(name)
-				if here := saveFingerprint(users, collectSaveFiles(users)) != ""; here != (byName[name].Fingerprint != "") {
+				here := terr == nil && t.fingerprint(t.files()) != ""
+				if here != (byName[name].Fingerprint != "") {
 					oneSide++
 					continue
 				}
 			}
-			st, msg := syncGameWith(client, peer.Name, peerID, stateRoot, name, syncUsersDir(name), byName[name], dryRun)
-			g.line(st, name, msg)
+			if terr != nil {
+				g.line(stSkip, labels[name], "absent ici (dossier non déclaré : --sync dir add, ou Eden absent)")
+				continue
+			}
+			st, msg := syncGameWith(client, peer.Name, peerID, stateRoot, name, t, byName[name], dryRun)
+			g.line(st, labels[name], msg)
 			if st == stFail {
 				failed = true
 			}
@@ -316,16 +416,22 @@ func conflictWhy(winSize, loseSize int64) string {
 	return why + " gardée (" + sizeText(winSize) + " contre " + sizeText(loseSize) + ")"
 }
 
-// syncGameWith : synchronise UN jeu avec une machine associée. users : users/ local du jeu ; remote :
-// son état sur la machine distante (liste). dryRun : rien n'est verrouillé ni écrit. Retourne le
-// statut et le texte de la ligne du jeu.
-func syncGameWith(c *syncClient, peerName, peerID, stateRoot, name, users string, remote remoteSave, dryRun bool) (uiStatus, string) {
-	if gameUsesSaveDir(name) {
+// syncGameWith : synchronise UNE cible (jeu, dossier, jeu Switch) avec une machine associée.
+// remote : son état sur la machine distante (liste). dryRun : rien n'est verrouillé ni écrit.
+// Retourne le statut et le texte de la ligne.
+func syncGameWith(c *syncClient, peerName, peerID, stateRoot, name string, t syncTarget, remote remoteSave, dryRun bool) (uiStatus, string) {
+	if t.game && gameUsesSaveDir(name) {
 		return stSkip, "sauvegardes hors du prefix (SAVEDIR/SAVEFILES), non synchronisées"
 	}
 	var lock *os.File
 	if !dryRun {
-		f, ok := syncLockGame(name)
+		var f *os.File
+		var ok bool
+		if t.game {
+			f, ok = syncLockGame(name)
+		} else {
+			f, ok = t.lock()
+		}
 		if !ok {
 			return stSkip, "en cours ici, ignoré"
 		}
@@ -334,8 +440,8 @@ func syncGameWith(c *syncClient, peerName, peerID, stateRoot, name, users string
 	if lock != nil {
 		defer lock.Close()
 	}
-	files := collectSaveFiles(users)
-	fp := saveFingerprint(users, files)
+	files := t.files()
+	fp := t.fingerprint(files)
 	if fp == "" && remote.Fingerprint == "" {
 		return stSkip, "aucune sauvegarde ici ni sur " + peerName
 	}
@@ -358,11 +464,11 @@ func syncGameWith(c *syncClient, peerName, peerID, stateRoot, name, users string
 		return stOK, "à jour"
 
 	case syncSend, syncConflictSend:
-		_, archived, err := c.send(name, users)
+		_, archived, err := c.send(t)
 		if err != nil {
 			return syncErrStatus(err, peerName)
 		}
-		if err := saveSyncState(stateRoot, peerID, name, saveFingerprint(users, collectSaveFiles(users))); err != nil {
+		if err := saveSyncState(stateRoot, peerID, name, t.fingerprint(t.files())); err != nil {
 			return stFail, err.Error()
 		}
 		if action == syncConflictSend {
@@ -375,20 +481,20 @@ func syncGameWith(c *syncClient, peerName, peerID, stateRoot, name, users string
 		// l'état enregistré est incohérent) : mise de côté avant d'être remplacée.
 		archivedLocal := ""
 		if fp != "" && (fp != state || action == syncConflictReceive) {
-			path, err := archiveUsers(name, filepath.Dir(users), filepath.Base(users))
+			path, err := t.archiveLocal()
 			if err != nil {
 				return stFail, "version d'ici non archivée, rien reçu : " + err.Error()
 			}
 			archivedLocal = path
 		}
-		rfp, err := c.fetch(name, users)
+		rfp, err := c.fetch(t)
 		if err != nil {
 			return syncErrStatus(err, peerName)
 		}
 		if err := c.ack(name, rfp); err != nil && isUnreachable(err) {
 			return stFail, "reçu, mais l'état n'est pas confirmé sur " + peerName + " : " + err.Error()
 		}
-		if err := saveSyncState(stateRoot, peerID, name, saveFingerprint(users, collectSaveFiles(users))); err != nil {
+		if err := saveSyncState(stateRoot, peerID, name, t.fingerprint(t.files())); err != nil {
 			return stFail, err.Error()
 		}
 		if action == syncConflictReceive {

@@ -161,7 +161,7 @@ avec `GET /v1/games/part`, puis `PUT` à partir de `part_size`.
 ### Maintenance (`POST /v1/maintenance`)
 
 Table fermée (`maintenanceActions` dans `agent_http.go`), contrat commun avec
-wsquashfs-manager (version de l'agent : **7**, route `GET /v1/info`).
+wsquashfs-manager (version de l'agent : **8**, route `GET /v1/info`).
 
 | `action` | Lanceur | `rel` (image du jeu) |
 |---|---|---|
@@ -185,8 +185,13 @@ Ces routes servent la synchro manuelle des sauvegardes entre machines (commande
 aléatoire de la machine cliente, 400 sinon, et celui de la machine du jeton, 401 sinon) : l'état de synchro est tenu par
 machine, dans `savesDir/.sync/<identifiant>/<jeu>.json`. Le périmètre est celui de
 `--save` / `--saves` (sous users/, sans caches ni comptes système). La liste des jeux
-(`GET /v1/saves/list`) est celle de `--sync` (`syncGames`, sync.go) : overlay, copie de travail
-et mise de côté du mode copy.
+(`GET /v1/saves/list`) est celle de `--sync` (`syncNames`, sync_extra.go) : jeux (overlay, copie de
+travail et mise de côté du mode copy), plus les **dossiers déclarés** (`dossier:<nom>`) et les **jeux
+Switch d'Eden** (`switch:<TitleID>`). Ces deux-là sont des dossiers simples, copiés tels quels (pas de
+profil Wine, pas d'en-tête `X-Wsq-Profile`) ; leur `label` dans la liste est le nom lisible (nom du
+dossier, « Switch · <nom du jeu> » lu dans le cache de la liste d'Eden, sinon le TitleID). Une machine
+où l'entrée n'existe pas (dossier non déclaré, Eden absent) répond 404 sur `tar` et `state`, et n'est
+jamais modifiée. Un jeu Switch est refusé (409) tant qu'Eden tourne.
 
 | Route | Rôle |
 |---|---|
@@ -194,6 +199,9 @@ et mise de côté du mode copy.
 | `GET /v1/saves/tar?game=` | archive tar.gz du périmètre (en-têtes `X-Wsq-Fingerprint`, `X-Wsq-Profile`) ; 404 sans sauvegarde |
 | `PUT /v1/saves/tar?game=` | remplace le périmètre par l'archive (2 Gio max, 413 sinon) ; une archive sans fichier est refusée (« archive vide »), et une archive qui dépasse 4 Gio décompressés aussi : dans les deux cas rien n'est modifié (la même garde vaut à la réception côté client) ; si la version locale a changé depuis la dernière synchro avec cette machine, elle est archivée dans le dossier backups d'abord (réponse `archived`) |
 | `POST /v1/saves/state` `{game, fingerprint}` | enregistre l'empreinte commune après une réception (409 si le jeu a changé entre-temps) |
+| `GET /v1/saves/dirs` | dossiers déclarés `{dirs:[{name,path}], eden}` (`eden` : dossier d'Eden détecté, `""` sinon) |
+| `PUT /v1/saves/dirs` `{name, path}` | déclare (ou remplace, même nom) un dossier à synchroniser : chemin absolu sous HOME (HOME exclu), qui peut ne pas exister encore ; nom : lettres, chiffres, espace, `_` et `-` (48 au plus) ; 400 sinon. Répond la liste |
+| `DELETE /v1/saves/dirs?name=` | retire la déclaration, les fichiers restent (404 nom inconnu). Répond la liste |
 | `DELETE /v1/saves/tar?game=` | supprime les sauvegardes du jeu sur cette machine : le périmètre est archivé d'abord dans le dossier backups (réponse `archived`, en 500 sans rien supprimer si l'archivage échoue) ; seuls les fichiers du périmètre partent, puis les dossiers devenus vides (caches et fichiers hors périmètre restent) ; l'état de synchro de la machine appelante pour ce jeu est effacé (réponse `removed`, nombre de fichiers). Sans sauvegarde : 200 `removed: 0`, rien d'archivé |
 
 Règle du conflit (les deux côtés ont changé depuis la dernière synchro) : la version la plus lourde gagne, à taille égale la plus récente ; la perdante est archivée dans le dossier backups.

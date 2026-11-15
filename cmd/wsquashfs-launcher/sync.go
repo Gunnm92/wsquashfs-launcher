@@ -142,6 +142,11 @@ func saveFingerprint(users string, files []saveFile) string {
 		}
 		lines = append(lines, fmt.Sprintf("%s\x00%d\x00%d\n", rel, f.Size, f.MTime))
 	}
+	return hashLines(lines)
+}
+
+// hashLines : sha256 hexadécimal des lignes, triées.
+func hashLines(lines []string) string {
 	sort.Strings(lines)
 	h := sha256.New()
 	for _, l := range lines {
@@ -191,6 +196,15 @@ func writeSaveArchive(w io.Writer, users string, files []saveFile) (profile stri
 	if single {
 		profile = profs[0]
 	}
+	if err := writeArchiveTree(w, users, files, func(rel string) string { return archiveEntryName(rel, single) }); err != nil {
+		return "", err
+	}
+	return profile, nil
+}
+
+// writeArchiveTree : tar.gz des fichiers de root (Rel relatifs à root), dossiers intermédiaires
+// compris, avec mode et date ; name donne le nom d'entrée d'un chemin relatif.
+func writeArchiveTree(w io.Writer, root string, files []saveFile, name func(rel string) string) error {
 	gz := gzip.NewWriter(w)
 	tw := tar.NewWriter(gz)
 	dirsDone := map[string]bool{}
@@ -203,32 +217,32 @@ func writeSaveArchive(w io.Writer, users string, files []saveFile) (profile stri
 				continue
 			}
 			dirsDone[dirRel] = true
-			st, err := os.Lstat(filepath.Join(users, filepath.FromSlash(dirRel)))
+			st, err := os.Lstat(filepath.Join(root, filepath.FromSlash(dirRel)))
 			if err != nil {
-				return "", err
+				return err
 			}
 			hdr := &tar.Header{
 				Typeflag: tar.TypeDir,
-				Name:     archiveEntryName(dirRel, single) + "/",
+				Name:     name(dirRel) + "/",
 				Mode:     int64(st.Mode().Perm()),
 				ModTime:  time.Unix(st.ModTime().Unix(), 0),
 			}
 			if err := tw.WriteHeader(hdr); err != nil {
-				return "", err
+				return err
 			}
 		}
-		fp := filepath.Join(users, filepath.FromSlash(f.Rel))
+		fp := filepath.Join(root, filepath.FromSlash(f.Rel))
 		st, err := os.Lstat(fp)
 		if err != nil || !st.Mode().IsRegular() {
-			return "", fmt.Errorf("%s : fichier absent ou non régulier", f.Rel)
+			return fmt.Errorf("%s : fichier absent ou non régulier", f.Rel)
 		}
 		src, err := os.Open(fp)
 		if err != nil {
-			return "", err
+			return err
 		}
 		hdr := &tar.Header{
 			Typeflag: tar.TypeReg,
-			Name:     archiveEntryName(f.Rel, single),
+			Name:     name(f.Rel),
 			Mode:     int64(st.Mode().Perm()),
 			Size:     st.Size(),
 			ModTime:  time.Unix(st.ModTime().Unix(), 0),
@@ -239,16 +253,13 @@ func writeSaveArchive(w io.Writer, users string, files []saveFile) (profile stri
 		}
 		_ = src.Close()
 		if err != nil {
-			return "", err
+			return err
 		}
 	}
 	if err := tw.Close(); err != nil {
-		return "", err
+		return err
 	}
-	if err := gz.Close(); err != nil {
-		return "", err
-	}
-	return profile, nil
+	return gz.Close()
 }
 
 // syncEntry : entrée d'archive acceptée : profil (token non résolu), chemin restant, dossier ou fichier.
@@ -400,7 +411,33 @@ var syncMaxUnpacked int64 = 4 << 30
 // Refusées avant toute modification : une archive sans fichier (« archive vide »), une archive qui
 // dépasse syncMaxUnpacked décompressés.
 func applySaveArchive(r io.Reader, users string, origProfile string) error {
-	parent := filepath.Dir(users)
+	local, err := localSyncProfile(users, origProfile)
+	if err != nil {
+		return err
+	}
+	entry := func(hdr *tar.Header) (string, bool, error) {
+		e, err := checkSyncEntry(hdr)
+		if err != nil {
+			return "", false, err
+		}
+		profile := e.profile
+		if profile == syncProfileToken {
+			profile = local
+		}
+		rel := profile
+		if e.rest != "" {
+			rel += "/" + e.rest
+		}
+		return rel, e.isDir, nil
+	}
+	return replaceFromArchive(r, users, entry, func() []saveFile { return collectSaveFiles(users) })
+}
+
+// replaceFromArchive : extrait l'archive dans un dossier temporaire frère de root (entry valide chaque
+// entrée et donne son chemin relatif à root), puis remplace les fichiers current() de root par ceux de
+// l'archive. Rien n'est modifié tant que toute l'archive n'est pas extraite et vérifiée.
+func replaceFromArchive(r io.Reader, root string, entry func(*tar.Header) (string, bool, error), current func() []saveFile) error {
+	parent := filepath.Dir(root)
 	if err := os.MkdirAll(parent, 0o755); err != nil {
 		return err
 	}
@@ -410,10 +447,6 @@ func applySaveArchive(r io.Reader, users string, origProfile string) error {
 	}
 	defer func() { _ = os.RemoveAll(tmp) }()
 
-	local, err := localSyncProfile(users, origProfile)
-	if err != nil {
-		return err
-	}
 	zr, err := gzip.NewReader(r)
 	if err != nil {
 		return err
@@ -431,27 +464,19 @@ func applySaveArchive(r io.Reader, users string, origProfile string) error {
 		if err != nil {
 			return err
 		}
-		e, err := checkSyncEntry(hdr)
+		rel, isDir, err := entry(hdr)
 		if err != nil {
 			return err
 		}
 		// Taille annoncée par l'en-tête : une archive truquée ne fait pas écrire plus que la limite.
-		if !e.isDir {
+		if !isDir {
 			unpacked += hdr.Size
 			if unpacked > syncMaxUnpacked {
 				return fmt.Errorf("archive trop volumineuse : plus de %s décompressés", sizeText(syncMaxUnpacked))
 			}
 		}
-		profile := e.profile
-		if profile == syncProfileToken {
-			profile = local
-		}
-		rel := profile
-		if e.rest != "" {
-			rel += "/" + e.rest
-		}
 		p := filepath.Join(tmp, filepath.FromSlash(rel))
-		if e.isDir {
+		if isDir {
 			if err := os.MkdirAll(p, 0o755); err != nil {
 				return err
 			}
@@ -473,7 +498,7 @@ func applySaveArchive(r io.Reader, users string, origProfile string) error {
 		}
 		moves = append(moves, syncMove{
 			src:   p,
-			dst:   filepath.Join(users, filepath.FromSlash(rel)),
+			dst:   filepath.Join(root, filepath.FromSlash(rel)),
 			mtime: hdr.ModTime.Unix(),
 		})
 	}
@@ -483,17 +508,17 @@ func applySaveArchive(r io.Reader, users string, origProfile string) error {
 		return errors.New("archive vide")
 	}
 	// Tout a été extrait sans erreur, et rien n'est encore modifié : les destinations ne doivent pas
-	// passer par un lien (MkdirAll et Rename suivraient le lien et écriraient hors de users/).
-	if err := checkSyncDests(users, moves); err != nil {
+	// passer par un lien (MkdirAll et Rename suivraient le lien et écriraient hors de root).
+	if err := checkSyncDests(root, moves); err != nil {
 		return err
 	}
 	// On remplace le périmètre.
-	for _, f := range collectSaveFiles(users) {
-		if err := os.Remove(filepath.Join(users, filepath.FromSlash(f.Rel))); err != nil && !os.IsNotExist(err) {
+	for _, f := range current() {
+		if err := os.Remove(filepath.Join(root, filepath.FromSlash(f.Rel))); err != nil && !os.IsNotExist(err) {
 			return err
 		}
 	}
-	if err := os.MkdirAll(users, 0o755); err != nil {
+	if err := os.MkdirAll(root, 0o755); err != nil {
 		return err
 	}
 	for _, m := range moves {

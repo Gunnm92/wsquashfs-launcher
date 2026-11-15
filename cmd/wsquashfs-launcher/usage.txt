@@ -21,6 +21,8 @@ Jeux :
 Sauvegardes :
   wsquashfs-launcher --sync [jeu | status | wsq://…]
         Synchronise les sauvegardes avec les machines associées.
+  wsquashfs-launcher --sync dir  |  --sync dir add <nom> <chemin>
+        Autres dossiers à synchroniser ; les jeux Switch d'Eden suivent seuls.
   wsquashfs-launcher --save <jeu>  |  --saves
         Copie les sauvegardes de partie dans la ludothèque.
   wsquashfs-launcher --clean

@@ -463,7 +463,7 @@ func TestGamesInfoVersion(t *testing.T) {
 	rec := g.req("GET", "/v1/info", nil, nil)
 	info := decodeGames(t, rec)
 	dir, _ := info["games_dir"].(string)
-	if info["version"] != "7" || !filepath.IsAbs(dir) || info["games_dir_set"] != false {
+	if info["version"] != agentVersion || !filepath.IsAbs(dir) || info["games_dir_set"] != false {
 		t.Errorf("/v1/info : %v", info)
 	}
 }

@@ -248,7 +248,7 @@ func TestMaintenanceArgs(t *testing.T) {
 		Version string `json:"version"`
 		OS      string `json:"os"`
 	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &info); err != nil || info.Version != "7" || info.OS == "" {
+	if err := json.Unmarshal(rec.Body.Bytes(), &info); err != nil || info.Version != agentVersion || info.OS == "" {
 		t.Errorf("/v1/info : version et os attendus, %s (%v)", rec.Body.String(), err)
 	}
 }
@@ -619,7 +619,7 @@ func TestPairExchange(t *testing.T) {
 		t.Fatal(err)
 	}
 	token, host, version := pairReplyOf(t, postPair(h, secret, "aaaa-machine-01", `{"name":"  Steam\u0001Box  "}`))
-	if token == "" || token == secret || host == "" || version != "7" {
+	if token == "" || token == secret || host == "" || version != agentVersion {
 		t.Fatalf("réponse : jeton %q, hôte %q, version %q", token, host, version)
 	}
 	if rec := do(h, "GET", "/v1/info", token, ""); rec.Code != http.StatusOK {

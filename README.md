@@ -445,6 +445,13 @@ wsquashfs-launcher --sync status             # ce qui serait fait, sans rien cha
 wsquashfs-launcher --sync forget <machine>   # retirer une machine (côté A)
 # Sur B : couper l'accès d'une machine (--pair forget), ou de toutes (--pair reset)
 wsquashfs-launcher --pair forget <machine>
+
+# D'autres sauvegardes : un dossier quelconque, déclaré sur chaque machine (même
+# nom, chemin propre à la machine, sous HOME), puis synchronisé comme un jeu
+wsquashfs-launcher --sync dir add hookshot ~/.local/share/hookshot/save
+wsquashfs-launcher --sync dir                # dossiers déclarés et jeux Switch d'Eden
+wsquashfs-launcher --sync dir forget hookshot   # retire la déclaration (fichiers gardés)
+wsquashfs-launcher --sync "dossier:hookshot"    # ce dossier seulement
 ```
 
 - **Code à usage unique** : le code `wsq://…` ne sert qu'à une association, pendant
@@ -469,6 +476,15 @@ wsquashfs-launcher --pair forget <machine>
 - **Limites** : les jeux qui sauvegardent hors de leur prefix (dossier
   SAVEDIR ou SAVEFILES, registre Windows) ne sont pas synchronisés. Le jeu doit
   être arrêté sur les deux machines.
+- **Dossiers déclarés** (`dossier:<nom>`) : tout le dossier est copié tel quel.
+  Une machine où il n'est pas déclaré n'est pas touchée. On peut aussi les
+  déclarer depuis wsquashfs-manager (menu de la machine, onglet Sauvegardes).
+- **Jeux Switch (Eden)** : synchronisés d'office, **jeu par jeu**
+  (`switch:<TitleID>`), depuis `~/.local/share/eden/nand/user/save/` (Flatpak
+  aussi ; `WSQUASHFS_EDEN_DIR` pour un autre emplacement). Chaque machine a son
+  propre profil Eden : la sauvegarde va dans celui qui a le plus de jeux (lancer
+  Eden une fois sur une machine neuve). Le nom des jeux vient du cache de la
+  liste d'Eden ; refusé tant qu'Eden tourne.
 
 ### Variables d'optimisation
 

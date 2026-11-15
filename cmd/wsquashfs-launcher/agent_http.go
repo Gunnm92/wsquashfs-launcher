@@ -39,13 +39,14 @@ const doctorTTL = 5 * time.Minute
 const trialStopDelay = 60 * time.Second
 
 type agentServer struct {
-	cfg    agentConfig
-	logOn  bool
-	trial  sync.Mutex // un essai à la fois
-	docMu  sync.Mutex
-	docOut []byte
-	docAt  time.Time
-	pairMu sync.Mutex // POST /v1/pair : un code consommé à la fois
+	cfg       agentConfig
+	logOn     bool
+	trial     sync.Mutex // un essai à la fois
+	docMu     sync.Mutex
+	docOut    []byte
+	docAt     time.Time
+	pairMu    sync.Mutex // POST /v1/pair : un code consommé à la fois
+	syncCfgMu sync.Mutex // sync.json : déclarations de dossiers (PUT/DELETE /v1/saves/dirs)
 	// Installation des images (games_http.go) : dossier détecté (cache de 10 min), envois en
 	// cours par nom. gamesMu protège aussi cfg.GamesDir.
 	gamesMu          sync.Mutex
@@ -73,6 +74,9 @@ func (s *agentServer) httpServer() *http.Server {
 	mux.HandleFunc("PUT /v1/saves/tar", s.syncMachine(s.savesPut))
 	mux.HandleFunc("DELETE /v1/saves/tar", s.syncMachine(s.savesDelete))
 	mux.HandleFunc("POST /v1/saves/state", s.syncMachine(s.savesState))
+	mux.HandleFunc("GET /v1/saves/dirs", s.syncMachine(s.savesDirs))
+	mux.HandleFunc("PUT /v1/saves/dirs", s.syncMachine(s.savesDirPut))
+	mux.HandleFunc("DELETE /v1/saves/dirs", s.syncMachine(s.savesDirDelete))
 	mux.HandleFunc("GET /v1/games/list", s.auth(s.gamesList))
 	mux.HandleFunc("POST /v1/games/dir", s.auth(s.gamesSetDir))
 	mux.HandleFunc("GET /v1/games/part", s.auth(s.gamesPart))
@@ -680,6 +684,7 @@ func (s *agentServer) syncMachine(next http.HandlerFunc) http.HandlerFunc {
 // remoteSave : un jeu tel que la machine le voit pour la synchro (routes /v1/saves/list).
 type remoteSave struct {
 	Name        string `json:"name"`
+	Label       string `json:"label,omitempty"` // dossier déclaré, jeu Switch : nom lisible
 	Fingerprint string `json:"fingerprint"`
 	Newest      int64  `json:"newest"`
 	Size        int64  `json:"size"`
@@ -698,9 +703,10 @@ func (s *agentServer) savesList(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	// Même liste que --sync (syncGames), plus les jeux qui n'ont qu'un état pour cette machine.
+	// Même liste que --sync (syncNames : jeux, dossiers déclarés, jeux Switch), plus ce qui n'a
+	// qu'un état pour cette machine.
 	names := map[string]bool{}
-	for _, g := range syncGames() {
+	for _, g := range syncNames() {
 		names[g] = true
 	}
 	for g := range withState {
@@ -708,17 +714,17 @@ func (s *agentServer) savesList(w http.ResponseWriter, r *http.Request) {
 	}
 	games := []remoteSave{}
 	for name := range names {
-		if !validSyncGame(name) {
+		t, err := syncTargetOf(name)
+		if err != nil {
 			continue
 		}
-		users := syncUsersDir(name)
-		files := collectSaveFiles(users)
-		fp := saveFingerprint(users, files)
+		files := t.files()
+		fp := t.fingerprint(files)
 		if fp == "" && !withState[name] {
 			continue
 		}
 		st := loadSyncState(syncStateRoot(), machine, name)
-		games = append(games, remoteSave{Name: name, Fingerprint: fp, Newest: newestSave(files), Size: saveSize(files), State: st.Fingerprint})
+		games = append(games, remoteSave{Name: name, Label: t.Label, Fingerprint: fp, Newest: newestSave(files), Size: saveSize(files), State: st.Fingerprint})
 	}
 	sort.Slice(games, func(i, j int) bool { return games[i].Name < games[j].Name })
 	writeJSON(w, http.StatusOK, map[string]any{"games": games})
@@ -728,11 +734,12 @@ func (s *agentServer) savesList(w http.ResponseWriter, r *http.Request) {
 // temporaire d'abord : l'empreinte et le profil partent dans les en-têtes, avant le corps.
 func (s *agentServer) savesGet(w http.ResponseWriter, r *http.Request) {
 	game := r.URL.Query().Get("game")
-	if !validSyncGame(game) {
-		writeDetail(w, http.StatusBadRequest, "jeu invalide")
+	t, err := syncTargetOf(game)
+	if err != nil {
+		writeSyncTargetErr(w, err)
 		return
 	}
-	lock, ok := lockIdleGame(game)
+	lock, ok := t.lock()
 	if !ok {
 		writeDetail(w, http.StatusConflict, "jeu en cours")
 		return
@@ -740,13 +747,12 @@ func (s *agentServer) savesGet(w http.ResponseWriter, r *http.Request) {
 	if lock != nil {
 		defer lock.Close()
 	}
-	users := syncUsersDir(game)
-	files := collectSaveFiles(users)
+	files := t.files()
 	if len(files) == 0 {
 		writeDetail(w, http.StatusNotFound, "aucune sauvegarde pour ce jeu")
 		return
 	}
-	fp := saveFingerprint(users, files)
+	fp := t.fingerprint(files)
 	tmp, err := os.CreateTemp("", "wsq-sync-*.tar.gz")
 	if err != nil {
 		writeDetail(w, http.StatusInternalServerError, "erreur interne de l'agent")
@@ -754,7 +760,7 @@ func (s *agentServer) savesGet(w http.ResponseWriter, r *http.Request) {
 	}
 	defer os.Remove(tmp.Name())
 	defer tmp.Close()
-	profile, err := writeSaveArchive(tmp, users, files)
+	profile, err := t.writeArchive(tmp, files)
 	if err != nil {
 		writeDetail(w, http.StatusInternalServerError, "archive impossible : "+game)
 		return
@@ -783,12 +789,13 @@ func (s *agentServer) savesGet(w http.ResponseWriter, r *http.Request) {
 // la version perdante du conflit, rien ne doit disparaître. Sans archive, rien n'est remplacé.
 func (s *agentServer) savesPut(w http.ResponseWriter, r *http.Request) {
 	game := r.URL.Query().Get("game")
-	if !validSyncGame(game) {
-		writeDetail(w, http.StatusBadRequest, "jeu invalide")
+	t, err := syncTargetOf(game)
+	if err != nil {
+		writeSyncTargetErr(w, err)
 		return
 	}
 	machine := r.Header.Get("X-Wsq-Machine")
-	lock, ok := lockIdleGame(game)
+	lock, ok := t.lock()
 	if !ok {
 		writeDetail(w, http.StatusConflict, "jeu en cours")
 		return
@@ -796,12 +803,11 @@ func (s *agentServer) savesPut(w http.ResponseWriter, r *http.Request) {
 	if lock != nil {
 		defer lock.Close()
 	}
-	users := syncUsersDir(game)
-	cur := saveFingerprint(users, collectSaveFiles(users))
+	cur := t.fingerprint(t.files())
 	archived := ""
 	if cur != "" && cur != loadSyncState(syncStateRoot(), machine, game).Fingerprint {
 		// Le membre est le nom réel du dossier : une mise de côté (mode copy) ne s'appelle pas « users ».
-		path, err := archiveUsers(game, filepath.Dir(users), filepath.Base(users))
+		path, err := t.archiveLocal()
 		if err != nil {
 			writeDetail(w, http.StatusInternalServerError, "archivage de la version locale impossible, rien remplacé")
 			return
@@ -812,7 +818,7 @@ func (s *agentServer) savesPut(w http.ResponseWriter, r *http.Request) {
 	// compté à partir d'ici (l'archivage local ci-dessus n'y entre pas).
 	_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(savesPutTimeout))
 	r.Body = http.MaxBytesReader(w, r.Body, syncMaxBody)
-	if err := applySaveArchive(r.Body, users, r.Header.Get("X-Wsq-Profile")); err != nil {
+	if err := t.apply(r.Body, r.Header.Get("X-Wsq-Profile")); err != nil {
 		var tooBig *http.MaxBytesError
 		if errors.As(err, &tooBig) {
 			writeDetail(w, http.StatusRequestEntityTooLarge, "archive trop volumineuse")
@@ -821,7 +827,7 @@ func (s *agentServer) savesPut(w http.ResponseWriter, r *http.Request) {
 		writeDetail(w, http.StatusBadRequest, "archive refusée : "+err.Error())
 		return
 	}
-	fp := saveFingerprint(users, collectSaveFiles(users))
+	fp := t.fingerprint(t.files())
 	if err := saveSyncState(syncStateRoot(), machine, game, fp); err != nil {
 		writeDetail(w, http.StatusInternalServerError, "état de synchro non enregistré")
 		return
@@ -836,12 +842,18 @@ func (s *agentServer) savesPut(w http.ResponseWriter, r *http.Request) {
 // restent.
 func (s *agentServer) savesDelete(w http.ResponseWriter, r *http.Request) {
 	game := r.URL.Query().Get("game")
-	if !validSyncGame(game) {
-		writeDetail(w, http.StatusBadRequest, "jeu invalide")
+	t, err := syncTargetOf(game)
+	if errors.Is(err, errSyncAbsent) {
+		// Rien de déclaré ici : rien à supprimer (comme un jeu sans sauvegarde).
+		writeJSON(w, http.StatusOK, map[string]any{"archived": "", "removed": 0})
+		return
+	}
+	if err != nil {
+		writeSyncTargetErr(w, err)
 		return
 	}
 	machine := r.Header.Get("X-Wsq-Machine")
-	lock, ok := lockIdleGame(game)
+	lock, ok := t.lock()
 	if !ok {
 		writeDetail(w, http.StatusConflict, "jeu en cours")
 		return
@@ -849,8 +861,7 @@ func (s *agentServer) savesDelete(w http.ResponseWriter, r *http.Request) {
 	if lock != nil {
 		defer lock.Close()
 	}
-	users := syncUsersDir(game)
-	files := collectSaveFiles(users)
+	files := t.files()
 	if len(files) == 0 {
 		if err := removeSyncState(syncStateRoot(), machine, game); err != nil {
 			writeDetail(w, http.StatusInternalServerError, "état de synchro non supprimé")
@@ -859,23 +870,15 @@ func (s *agentServer) savesDelete(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"archived": "", "removed": 0})
 		return
 	}
-	archived, err := archiveUsers(game, filepath.Dir(users), filepath.Base(users))
+	archived, err := t.archiveLocal()
 	if err != nil {
 		writeDetail(w, http.StatusInternalServerError, "archivage impossible, rien supprimé")
 		return
 	}
-	removed := 0
-	for _, f := range files {
-		profile, _ := splitRel(f.Rel)
-		p := filepath.Join(users, filepath.FromSlash(f.Rel))
-		switch err := os.Remove(p); {
-		case err == nil:
-			removed++
-		case !errors.Is(err, fs.ErrNotExist):
-			writeDetail(w, http.StatusInternalServerError, "suppression impossible ("+err.Error()+"), archive : "+archived)
-			return
-		}
-		removeEmptyDirs(filepath.Dir(p), filepath.Join(users, profile))
+	removed, err := t.removeFiles(files)
+	if err != nil {
+		writeDetail(w, http.StatusInternalServerError, "suppression impossible ("+err.Error()+"), archive : "+archived)
+		return
 	}
 	if err := removeSyncState(syncStateRoot(), machine, game); err != nil {
 		writeDetail(w, http.StatusInternalServerError, "état de synchro non supprimé, archive : "+archived)
@@ -909,12 +912,12 @@ func (s *agentServer) savesState(w http.ResponseWriter, r *http.Request) {
 		writeDetail(w, http.StatusBadRequest, "requête illisible")
 		return
 	}
-	if !validSyncGame(req.Game) {
-		writeDetail(w, http.StatusBadRequest, "jeu invalide")
+	t, err := syncTargetOf(req.Game)
+	if err != nil {
+		writeSyncTargetErr(w, err)
 		return
 	}
-	users := syncUsersDir(req.Game)
-	cur := saveFingerprint(users, collectSaveFiles(users))
+	cur := t.fingerprint(t.files())
 	if cur != req.Fingerprint {
 		writeDetail(w, http.StatusConflict, "le jeu a changé sur cette machine depuis la lecture : relancer --sync")
 		return
@@ -924,4 +927,64 @@ func (s *agentServer) savesState(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"fingerprint": cur})
+}
+
+// writeSyncTargetErr : réponse d'erreur de syncTargetOf (400 nom invalide, 404 absent d'ici).
+func writeSyncTargetErr(w http.ResponseWriter, err error) {
+	code, msg := syncTargetHTTP(err)
+	writeDetail(w, code, msg)
+}
+
+// ── Dossiers déclarés (manager) ─────────────────────────────────────────
+
+// syncDirsReply : dossiers déclarés et dossier d'Eden détecté ("" si absent).
+func syncDirsReply() map[string]any {
+	dirs := loadSyncConfig().Dirs
+	if dirs == nil {
+		dirs = []syncDir{}
+	}
+	return map[string]any{"dirs": dirs, "eden": edenDataDir()}
+}
+
+// savesDirs : GET /v1/saves/dirs.
+func (s *agentServer) savesDirs(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, syncDirsReply())
+}
+
+// savesDirPut : PUT /v1/saves/dirs {name, path} : déclare (ou remplace) un dossier à synchroniser,
+// sous HOME. Répond la liste à jour.
+func (s *agentServer) savesDirPut(w http.ResponseWriter, r *http.Request) {
+	var req syncDir
+	if err := json.NewDecoder(io.LimitReader(r.Body, 8192)).Decode(&req); err != nil {
+		writeDetail(w, http.StatusBadRequest, "requête illisible")
+		return
+	}
+	s.syncCfgMu.Lock()
+	defer s.syncCfgMu.Unlock()
+	cfg, err := addSyncDir(loadSyncConfig(), strings.TrimSpace(req.Name), strings.TrimSpace(req.Path))
+	if err != nil {
+		writeDetail(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := saveSyncConfig(cfg); err != nil {
+		writeDetail(w, http.StatusInternalServerError, "configuration non enregistrée")
+		return
+	}
+	writeJSON(w, http.StatusOK, syncDirsReply())
+}
+
+// savesDirDelete : DELETE /v1/saves/dirs?name= : retire la déclaration (les fichiers restent).
+func (s *agentServer) savesDirDelete(w http.ResponseWriter, r *http.Request) {
+	s.syncCfgMu.Lock()
+	defer s.syncCfgMu.Unlock()
+	cfg, found := removeSyncDir(loadSyncConfig(), r.URL.Query().Get("name"))
+	if !found {
+		writeDetail(w, http.StatusNotFound, "dossier inconnu")
+		return
+	}
+	if err := saveSyncConfig(cfg); err != nil {
+		writeDetail(w, http.StatusInternalServerError, "configuration non enregistrée")
+		return
+	}
+	writeJSON(w, http.StatusOK, syncDirsReply())
 }

@@ -167,7 +167,7 @@ func TestSyncFetchWaitsLongerForHeaders(t *testing.T) {
 		})
 	})
 	want := saveFingerprint(r.users, collectSaveFiles(r.users))
-	fp, err := r.client.fetch(syncRigGame, clientUsers(t))
+	fp, err := r.client.fetch(gameTarget(syncRigGame, clientUsers(t)))
 	if err != nil {
 		t.Fatalf("réception avec en-têtes tardifs : %v", err)
 	}
@@ -220,7 +220,7 @@ func TestSyncFetchThenAck(t *testing.T) {
 	r := newSyncRig(t)
 	want := saveFingerprint(r.users, collectSaveFiles(r.users))
 	local := clientUsers(t)
-	fp, err := r.client.fetch(syncRigGame, local)
+	fp, err := r.client.fetch(gameTarget(syncRigGame, local))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -260,7 +260,7 @@ func TestSyncAckRefusedWhenServerChanged(t *testing.T) {
 func TestSyncSendReplacesRemote(t *testing.T) {
 	r := newSyncRig(t)
 	local := clientUsers(t)
-	fp, err := r.client.fetch(syncRigGame, local)
+	fp, err := r.client.fetch(gameTarget(syncRigGame, local))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -269,7 +269,7 @@ func TestSyncSendReplacesRemote(t *testing.T) {
 	}
 	syncTestPut(t, filepath.Join(local, "steamuser", "Documents", "Game", "nouvelle.sav"), "nouveau", syncTestTime.Add(time.Hour))
 	mine := saveFingerprint(local, collectSaveFiles(local))
-	remote, archived, err := r.client.send(syncRigGame, local)
+	remote, archived, err := r.client.send(gameTarget(syncRigGame, local))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -295,7 +295,7 @@ func TestSyncSendReplacesRemote(t *testing.T) {
 func TestSyncSendArchivesRemoteChange(t *testing.T) {
 	r := newSyncRig(t)
 	local := clientUsers(t)
-	fp, err := r.client.fetch(syncRigGame, local)
+	fp, err := r.client.fetch(gameTarget(syncRigGame, local))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -307,7 +307,7 @@ func TestSyncSendArchivesRemoteChange(t *testing.T) {
 	// Changement côté client.
 	syncTestPut(t, filepath.Join(local, "steamuser", "Documents", "Game", "client.sav"), "client", syncTestTime)
 
-	_, archived, err := r.client.send(syncRigGame, local)
+	_, archived, err := r.client.send(gameTarget(syncRigGame, local))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -356,12 +356,12 @@ func TestSyncBusyGame(t *testing.T) {
 		t.Fatal("verrou de test impossible")
 	}
 	defer lock.Close()
-	if _, err := r.client.fetch(syncRigGame, clientUsers(t)); !errors.Is(err, errSyncBusy) {
+	if _, err := r.client.fetch(gameTarget(syncRigGame, clientUsers(t))); !errors.Is(err, errSyncBusy) {
 		t.Errorf("réception jeu verrouillé : erreur %v", err)
 	}
 	local := clientUsers(t)
 	syncTestPopulate(t, local, "steamuser")
-	if _, _, err := r.client.send(syncRigGame, local); !errors.Is(err, errSyncBusy) {
+	if _, _, err := r.client.send(gameTarget(syncRigGame, local)); !errors.Is(err, errSyncBusy) {
 		t.Errorf("envoi jeu verrouillé : erreur %v", err)
 	}
 	if got := saveFingerprint(r.users, collectSaveFiles(r.users)); got == "" {

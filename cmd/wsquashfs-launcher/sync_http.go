@@ -38,6 +38,7 @@ type syncPeer struct {
 type syncConfig struct {
 	ID    string     `json:"id"`
 	Peers []syncPeer `json:"peers"`
+	Dirs  []syncDir  `json:"dirs,omitempty"` // dossiers déclarés (--sync dir add), synchronisés comme des jeux
 }
 
 // syncConfigPath : ~/.config/wsquashfs/sync.json (XDG_CONFIG_HOME respecté).
@@ -349,13 +350,13 @@ func (c *syncClient) list() ([]remoteSave, error) {
 	return v.Games, nil
 }
 
-// fetch : reçoit les sauvegardes d'un jeu de la machine distante et les applique dans users.
-// L'archive est d'abord copiée dans un fichier temporaire (sa taille est annoncée : une coupure
-// est détectée avant toute modification). L'archivage de la version locale est à la charge de
-// l'appelant. Retourne l'empreinte distante.
-func (c *syncClient) fetch(game, users string) (string, error) {
+// fetch : reçoit les sauvegardes d'une cible (jeu, dossier, jeu Switch) de la machine distante et
+// les applique ici. L'archive est d'abord copiée dans un fichier temporaire (sa taille est annoncée :
+// une coupure est détectée avant toute modification). L'archivage de la version locale est à la
+// charge de l'appelant. Retourne l'empreinte distante.
+func (c *syncClient) fetch(t syncTarget) (string, error) {
 	// L'agent prépare toute l'archive avant de répondre : en-têtes attendus plus longtemps.
-	resp, err := c.doWith(c.slow, http.MethodGet, "/v1/saves/tar", url.Values{"game": {game}}, nil, nil)
+	resp, err := c.doWith(c.slow, http.MethodGet, "/v1/saves/tar", url.Values{"game": {t.Name}}, nil, nil)
 	if err != nil {
 		return "", err
 	}
@@ -374,32 +375,34 @@ func (c *syncClient) fetch(game, users string) (string, error) {
 	if _, err := tmp.Seek(0, io.SeekStart); err != nil {
 		return "", err
 	}
-	if err := applySaveArchive(tmp, users, profile); err != nil {
+	if err := t.apply(tmp, profile); err != nil {
 		return "", fmt.Errorf("archive reçue refusée : %w", err)
 	}
 	return fp, nil
 }
 
-// send : envoie les sauvegardes locales de users à la machine distante, qui remplace son périmètre.
+// send : envoie les sauvegardes locales d'une cible à la machine distante, qui remplace les siennes.
 // Retourne l'empreinte distante après remplacement et le chemin de l'archive de la version
 // distante si elle a été mise de côté ("" sinon).
-func (c *syncClient) send(game, users string) (string, string, error) {
-	files := collectSaveFiles(users)
+func (c *syncClient) send(t syncTarget) (string, string, error) {
+	files := t.files()
 	if len(files) == 0 {
 		return "", "", errors.New("rien à envoyer : aucune sauvegarde locale")
 	}
 	headers := map[string]string{}
-	if profs := fileProfiles(files); len(profs) == 1 {
-		headers["X-Wsq-Profile"] = profs[0]
+	if !t.Plain {
+		if profs := fileProfiles(files); len(profs) == 1 {
+			headers["X-Wsq-Profile"] = profs[0]
+		}
 	}
 	pr, pw := io.Pipe()
 	werrCh := make(chan error, 1)
 	go func() {
-		_, err := writeSaveArchive(pw, users, files)
+		_, err := t.writeArchive(pw, files)
 		_ = pw.CloseWithError(err)
 		werrCh <- err
 	}()
-	resp, err := c.do(http.MethodPut, "/v1/saves/tar", url.Values{"game": {game}}, pr, headers)
+	resp, err := c.do(http.MethodPut, "/v1/saves/tar", url.Values{"game": {t.Name}}, pr, headers)
 	// Libère l'écrivain s'il attend encore la lecture (réponse reçue avant la fin du corps).
 	_ = pr.Close()
 	if werr := <-werrCh; werr != nil && !errors.Is(werr, io.ErrClosedPipe) {
