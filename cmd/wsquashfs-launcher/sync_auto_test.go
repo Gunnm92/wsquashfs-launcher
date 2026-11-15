@@ -415,3 +415,24 @@ func TestManagerPushRecordedAsSent(t *testing.T) {
 		t.Fatalf("partie modifiée : %d envoi(s), attendu 1, sortie %q", m.puts, out.String())
 	}
 }
+
+// TestAgentManagerPutUI : l'adresse de l'interface (champ ui, facultatif) est gardée avec le
+// manager pour --tray ; une adresse invalide refuse la déclaration.
+func TestAgentManagerPutUI(t *testing.T) {
+	_, h, _ := agentFixture(t)
+	fp := strings.Repeat("ab", 32)
+	body := func(ui string) []byte {
+		b, _ := json.Marshal(map[string]string{"name": "wsquashfs-manager", "url": "https://10.0.0.2:8790",
+			"token": "manager-token", "fingerprint": fp, "ui": ui})
+		return b
+	}
+	if rec := doSync(h, "PUT", "/v1/saves/manager", "client-machine-01", body("ftp://x")); rec.Code != http.StatusBadRequest {
+		t.Fatalf("ui invalide : code %d, attendu 400", rec.Code)
+	}
+	if rec := doSync(h, "PUT", "/v1/saves/manager", "client-machine-01", body("http://10.0.0.2:8765")); rec.Code != http.StatusOK {
+		t.Fatalf("déclaration : code %d (%s)", rec.Code, rec.Body.String())
+	}
+	if mgr := managersOf(loadSyncConfig()); len(mgr) != 1 || mgr[0].UI != "http://10.0.0.2:8765" {
+		t.Fatalf("manager déclaré : %+v", mgr)
+	}
+}

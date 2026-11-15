@@ -33,7 +33,7 @@ complete -o default -F _wsquashfs_launcher wsquashfs-launcher
 var completionCommands = []string{
 	"--agent", "--clean", "--clear", "--doctor", "--erase", "--exec", "--headless", "--help", "--info",
 	"--install", "--list", "--mount", "--pack", "--pair", "--prepare", "--save", "--saves", "--set",
-	"--setup", "--show", "--sync", "--trial", "--umount", "--update", "--wine",
+	"--setup", "--show", "--sync", "--trial", "--tray", "--umount", "--update", "--wine",
 }
 
 // compBreaks : séparateurs de mots de bash pour la complétion (COMP_WORDBREAKS sans les blancs).
@@ -153,6 +153,10 @@ func completeWords(args []string, cur string) []string {
 	case "--doctor":
 		if len(rest) == 0 {
 			return []string{"json"}
+		}
+	case "--tray":
+		if len(rest) == 0 {
+			return []string{"off", "on"}
 		}
 	case "--setup":
 		return []string{"dry-run", "help", "uninstall", "yes"}

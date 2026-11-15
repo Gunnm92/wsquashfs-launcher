@@ -18,6 +18,7 @@ avec son empreinte (wsquashfs-launcher.sha256). Sources : cmd/wsquashfs-launcher
 - Agent HTTPS pour wsquashfs-manager (--agent lancé en arrière-plan, --agent stop|status, --pair attend l'association par un code à usage unique ; un jeton durable par machine associée, --pair forget|reset la révoque)
 - Sauvegardes vers la ludothèque : --save <jeu> (un jeu), --saves (tous les jeux)
 - Synchro manuelle des sauvegardes entre machines du réseau local : --sync (via l'agent, --pair)
+- Icône de zone de notification (--tray, on/off pour le lancement à l'ouverture de session) : agent, synchro, diagnostic, jeux
 
 ## Données
 ~/.local/share/wsquashfs/saves/   sauvegardes (upperdir de l'overlay), par jeu

@@ -62,6 +62,10 @@ func parseArgs(args []string) (*options, error) {
 			o.action = "sync"
 			o.cmdArgs = args[i+1:]
 			return o, nil
+		case "--tray":
+			o.action = "tray"
+			o.cmdArgs = args[i+1:]
+			return o, nil
 		case "--trial":
 			o.action = "trial"
 			o.cmdArgs = args[i+1:]

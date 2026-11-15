@@ -435,6 +435,23 @@ Sans `WINE`, `PROTON`, `RUNNER`, runner joint ni `--wine` :
   mais passent avec le Wine WoW64 du système : `WINE=system` dans leur
   autorun.cmd. Batocera ignore cette valeur.
 
+### Icône de bureau (--tray)
+
+`wsquashfs-launcher --tray` affiche une icône dans la zone de notification (KDE, XFCE,
+Cinnamon… ; sous GNOME, l'extension AppIndicator). Son menu montre si l'agent tourne, le
+démarre ou l'arrête, lance une synchro, ouvre le manager (si celui-ci a donné l'adresse de son interface), associe une machine (le code
+`wsq://…` part dans le presse-papiers), lance un jeu (les derniers lancés d'abord), copie ses sauvegardes, fait le
+diagnostic, le ménage et la mise à jour. Les résultats arrivent en notifications.
+
+```bash
+wsquashfs-launcher --tray           # l'icône (une seule à la fois)
+wsquashfs-launcher --tray on        # la lancer à l'ouverture de session
+wsquashfs-launcher --tray off       # ne plus la lancer à l'ouverture de session
+```
+
+Quitter l'icône n'arrête ni l'agent ni les jeux. `--setup uninstall` retire le lancement
+à l'ouverture de session.
+
 ### Sauvegardes (comme Batocera)
 
 | Variable | Description | Exemples |

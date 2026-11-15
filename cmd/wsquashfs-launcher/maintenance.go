@@ -65,6 +65,8 @@ func maintenanceMain() int {
 		return cmdPair(cmdArgs)
 	case "sync":
 		return cmdSync(cmdArgs)
+	case "tray":
+		return cmdTray(cmdArgs)
 	case "trial":
 		return cmdTrialMain(cmdArgs)
 	case "update":

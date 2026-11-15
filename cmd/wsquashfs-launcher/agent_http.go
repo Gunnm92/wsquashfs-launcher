@@ -1037,6 +1037,7 @@ func (s *agentServer) savesManagerPut(w http.ResponseWriter, r *http.Request) {
 		URL         string `json:"url"`
 		Token       string `json:"token"`
 		Fingerprint string `json:"fingerprint"`
+		UI          string `json:"ui"` // facultatif : adresse de l'interface web, pour --tray
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 8192)).Decode(&req); err != nil {
 		writeDetail(w, http.StatusBadRequest, "requête illisible")
@@ -1055,6 +1056,11 @@ func (s *agentServer) savesManagerPut(w http.ResponseWriter, r *http.Request) {
 		writeDetail(w, http.StatusBadRequest, "empreinte du manager invalide (64 caractères hexadécimaux)")
 		return
 	}
+	ui, err := managerUIURL(req.UI)
+	if err != nil {
+		writeDetail(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	name := cleanMachineName(req.Name)
 	if name == "" {
 		name = peerURL
@@ -1066,6 +1072,7 @@ func (s *agentServer) savesManagerPut(w http.ResponseWriter, r *http.Request) {
 		Fingerprint: strings.ToUpper(req.Fingerprint),
 		Manager:     true,
 		MachineID:   r.Header.Get("X-Wsq-Machine"),
+		UI:          ui,
 	}
 	s.syncCfgMu.Lock()
 	defer s.syncCfgMu.Unlock()
@@ -1099,4 +1106,17 @@ func (s *agentServer) savesDirDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, syncDirsReply())
+}
+
+// managerUIURL : adresse de l'interface du manager (PUT /v1/saves/manager, champ ui) : "" (non
+// donnée) ou une URL http(s) avec hôte, 512 caractères au plus.
+func managerUIURL(raw string) (string, error) {
+	if raw == "" {
+		return "", nil
+	}
+	u, err := url.Parse(raw)
+	if err != nil || len(raw) > 512 || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil {
+		return "", errors.New("adresse de l'interface du manager invalide (http(s)://hôte[:port][/chemin])")
+	}
+	return u.String(), nil
 }

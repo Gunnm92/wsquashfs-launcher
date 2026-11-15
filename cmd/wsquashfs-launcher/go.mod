@@ -6,8 +6,10 @@ toolchain go1.27.4
 
 require (
 	charm.land/lipgloss/v2 v2.1.0
+	fyne.io/systray v1.12.2
 	github.com/charmbracelet/x/ansi v0.11.8
 	github.com/charmbracelet/x/term v0.2.2
+	github.com/godbus/dbus/v5 v5.1.0
 )
 
 require (

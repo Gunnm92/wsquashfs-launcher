@@ -57,6 +57,7 @@ func TestCompleteLine(t *testing.T) {
 		"wsquashfs-launcher --agent ":                 "run|status|stop",
 		"wsquashfs-launcher --agent run ":             "log",
 		"wsquashfs-launcher --doctor ":                "json",
+		"wsquashfs-launcher --tray ":                  "off|on",
 		"wsquashfs-launcher --wine ":                  "system",
 		"wsquashfs-launcher ":                         "", // un jeu à lancer : noms de fichiers
 		"wsquashfs-launcher --info ":                  "",

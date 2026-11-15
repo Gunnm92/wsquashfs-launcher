@@ -384,6 +384,10 @@ func uninstall() {
 		updateMimeAndDesktopDatabases()
 		uiItem(stOK, "Entrée du bureau supprimée")
 	}
+	if isFile(trayAutostartPath()) {
+		_ = removePaths(trayAutostartPath())
+		uiItem(stOK, "Icône de zone de notification : lancement à l'ouverture de session supprimé")
+	}
 	mimeFile := filepath.Join(os.Getenv("HOME"), ".local/share/mime/packages/wsquashfs.xml")
 	if isFile(mimeFile) {
 		_ = removePaths(mimeFile)
