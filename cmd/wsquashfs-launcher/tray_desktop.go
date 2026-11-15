@@ -27,7 +27,7 @@ func trayDesktopEntry(exe string) string {
 		"Type=Application\n" +
 		"Name=wsquashfs-launcher\n" +
 		"Comment=Icône de zone de notification\n" +
-		"Exec=" + desktopExec(exe) + " --tray\n" +
+		"Exec=" + desktopExec(exe) + " --tray run\n" +
 		"X-GNOME-Autostart-enabled=true\n"
 }
 

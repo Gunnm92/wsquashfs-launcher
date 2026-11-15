@@ -6,8 +6,11 @@ package main
 // L'état affiché vient de trayState, fonction pure ; le côté bureau (notifications, presse-papiers,
 // terminal, autostart) est dans tray_desktop.go.
 //
-//   --tray            l'icône (une seule à la fois : tray.pid, dans le dossier de l'agent)
+//   --tray            lance l'icône en arrière-plan et rend la main (une seule à la fois : tray.pid,
+//                     dans le dossier de l'agent ; journal tray.log à côté de celui de l'agent)
+//   --tray stop       l'arrête
 //   --tray on | off   lancement à l'ouverture de session (~/.config/autostart)
+//   --tray run        l'icône au premier plan (interne : lancement détaché, ouverture de session)
 
 import (
 	"bufio"
@@ -33,7 +36,7 @@ import (
 //go:embed tray_icon.png
 var trayIcon []byte
 
-const trayUsage = "wsquashfs-launcher --tray  |  --tray on | off"
+const trayUsage = "wsquashfs-launcher --tray  |  --tray stop  |  --tray on | off"
 
 const (
 	trayMaxGames    = 40 // jeux proposés dans le menu (emplacements créés d'avance)
@@ -589,15 +592,101 @@ func (a *trayApp) exit() {
 	_ = os.Remove(trayPidFile())
 }
 
-// cmdTray : --tray [on | off].
+// cmdTray : --tray [stop | on | off | run].
 func cmdTray(args []string) int {
 	switch {
 	case len(args) == 0:
+		return trayStart()
+	case len(args) == 1 && args[0] == "stop":
+		return trayStop()
+	case len(args) == 1 && args[0] == "run":
 		return trayRun()
 	case len(args) == 1 && (args[0] == "on" || args[0] == "off"):
 		return trayAutostartCmd(args[0] == "on")
 	}
 	uiUsage(trayUsage)
+	return 1
+}
+
+// trayLogPath : journal de l'icône lancée en arrière-plan (à côté de celui de l'agent).
+func trayLogPath() string {
+	return filepath.Join(filepath.Dir(agentLogPath()), "tray.log")
+}
+
+// trayStartWait : délai laissé à l'icône lancée pour s'inscrire (tray.pid). Variable pour les tests.
+var trayStartWait = 3 * time.Second
+
+// trayStart : --tray. Lance « --tray run » hors du terminal (nouvelle session, journal) et rend la
+// main ; les erreurs prévisibles (déjà en marche, pas de zone de notification) sont dites ici.
+func trayStart() int {
+	if pid, ok := trayRunning(); ok {
+		uiStatusLine(stSkip, fmt.Sprintf("Icône déjà en marche (pid %d) ; l'arrêter : wsquashfs-launcher --tray stop", pid))
+		return 0
+	}
+	if err := trayHostError(); err != nil {
+		uiError(err.Error())
+		return 1
+	}
+	logPath := trayLogPath()
+	if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
+		uiError("icône impossible : " + err.Error())
+		return 1
+	}
+	logf, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		uiError("icône impossible : " + err.Error())
+		return 1
+	}
+	defer logf.Close()
+	cmd := exec.Command(launcherExe(), "--tray", "run")
+	cmd.Stdout, cmd.Stderr = logf, logf
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	if err := cmd.Start(); err != nil {
+		uiError("icône impossible : " + err.Error())
+		return 1
+	}
+	pid := cmd.Process.Pid
+	exited := make(chan struct{})
+	go func() { _ = cmd.Wait(); close(exited) }()
+	for deadline := time.Now().Add(trayStartWait); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
+		select {
+		case <-exited:
+			uiStatusLine(stFail, "L'icône s'est arrêtée au démarrage, journal : "+logPath)
+			return 1
+		default:
+		}
+		if p, ok := trayRunning(); ok && p == pid {
+			uiStatusLine(stOK, fmt.Sprintf("Icône lancée (pid %d) ; l'arrêter : wsquashfs-launcher --tray stop", pid))
+			return 0
+		}
+	}
+	uiStatusLine(stSkip, fmt.Sprintf("Icône lancée (pid %d), pas encore inscrite ; journal : %s", pid, logPath))
+	return 0
+}
+
+// trayStopWait : délai laissé à l'icône pour se fermer. Variable pour les tests.
+var trayStopWait = 5 * time.Second
+
+// trayStop : --tray stop. Ferme l'icône (SIGTERM : sortie propre, fichier de PID retiré).
+func trayStop() int {
+	pid, ok := trayRunning()
+	if !ok {
+		_ = os.Remove(trayPidFile())
+		uiStatusLine(stSkip, "Icône : non lancée")
+		return 0
+	}
+	if err := syscall.Kill(pid, syscall.SIGTERM); err != nil {
+		uiStatusLine(stFail, fmt.Sprintf("Icône (pid %d) : arrêt impossible (%v)", pid, err))
+		return 1
+	}
+	for deadline := time.Now().Add(trayStopWait); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
+		if syscall.Kill(pid, 0) != nil {
+			_ = os.Remove(trayPidFile())
+			uiStatusLine(stOK, fmt.Sprintf("Icône arrêtée (pid %d)", pid))
+			return 0
+		}
+	}
+	uiStatusLine(stFail, fmt.Sprintf("Icône (pid %d) toujours là après %s", pid, durationText(trayStopWait)))
 	return 1
 }
 
@@ -620,7 +709,7 @@ func trayAutostartCmd(on bool) int {
 	return 0
 }
 
-// trayRun : l'icône, au premier plan, jusqu'à sa sortie.
+// trayRun : --tray run, l'icône au premier plan jusqu'à sa sortie (Quitter, --tray stop, signal).
 func trayRun() int {
 	if pid, ok := trayRunning(); ok {
 		uiStatusLine(stSkip, fmt.Sprintf("Icône déjà en marche (pid %d)", pid))
@@ -639,12 +728,16 @@ func trayRun() int {
 		return 1
 	}
 	app := &trayApp{}
+	// SIGTERM (--tray stop) ou SIGINT : sortie propre par systray (fichier de PID retiré).
+	hook := func() { app.quit() }
+	interruptHook.Store(&hook)
+	defer interruptHook.Store(nil)
 	systray.Run(app.ready, app.exit)
 	if app.relaunch {
 		// Même PID après exec : le fichier de PID doit être retiré avant.
 		_ = os.Remove(trayPidFile())
 		exe := launcherExe()
-		err := syscall.Exec(exe, []string{exe, "--tray"}, os.Environ())
+		err := syscall.Exec(exe, []string{exe, "--tray", "run"}, os.Environ())
 		uiError("relance impossible : " + err.Error())
 		return 1
 	}

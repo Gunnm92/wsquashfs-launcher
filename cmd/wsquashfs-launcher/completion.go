@@ -156,7 +156,7 @@ func completeWords(args []string, cur string) []string {
 		}
 	case "--tray":
 		if len(rest) == 0 {
-			return []string{"off", "on"}
+			return []string{"off", "on", "stop"}
 		}
 	case "--setup":
 		return []string{"dry-run", "help", "uninstall", "yes"}

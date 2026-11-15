@@ -444,7 +444,8 @@ démarre ou l'arrête, lance une synchro, ouvre le manager (si celui-ci a donné
 diagnostic, le ménage et la mise à jour. Les résultats arrivent en notifications.
 
 ```bash
-wsquashfs-launcher --tray           # l'icône (une seule à la fois)
+wsquashfs-launcher --tray           # l'icône, en arrière-plan (une seule à la fois)
+wsquashfs-launcher --tray stop      # l'arrêter
 wsquashfs-launcher --tray on        # la lancer à l'ouverture de session
 wsquashfs-launcher --tray off       # ne plus la lancer à l'ouverture de session
 ```

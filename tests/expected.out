@@ -43,8 +43,9 @@ Machines et wsquashfs-manager :
         Affiche le code d'association wsq://… ; retire une machine.
   wsquashfs-launcher --agent  |  --agent stop  |  --agent status
         Lance l'agent en arrière-plan ; l'arrête ; son état.
-  wsquashfs-launcher --tray  |  --tray on | off
-        Icône de zone de notification ; la lance à l'ouverture de session (on) ou plus (off).
+  wsquashfs-launcher --tray  |  --tray stop  |  --tray on | off
+        Icône de zone de notification en arrière-plan ; l'arrête ;
+        la lance à l'ouverture de session (on) ou plus (off).
 
 Installation :
   wsquashfs-launcher --doctor

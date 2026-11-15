@@ -203,7 +203,7 @@ func TestTrayAutostart(t *testing.T) {
 	}
 	text := string(data)
 	for _, want := range []string{
-		"Exec=/usr/local/bin/wsquashfs-launcher --tray\n",
+		"Exec=/usr/local/bin/wsquashfs-launcher --tray run\n",
 		"Type=Application\n",
 		"Name=wsquashfs-launcher\n",
 		"X-GNOME-Autostart-enabled=true\n",
@@ -289,5 +289,28 @@ func TestPairCodeRe(t *testing.T) {
 	}
 	if got := pairCodeRe.FindString("wsquashfs-launcher --sync wsq://…)"); got != "" {
 		t.Fatalf("note prise pour un code : %q", got)
+	}
+}
+
+// TestTrayStop : --tray stop sans icône (rien à faire, fichier de PID périmé retiré) ; arguments
+// refusés.
+func TestTrayStop(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", "")
+	if err := os.MkdirAll(agentDir(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(trayPidFile(), []byte("999999\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code := cmdTray([]string{"stop"}); code != 0 {
+		t.Fatalf("--tray stop sans icône : code %d", code)
+	}
+	if isFile(trayPidFile()) {
+		t.Fatal("fichier de PID périmé gardé")
+	}
+	if code := cmdTray([]string{"stop", "x"}); code != 1 {
+		t.Fatalf("--tray stop x : code %d ; voulu 1", code)
 	}
 }
