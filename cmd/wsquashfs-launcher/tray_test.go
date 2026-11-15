@@ -100,22 +100,40 @@ func TestTrayStateLimites(t *testing.T) {
 	}
 }
 
-// TestClipboardTool : wl-copy d'abord, puis xclip, puis xsel ; rien si aucun.
-func TestClipboardTool(t *testing.T) {
-	fakeBin(t, "xsel", "xclip")
-	if name, _, ok := clipboardTool(); !ok || name != "xclip" {
-		t.Fatalf("clipboardTool = %q, %v ; voulu xclip", name, ok)
+// TestClipboardTools : outils retenus selon la session (Wayland, X11) et le PATH ; sans outil,
+// copyToClipboard dit quoi installer.
+func TestClipboardTools(t *testing.T) {
+	names := func() string {
+		var n []string
+		for _, c := range clipboardTools() {
+			n = append(n, c.name)
+		}
+		return strings.Join(n, ",")
 	}
 	fakeBin(t, "wl-copy", "xclip", "xsel")
-	if name, _, ok := clipboardTool(); !ok || name != "wl-copy" {
-		t.Fatalf("clipboardTool = %q, %v ; voulu wl-copy", name, ok)
+	t.Setenv("WAYLAND_DISPLAY", "wayland-0")
+	t.Setenv("DISPLAY", "")
+	if got := names(); got != "wl-copy" {
+		t.Fatalf("Wayland seul : %q, voulu wl-copy", got)
 	}
-	fakeBin(t)
-	if _, _, ok := clipboardTool(); ok {
-		t.Fatal("clipboardTool trouvé un outil sans PATH utile")
+	t.Setenv("DISPLAY", ":0")
+	if got := names(); got != "wl-copy,xclip,xsel" {
+		t.Fatalf("Wayland et XWayland : %q", got)
 	}
-	if err := copyToClipboard("wsq://x"); err == nil {
-		t.Fatal("copyToClipboard sans outil : erreur attendue")
+	t.Setenv("WAYLAND_DISPLAY", "")
+	if got := names(); got != "xclip,xsel" {
+		t.Fatalf("X11 : %q", got)
+	}
+	fakeBin(t, "xsel")
+	if got := names(); got != "xsel" {
+		t.Fatalf("X11 avec xsel seul : %q", got)
+	}
+	fakeBin(t, "wl-copy")
+	if got := names(); got != "" {
+		t.Fatalf("X11 avec wl-copy seul : %q, voulu aucun", got)
+	}
+	if err := copyToClipboard("wsq://x"); err != errNoClipboard {
+		t.Fatalf("sans outil : %v, voulu errNoClipboard", err)
 	}
 }
 

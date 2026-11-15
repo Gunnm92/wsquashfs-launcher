@@ -460,7 +460,7 @@ func (a *trayApp) pairMachine() {
 		if code := pairCodeRe.FindString(line); code != "" && !copied {
 			copied = true
 			if err := copyToClipboard(code); err != nil {
-				notify("Code d'association (presse-papiers indisponible)", err.Error()+" : "+code)
+				notify("Code d'association : "+code, "Pas copié : "+err.Error())
 			} else {
 				notify("Code d'association copié", "Colle-le sur l'autre machine (wsquashfs-launcher --sync wsq://…) ou dans wsquashfs-manager ; usage unique")
 			}

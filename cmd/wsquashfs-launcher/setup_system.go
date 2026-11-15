@@ -145,6 +145,10 @@ func depsDebian() bool {
 	}
 	// getfattr : --clean ; zstd : VKD3D-Proton ; unzip : d7vk
 	_ = aptEnsure("Outils (--clean, archives)", "attr", "zstd", "unzip")
+	// Presse-papiers de l'icône (--tray : code d'association copié), Wayland et X11
+	if aptEnsure("Presse-papiers (--tray, facultatif)", "wl-clipboard", "xclip") != nil {
+		setupSkip("wl-clipboard/xclip indisponibles — le code d'association de --tray reste à recopier")
+	}
 	// MangoHud (optionnel : mangohud wsquashfs-launcher jeu.wsquashfs)
 	if aptEnsure("MangoHud (facultatif)", "mangohud", "mangohud:i386") != nil &&
 		aptEnsure("MangoHud (facultatif)", "mangohud") != nil {
@@ -256,6 +260,7 @@ func depsArch() bool {
 		setupSkip("fuse-overlayfs indisponible — mode copy utilisé (fonctionnel)")
 	}
 	_ = pacmanEnsure("Outils (--clean, archives)", "attr", "zstd", "unzip")
+	_ = pacmanEnsure("Presse-papiers (--tray, facultatif)", "wl-clipboard", "xclip")
 	if multilibEnabled() {
 		if pacmanEnsure("Bibliothèques 32 bits (wine-tkg, jeux 32 bits)", archLib32Packages()...) != nil {
 			ok = false
@@ -273,7 +278,8 @@ func depsArch() bool {
 func depsOther() bool {
 	setupFail("Distribution non prise en charge pour les paquets système (" + distroName + ").")
 	uiNote("Installez à la main : squashfuse, squashfs-tools, fuse-overlayfs, attr,",
-		"zstd, unzip, et les bibliothèques 32 bits de Wine (jeux arcade 32 bits).")
+		"zstd, unzip, et les bibliothèques 32 bits de Wine (jeux arcade 32 bits) ;",
+		"pour --tray : wl-clipboard ou xclip.")
 	return askYesNo("Continuer (runners, DXVK, lanceur) ?", false)
 }
 

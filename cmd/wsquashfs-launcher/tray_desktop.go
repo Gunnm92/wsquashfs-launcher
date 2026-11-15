@@ -93,33 +93,50 @@ func notify(summary, body string) {
 		summary, body, []string{}, map[string]dbus.Variant{}, int32(-1)).Err
 }
 
-// clipboardTool : premier outil de presse-papiers trouvé (wl-copy, xclip, xsel) et ses arguments.
-func clipboardTool() (string, []string, bool) {
-	tools := []struct {
-		name string
-		args []string
-	}{
-		{"wl-copy", nil},
-		{"xclip", []string{"-selection", "clipboard"}},
-		{"xsel", []string{"--clipboard", "--input"}},
-	}
-	for _, t := range tools {
-		if _, err := exec.LookPath(t.name); err == nil {
-			return t.name, t.args, true
-		}
-	}
-	return "", nil, false
+// clipTool : outil de presse-papiers et ses arguments (texte lu sur l'entrée standard).
+type clipTool struct {
+	name string
+	args []string
 }
 
-// copyToClipboard : met text dans le presse-papiers (erreur si aucun outil n'est installé).
-func copyToClipboard(text string) error {
-	name, args, ok := clipboardTool()
-	if !ok {
-		return errors.New("aucun outil de presse-papiers (wl-copy, xclip ou xsel)")
+// clipboardTools : outils de presse-papiers utilisables dans cette session, dans l'ordre d'essai :
+// wl-copy sous Wayland (WAYLAND_DISPLAY), xclip puis xsel sous X11 ou XWayland (DISPLAY).
+func clipboardTools() []clipTool {
+	var cands []clipTool
+	if os.Getenv("WAYLAND_DISPLAY") != "" {
+		cands = append(cands, clipTool{"wl-copy", nil})
 	}
-	cmd := exec.Command(name, args...)
-	cmd.Stdin = strings.NewReader(text)
-	return cmd.Run()
+	if os.Getenv("DISPLAY") != "" {
+		cands = append(cands, clipTool{"xclip", []string{"-selection", "clipboard"}},
+			clipTool{"xsel", []string{"--clipboard", "--input"}})
+	}
+	var out []clipTool
+	for _, t := range cands {
+		if _, err := exec.LookPath(t.name); err == nil {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+// errNoClipboard : aucun outil de presse-papiers pour cette session.
+var errNoClipboard = errors.New("installer wl-clipboard (Wayland) ou xclip (X11), par exemple avec wsquashfs-launcher --setup")
+
+// copyToClipboard : copie text avec le premier outil de la session qui réussit.
+func copyToClipboard(text string) error {
+	tools := clipboardTools()
+	if len(tools) == 0 {
+		return errNoClipboard
+	}
+	var err error
+	for _, t := range tools {
+		cmd := exec.Command(t.name, t.args...)
+		cmd.Stdin = strings.NewReader(text)
+		if err = cmd.Run(); err == nil {
+			return nil
+		}
+	}
+	return fmt.Errorf("copie impossible (%v)", err)
 }
 
 // trayTerminal : premier terminal disponible, $TERMINAL d'abord ; "" si aucun.

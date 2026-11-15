@@ -217,6 +217,16 @@ func runDoctorChecks() bool {
 		doctorOK("réglages machine : " + f + " (" + overrideKeys(f) + ")")
 	}
 
+	// Session graphique seulement : l'icône (--tray) copie le code d'association.
+	if os.Getenv("WAYLAND_DISPLAY") != "" || os.Getenv("DISPLAY") != "" {
+		docSection("Bureau (--tray)")
+		if tools := clipboardTools(); len(tools) > 0 {
+			doctorOK("presse-papiers : " + tools[0].name)
+		} else {
+			doctorNote("presse-papiers : aucun outil, le code d'association n'est pas copié (" + errNoClipboard.Error() + ")")
+		}
+	}
+
 	return fatal
 }
 
