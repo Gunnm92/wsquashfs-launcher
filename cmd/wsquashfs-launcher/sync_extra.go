@@ -13,6 +13,7 @@ package main
 // profils Wine) ; les autres sont des dossiers simples, copiés tels quels.
 
 import (
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"io"
@@ -23,6 +24,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
+	"time"
 
 	"archive/tar"
 )
@@ -213,22 +216,124 @@ func edenSaveUser() string {
 	return best
 }
 
-// edenTitleName : nom d'un jeu d'après le cache de la liste d'Eden (<cache>/game_list/<ID>.appname.txt),
-// "" s'il n'y est pas.
+// edenTitleName : nom d'un jeu Switch : cache de la liste d'Eden (<cache>/game_list/<ID>.appname.txt,
+// écrit par certaines versions seulement), sinon le nom du fichier de la ROM (« Nom [TitleID][v0].nsp »)
+// dans les dossiers de jeux d'Eden ou le dossier switch/ des roms de l'agent. "" s'il est introuvable.
 func edenTitleName(id string) string {
 	data := edenDataDir()
 	if data == "" {
 		return ""
 	}
-	b, err := os.ReadFile(filepath.Join(edenCacheDir(data), "game_list", id+".appname.txt"))
-	if err != nil {
-		return ""
+	if b, err := os.ReadFile(filepath.Join(edenCacheDir(data), "game_list", id+".appname.txt")); err == nil {
+		if name := cleanTitleName(string(b)); name != "" {
+			return name
+		}
 	}
-	name := strings.TrimSpace(string(b))
-	if len(name) > 120 || strings.ContainsAny(name, "\x00\n\r") {
+	return switchRomNames()[id]
+}
+
+// cleanTitleName : nom affichable (une ligne, 120 caractères au plus), "" sinon.
+func cleanTitleName(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" || len(name) > 120 || strings.ContainsAny(name, "\x00\n\r") {
 		return ""
 	}
 	return name
+}
+
+// romTitleRe : « Nom [0100F2C0115B6000]… » dans un nom de fichier de ROM Switch.
+var romTitleRe = regexp.MustCompile(`^(.*?)\s*\[([0-9A-Fa-f]{16})\]`)
+
+// romIDRe : premier « [TitleID] » d'un nom de fichier.
+var romIDRe = regexp.MustCompile(`\[([0-9A-Fa-f]{16})\]`)
+
+// switchRomDirs : dossiers de ROM Switch : dossiers de jeux d'Eden (qt-config.ini, chemins absolus),
+// puis switch/ et switch2/ de chaque dossier roms/ de l'agent.
+func switchRomDirs() []string {
+	var dirs []string
+	conf := os.Getenv("XDG_CONFIG_HOME")
+	if conf == "" {
+		conf = filepath.Join(os.Getenv("HOME"), ".config")
+	}
+	for _, ini := range []string{
+		filepath.Join(conf, "eden", "qt-config.ini"),
+		filepath.Join(os.Getenv("HOME"), ".var", "app", "dev.eden_emu.eden", "config", "eden", "qt-config.ini"),
+	} {
+		data, err := os.ReadFile(ini)
+		if err != nil {
+			continue
+		}
+		for _, line := range strings.Split(string(data), "\n") {
+			key, value, ok := strings.Cut(strings.TrimSpace(line), "=")
+			if ok && strings.HasPrefix(key, `Paths\gamedirs\`) && strings.HasSuffix(key, `\path`) && filepath.IsAbs(value) {
+				dirs = append(dirs, value)
+			}
+		}
+	}
+	for _, roms := range loadAgentConfig().Roms {
+		dirs = append(dirs, filepath.Join(roms, "switch"), filepath.Join(roms, "switch2"))
+	}
+	return dirs
+}
+
+var (
+	romNamesMu sync.Mutex
+	romNamesAt time.Time
+	romNames   map[string]string
+)
+
+// switchRomNames : TitleID → nom, d'après les dossiers de ROM (gardé 30 s : un appel par jeu Switch
+// pendant une liste) : d'abord gamelist.xml (nom de la fiche ; TitleID dans <path>, qui le garde même
+// après un renommage du fichier), puis les noms de fichiers. Une ROM de mise à jour (…800) nomme
+// aussi son jeu de base (…000).
+func switchRomNames() map[string]string {
+	romNamesMu.Lock()
+	defer romNamesMu.Unlock()
+	if romNames != nil && time.Since(romNamesAt) < 30*time.Second {
+		return romNames
+	}
+	names := map[string]string{}
+	add := func(rawID, rawName string) {
+		name := cleanTitleName(rawName)
+		if name == "" {
+			return
+		}
+		id := strings.ToUpper(rawID)
+		for _, k := range []string{id, id[:13] + "000"} {
+			if _, ok := names[k]; !ok {
+				names[k] = name
+			}
+		}
+	}
+	dirs := switchRomDirs()
+	for _, dir := range dirs {
+		var list struct {
+			Games []struct {
+				Path string `xml:"path"`
+				Name string `xml:"name"`
+			} `xml:"game"`
+		}
+		if data, err := os.ReadFile(filepath.Join(dir, "gamelist.xml")); err == nil && xml.Unmarshal(data, &list) == nil {
+			for _, g := range list.Games {
+				if m := romIDRe.FindStringSubmatch(filepath.Base(g.Path)); m != nil {
+					add(m[1], g.Name)
+				}
+			}
+		}
+	}
+	for _, dir := range dirs {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			if m := romTitleRe.FindStringSubmatch(e.Name()); m != nil {
+				add(m[2], m[1])
+			}
+		}
+	}
+	romNames, romNamesAt = names, time.Now()
+	return names
 }
 
 // edenRunningCheck : un processus Eden tourne-t-il ? (comm commençant par « eden » ou « yuzu »).

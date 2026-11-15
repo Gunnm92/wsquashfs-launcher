@@ -189,7 +189,8 @@ machine, dans `savesDir/.sync/<identifiant>/<jeu>.json`. Le périmètre est celu
 travail et mise de côté du mode copy), plus les **dossiers déclarés** (`dossier:<nom>`) et les **jeux
 Switch d'Eden** (`switch:<TitleID>`). Ces deux-là sont des dossiers simples, copiés tels quels (pas de
 profil Wine, pas d'en-tête `X-Wsq-Profile`) ; leur `label` dans la liste est le nom lisible (nom du
-dossier, « Switch · <nom du jeu> » lu dans le cache de la liste d'Eden, sinon le TitleID). Une machine
+dossier, « Switch · <nom du jeu> » : cache de la liste d'Eden, sinon `gamelist.xml` puis noms de fichiers
+`Nom [TitleID]…` des dossiers de ROM d'Eden et de `switch/`, `switch2/` des roms de l'agent, sinon le TitleID). Une machine
 où l'entrée n'existe pas (dossier non déclaré, Eden absent) répond 404 sur `tar` et `state`, et n'est
 jamais modifiée. Un jeu Switch est refusé (409) tant qu'Eden tourne.
 

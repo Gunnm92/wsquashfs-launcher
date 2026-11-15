@@ -146,7 +146,7 @@ func syncDirList(cfg syncConfig) {
 			if name := edenTitleName(id); name != "" {
 				uiKV(2, kv{id, name})
 			} else {
-				uiKV(2, kv{id, "(nom inconnu : ouvrir la liste des jeux d'Eden)"})
+				uiKV(2, kv{id, "(nom inconnu : TitleID absent des ROM et des gamelist.xml)"})
 			}
 		}
 	}

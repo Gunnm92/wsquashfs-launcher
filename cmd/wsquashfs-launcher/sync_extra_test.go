@@ -176,6 +176,8 @@ func edenFixture(t *testing.T) string {
 	if err := os.MkdirAll(filepath.Join(big, "01000000DEADBEEF"), 0o755); err != nil { // jeu sans sauvegarde
 		t.Fatal(err)
 	}
+	romNames = nil // cache des noms de ROM (30 s) : celui d'un autre test ne vaut pas ici
+	t.Cleanup(func() { romNames = nil })
 	cache := filepath.Join(home, ".cache", "eden", "game_list")
 	writeTree(t, cache, map[string]string{"0100F2C0115B6000.appname.txt": "The Legend of Zelda: Tears of the Kingdom\n"})
 	return big
@@ -314,5 +316,52 @@ func TestAgentSwitchBusyWhileEdenRuns(t *testing.T) {
 	edenRunningCheck = func() bool { return false }
 	if rec := doSync(h, "GET", "/v1/saves/tar?game=switch:0100F2C0115B6000", "client-machine-01", nil); rec.Code != http.StatusOK {
 		t.Errorf("GET Eden arrêté : %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestSwitchNamesFromRomFiles : sans cache de noms d'Eden (cas de la SteamBox), le nom vient du
+// fichier de la ROM, dans un dossier de jeux d'Eden (qt-config.ini) ou dans switch/ des roms de
+// l'agent ; une ROM de mise à jour (…800) nomme son jeu de base (…000).
+func TestSwitchNamesFromRomFiles(t *testing.T) {
+	user := edenFixture(t)
+	home := os.Getenv("HOME")
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	_ = os.RemoveAll(filepath.Join(home, ".cache", "eden"))
+	writeTree(t, filepath.Join(user, "01006F8002326000"), map[string]string{"main": "animal"})
+	writeTree(t, filepath.Join(user, "0100F9F00C696000"), map[string]string{"main": "crash"})
+	edenRoms := filepath.Join(home, "jeux", "switch")
+	writeTree(t, edenRoms, map[string]string{
+		"Animal Crossing New Horizons [01006F8002326000][v0].nsp":        "",
+		"Crash Team Racing Nitro-Fueled [0100F9F00C696800][v196608].nsp": "",
+		"Everybody 1-2-Switch (v1.0.1).xci":                              "", // sans TitleID : ignoré
+	})
+	writeTree(t, filepath.Join(home, ".config", "eden"), map[string]string{
+		"qt-config.ini": "[UI]\nPaths\\gamedirs\\1\\path=SDMC\nPaths\\gamedirs\\4\\path=" + edenRoms + "\n",
+	})
+	agentRoms := filepath.Join(home, "roms")
+	writeTree(t, filepath.Join(agentRoms, "switch"), map[string]string{
+		"Zelda TOTK [0100F2C0115B6000][v0].xci": "",
+		// Fichier renommé sans TitleID ; la fiche du gamelist garde l'ancien chemin et le nom scrapé
+		"Fire Emblem Fortunes Weave (v1.1.1).nup": "",
+		"gamelist.xml": `<?xml version="1.0"?><gameList><game><path>./Fire Emblem Fortunes Weave [04007EF01F8AE000].nup</path>` +
+			`<name>Fire Emblem &amp; Fortune's Weave</name></game><game><path>./sans-id.nsp</path><name>Sans ID</name></game></gameList>`,
+	})
+	if err := saveAgentConfig(agentConfig{Port: 8790, Roms: []string{agentRoms}}); err != nil {
+		t.Fatal(err)
+	}
+	romNames = nil
+	for id, want := range map[string]string{
+		"01006F8002326000": "Animal Crossing New Horizons",
+		"0100F9F00C696000": "Crash Team Racing Nitro-Fueled",
+		"0100F2C0115B6000": "Zelda TOTK",
+		"04007EF01F8AE000": "Fire Emblem & Fortune's Weave",
+		"01006A800016E000": "",
+	} {
+		if got := edenTitleName(id); got != want {
+			t.Errorf("%s : %q, attendu %q", id, got, want)
+		}
+	}
+	if tg, _ := syncTargetOf("switch:01006F8002326000"); tg.Label != "Switch · Animal Crossing New Horizons" {
+		t.Errorf("libellé : %q", tg.Label)
 	}
 }

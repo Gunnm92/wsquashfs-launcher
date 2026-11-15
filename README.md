@@ -483,8 +483,10 @@ wsquashfs-launcher --sync "dossier:hookshot"    # ce dossier seulement
   (`switch:<TitleID>`), depuis `~/.local/share/eden/nand/user/save/` (Flatpak
   aussi ; `WSQUASHFS_EDEN_DIR` pour un autre emplacement). Chaque machine a son
   propre profil Eden : la sauvegarde va dans celui qui a le plus de jeux (lancer
-  Eden une fois sur une machine neuve). Le nom des jeux vient du cache de la
-  liste d'Eden ; refusé tant qu'Eden tourne.
+  Eden une fois sur une machine neuve). Le nom des jeux vient des dossiers de
+  ROM (ceux d'Eden et `switch/`, `switch2/` des roms de l'agent) : `gamelist.xml`
+  (TitleID dans `<path>`), puis les noms de fichiers `Nom [TitleID][v0].nsp` ;
+  sinon le TitleID. Refusé tant qu'Eden tourne.
 
 ### Variables d'optimisation
 
