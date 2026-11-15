@@ -83,8 +83,8 @@ func shellOnly(t *testing.T, game string) {
 }
 
 // TestCleanPrunesOrphanSaves : --clean retire un jeu sans image et sans sauvegarde (overlay réduit à
-// des marqueurs, prefix seul, ou seul le chemin mémorisé) ; il garde un jeu dont l'image existe, même
-// vide, et un jeu sans image qui a encore des sauvegardes (profil Public compris).
+// des marqueurs, prefix seul, fichiers du seul profil Public, ou seul le chemin mémorisé) ; il garde un
+// jeu dont l'image existe, même vide, et un jeu sans image qui a encore des sauvegardes.
 func TestCleanPrunesOrphanSaves(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -103,7 +103,7 @@ func TestCleanPrunesOrphanSaves(t *testing.T) {
 	record("Present", filepath.Join(roms, "win", "Present.wsquashfs"))
 	writeTree(t, filepath.Join(savesDir, "Gardé", "drive_c", "users", "arcade", "Documents"), map[string]string{"slot.sav": "x"})
 	record("Gardé", filepath.Join(roms, "win", "Gardé.wsquashfs"))
-	// Sauvegarde dans le profil Public (écrite là par certains jeux) : gardé
+	// Fichiers dans le profil Public : hors du périmètre des sauvegardes (comme --save et --sync)
 	writeTree(t, filepath.Join(savesDir, "Public", "drive_c", "users", "Public", "Documents", "EMPRESS"), map[string]string{"dbdata.bin": "x"})
 	record("Public", filepath.Join(roms, "win", "Public.wsquashfs"))
 	// Prefix seul (pas de sauvegarde) et fichier temporaire du profil : retiré
@@ -113,15 +113,15 @@ func TestCleanPrunesOrphanSaves(t *testing.T) {
 	record("Prefix seul", filepath.Join(roms, "win", "Prefix seul.wsquashfs"))
 	record("Chemin seul", filepath.Join(roms, "type-x", "Chemin seul.wsquashfs"))
 
-	if got := strings.Join(pruneOrphanSaves(), ","); got != "After Dark,Chemin seul,Prefix seul" {
+	if got := strings.Join(pruneOrphanSaves(), ","); got != "After Dark,Chemin seul,Prefix seul,Public" {
 		t.Errorf("retirés : %q", got)
 	}
-	for _, g := range []string{"After Dark", "Chemin seul", "Prefix seul"} {
+	for _, g := range []string{"After Dark", "Chemin seul", "Prefix seul", "Public"} {
 		if pathExists(filepath.Join(savesDir, g)) || pathExists(filepath.Join(savesDir, ".images", g)) {
 			t.Errorf("%s : restes encore là", g)
 		}
 	}
-	if strings.Join(knownGames(), ",") != "Gardé,Present,Public" {
+	if strings.Join(knownGames(), ",") != "Gardé,Present" {
 		t.Errorf("jeux restants : %v", knownGames())
 	}
 }

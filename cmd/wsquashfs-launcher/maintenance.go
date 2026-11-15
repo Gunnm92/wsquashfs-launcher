@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -702,37 +701,11 @@ func knownGames() []string {
 	return out
 }
 
-// gameHasSaves : le jeu a encore des sauvegardes de partie : un fichier régulier dans Documents, Saved
-// Games ou AppData (saveProfileDirs, caches exclus) d'un profil de drive_c/users, Public compris (des
-// jeux y écrivent). Le reste de l'overlay (prefix, fichiers temporaires, liens posés par Wine,
-// marqueurs .wh.*) ne compte pas.
+// gameHasSaves : le jeu a encore des sauvegardes de partie, au sens de --save, --sync et de la
+// suppression par le manager (collectSaveFiles : Documents, Saved Games, AppData des profils, caches et
+// comptes système exclus). Le reste de l'overlay (prefix, fichiers temporaires…) ne compte pas.
 func gameHasSaves(name string) bool {
-	users := syncUsersDir(name)
-	profiles, _ := os.ReadDir(users)
-	for _, p := range profiles {
-		if !p.IsDir() {
-			continue
-		}
-		for _, sub := range saveProfileDirs {
-			found := false
-			_ = filepath.WalkDir(filepath.Join(users, p.Name(), filepath.FromSlash(sub)), func(_ string, d fs.DirEntry, err error) error {
-				switch {
-				case err != nil:
-					return nil
-				case d.IsDir() && isCacheDirName(d.Name()):
-					return filepath.SkipDir
-				case !d.Type().IsRegular() || strings.HasPrefix(d.Name(), ".wh."):
-					return nil
-				}
-				found = true
-				return fs.SkipAll
-			})
-			if found {
-				return true
-			}
-		}
-	}
-	return false
+	return len(collectSaveFiles(syncUsersDir(name))) > 0
 }
 
 // pruneOrphanSaves : --clean : jeux sans image (renommée ou retirée, introuvable aussi dans les roms/)
