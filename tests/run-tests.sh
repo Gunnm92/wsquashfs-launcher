@@ -351,6 +351,7 @@ normalize() {
     sed -e 's/\r//g' -e '/^\[=*|\] [0-9]*\/[0-9]* 100%$/d' \
         -e "s#${ROOT}#ROOT#g" -e "s#${LAUNCHER}#LAUNCHER#g" -e "s#${SYNC_HOST}#HOTE#g" \
         -e 's/-[0-9]\{8\}-[0-9]\{6\}\(-[0-9]*\)\{0,1\}\.tar\./-DATE.tar./g' \
+        -e 's/^Version : [0-9a-f]\{12\}$/Version : BUILD/' \
         -e 's#^\(  ✓ [a-z0-9-]*\) (\(/\|ROOT/sysbin/\)[^)]*)#\1 (PATH)#' \
         -e 's#^\(  ✓ dualsense-usb-bridge\) (.*)#\1 (PATH)#' \
         -e 's/^\(Environnement *: \).*/\1ENV/' \
