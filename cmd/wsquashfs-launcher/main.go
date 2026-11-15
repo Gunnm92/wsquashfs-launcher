@@ -25,6 +25,9 @@ func main() {
 // run : point d'entrée (section 10 du script bash).
 func run(args []string) int {
 	origArgs = append([]string{}, args...)
+	if len(args) > 0 && args[0] == "--complete" { // complétion bash (completion.go) : rien d'autre
+		return cmdComplete(args[1:])
+	}
 	opts, err := parseArgs(args)
 	if err != nil {
 		var ae *argError

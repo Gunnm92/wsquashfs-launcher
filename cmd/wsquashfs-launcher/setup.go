@@ -376,6 +376,9 @@ func uninstall() {
 			uiItem(stOK, "umu-run supprimé")
 		}
 	}
+	if !dryRun && removeCompletion() {
+		uiItem(stOK, "Complétion bash supprimée")
+	}
 	if isFile(desktopFile) {
 		_ = removePaths(desktopFile)
 		updateMimeAndDesktopDatabases()
@@ -473,6 +476,7 @@ func installAll() int {
 	}
 	setupStage("PATH du shell")
 	checkPath()
+	checkCompletion()
 	setupStage("Vérification (--doctor)")
 	launcher := filepath.Join(installDir, "wsquashfs-launcher")
 	switch {

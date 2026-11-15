@@ -257,6 +257,19 @@ wsquashfs-launcher --doctor
 wsquashfs-launcher --help
 ```
 
+### Complétion (Tab)
+
+`--setup` installe une complétion bash (`~/.local/share/wsquashfs/completion.bash`,
+chargée par `~/.bashrc` ; nouveau terminal pour en profiter). Tab complète les
+commandes (`--sy` → `--sync`), les jeux qui ont des sauvegardes sur cette machine
+(`--sync`, `--save`, `--clear`, `--erase` ; avec les dossiers déclarés et les jeux
+Switch pour `--sync`), les mots-clés (`status`, `dir`, `forget`, `reset`, `run`,
+`json`…), les machines associées (`--sync forget`, `--pair forget`), les dossiers
+déclarés (`--sync dir forget`) et les runners (`--wine`). Les noms avec espaces
+ou apostrophes sont échappés. Ailleurs (jeu à lancer, `--info`, `--pack`…) : les
+noms de fichiers. Seulement ce qui est sur cette machine : un jeu présent
+uniquement en face se tape à la main. `--setup uninstall` la retire.
+
 ### Variables d'environnement
 
 ```bash
