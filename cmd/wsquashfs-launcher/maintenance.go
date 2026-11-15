@@ -702,31 +702,47 @@ func knownGames() []string {
 	return out
 }
 
-// gameHasFiles : le jeu a encore quelque chose d'écrit : un fichier régulier dans sa couche de
-// sauvegardes (ni marqueur d'overlay .wh.*, ni lien comme Documents → HOME posé par Wine, qui ne
-// contiennent rien), une copie de travail ou une mise de côté du mode copy.
-func gameHasFiles(name string) bool {
-	if isDirPath(filepath.Join(cacheDir, "wine", name)) || isDirPath(copyUsersStash(name)) {
-		return true
-	}
-	found := false
-	_ = filepath.WalkDir(filepath.Join(savesDir, name), func(_ string, d fs.DirEntry, err error) error {
-		if err != nil || !d.Type().IsRegular() || strings.HasPrefix(d.Name(), ".wh.") {
-			return nil
+// gameHasSaves : le jeu a encore des sauvegardes de partie : un fichier régulier dans Documents, Saved
+// Games ou AppData (saveProfileDirs, caches exclus) d'un profil de drive_c/users, Public compris (des
+// jeux y écrivent). Le reste de l'overlay (prefix, fichiers temporaires, liens posés par Wine,
+// marqueurs .wh.*) ne compte pas.
+func gameHasSaves(name string) bool {
+	users := syncUsersDir(name)
+	profiles, _ := os.ReadDir(users)
+	for _, p := range profiles {
+		if !p.IsDir() {
+			continue
 		}
-		found = true
-		return fs.SkipAll
-	})
-	return found
+		for _, sub := range saveProfileDirs {
+			found := false
+			_ = filepath.WalkDir(filepath.Join(users, p.Name(), filepath.FromSlash(sub)), func(_ string, d fs.DirEntry, err error) error {
+				switch {
+				case err != nil:
+					return nil
+				case d.IsDir() && isCacheDirName(d.Name()):
+					return filepath.SkipDir
+				case !d.Type().IsRegular() || strings.HasPrefix(d.Name(), ".wh."):
+					return nil
+				}
+				found = true
+				return fs.SkipAll
+			})
+			if found {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // pruneOrphanSaves : --clean : jeux sans image (renommée ou retirée, introuvable aussi dans les roms/)
-// qui n'ont plus rien d'écrit (gameHasFiles faux) : leur dossier et leur chemin mémorisé sont retirés ;
-// rien n'est perdu. Jeux en cours ou montés : ignorés. Retourne les jeux retirés.
+// qui n'ont plus de sauvegarde (gameHasSaves faux) : il ne reste que leur overlay (prefix, fichiers
+// temporaires), inutile sans image ; leur dossier et leur chemin mémorisé sont retirés. Jeux en cours
+// ou montés : ignorés. Retourne les jeux retirés.
 func pruneOrphanSaves() []string {
 	var out []string
 	for _, g := range knownGames() {
-		if img := gameImage(g); (img != "" && pathExists(img)) || gameHasFiles(g) {
+		if img := gameImage(g); (img != "" && pathExists(img)) || gameHasSaves(g) {
 			continue
 		}
 		lock, ok := lockIdleGame(g)
@@ -770,9 +786,9 @@ func cmdList() {
 		version, size, image := "-", "aucune", ""
 		img := gameImage(g) // mémorisée, sinon <jeu>.wsquashfs retrouvée dans les roms/
 		if img == "" || !pathExists(img) {
-			// Image renommée ou retirée : pas de ligne, un rappel en fin de liste (--clean, ou
-			// réinstaller le jeu s'il reste des sauvegardes)
-			if gameHasFiles(g) {
+			// Image renommée ou retirée : pas de ligne, un rappel en fin de liste (--clean s'il ne
+			// reste que l'overlay, réinstaller le jeu s'il reste des sauvegardes)
+			if gameHasSaves(g) {
 				orphanSaves = append(orphanSaves, g)
 			} else {
 				orphanEmpty = append(orphanEmpty, g)
