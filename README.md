@@ -479,7 +479,10 @@ déclare lui-même la machine (port 8790, HTTPS, certificat épinglé). `wsquash
 si elle a changé depuis le dernier envoi. Rien n'est reçu automatiquement, et sans
 manager (éteint, hors réseau) le jeu se termine normalement avec une ligne d'information.
 `--sync auto` montre l'état, `--sync auto off` le désactive ; le réglage est gardé dans
-`sync.json`, un script de démarrage peut donc le répéter sans risque.
+`sync.json`, un script de démarrage peut donc le répéter sans risque. L'envoi n'a pas
+besoin de l'agent (c'est le lanceur qui appelle le manager) ; sans agent, le manager ne
+voit simplement pas la machine (pastille « auto », envois vers elle), ce que
+`--sync auto` signale.
 
 - **Code à usage unique** : le code `wsq://…` ne sert qu'à une association, pendant
   les 10 minutes d'attente de `--pair`. Chaque machine associée a son propre jeton

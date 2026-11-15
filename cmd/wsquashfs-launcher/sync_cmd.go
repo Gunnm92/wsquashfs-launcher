@@ -151,6 +151,7 @@ func syncAutoCmd(cfg syncConfig, args []string) int {
 		if !cfg.Auto {
 			uiNote("Activer : wsquashfs-launcher --sync auto on")
 		}
+		syncAutoAgentNote(cfg.Auto)
 		return 0
 	}
 	if len(args) != 1 || (args[0] != "on" && args[0] != "off") {
@@ -167,6 +168,7 @@ func syncAutoCmd(cfg syncConfig, args []string) int {
 			word = "activée"
 		}
 		uiStatusLine(stOK, "synchro automatique déjà "+word)
+		syncAutoAgentNote(on)
 		return 0
 	}
 	if err := saveSyncConfig(next); err != nil {
@@ -175,10 +177,25 @@ func syncAutoCmd(cfg syncConfig, args []string) int {
 	if on {
 		p, _ := managerPeer(next)
 		uiStatusLine(stOK, "Synchro automatique activée : la partie part vers "+p.Name+" à la sortie d'un jeu, si joignable")
+		syncAutoAgentNote(true)
 		return 0
 	}
 	uiStatusLine(stOK, "Synchro automatique désactivée")
 	return 0
+}
+
+// syncAutoAgentNote : synchro automatique active mais agent arrêté : l'envoi à la sortie d'un jeu
+// marche quand même (le lanceur appelle le manager), mais le manager ne joint pas cette machine
+// (pastille « auto », sauvegardes envoyées vers elle) : le dire, sans rien bloquer.
+func syncAutoAgentNote(auto bool) {
+	if !auto {
+		return
+	}
+	if _, running := runningAgentPid(); running {
+		return
+	}
+	uiNote("Agent arrêté : la partie part quand même à la sortie d'un jeu, mais le manager ne voit pas " +
+		"cette machine (pastille auto, envois vers elle). Le lancer : wsquashfs-launcher --agent")
 }
 
 // syncDirList : dossiers déclarés, puis les jeux Switch d'Eden.
