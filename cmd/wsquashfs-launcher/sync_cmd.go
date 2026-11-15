@@ -194,8 +194,7 @@ func syncAutoAgentNote(auto bool) {
 	if _, running := runningAgentPid(); running {
 		return
 	}
-	uiNote("Agent arrêté : la partie part quand même à la sortie d'un jeu, mais le manager ne voit pas " +
-		"cette machine (pastille auto, envois vers elle). Le lancer : wsquashfs-launcher --agent")
+	uiNote("wsquashfs-launcher --agent pour la rendre visible dans le manager")
 }
 
 // syncDirList : dossiers déclarés, puis les jeux Switch d'Eden.
