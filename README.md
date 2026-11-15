@@ -204,6 +204,10 @@ wsquashfs-launcher --prepare MonJeu.wsquashfs
 # Essai sans écran : le jeu tourne dans gamescope en arrière-plan
 wsquashfs-launcher --headless MonJeu.wsquashfs
 
+# Essai automatique : lance le jeu pendant la durée (60 s par défaut), observe
+# ses processus et fenêtres, l'arrête et écrit le rapport en JSON
+wsquashfs-launcher --trial MonJeu.wsquashfs [durée] [session NOM] [screenshot FICHIER]
+
 # Créer un .wsquashfs (zstd) à partir d'un prefix Wine ou d'un jeu seul
 wsquashfs-launcher --pack MonJeu.wine          # → MonJeu.wsquashfs
 wsquashfs-launcher --pack MonJeu.pc            # → MonJeu.wsquashfs
@@ -258,6 +262,23 @@ wsquashfs-launcher --help
 ```bash
 export WSQUASHFS_SAVES_DIR="$HOME/mes-sauvegardes"   # sauvegardes overlay
 export WSQUASHFS_CACHE="$HOME/.cache/mes-jeux"        # cache de travail
+export WSQUASHFS_BACKUP_DIR="$HOME/archives"          # archives de --erase
+                               # (défaut : ~/.local/share/wsquashfs/backups)
+export WSQUASHFS_OVERLAY=auto  # auto (défaut) : overlay noyau, repli sur
+                               # fuse-overlayfs ; fuse : toujours fuse-overlayfs ;
+                               # kernel : sans repli
+export WSQUASHFS_VIRTUAL_DESKTOP=1920x1080   # bureau virtuel Wine pour tous les
+                               # jeux (aussi par jeu : VIRTUAL_DESKTOP=)
+export WSQUASHFS_NVAPI=auto    # NVAPI / DLSS. auto (défaut) : actif si carte
+                               # NVIDIA et dxvk-nvapi présents ; 0 coupe, 1 demande
+                               # (aussi par jeu : NVAPI=)
+export WSQUASHFS_VKREFLEX=auto # couche Reflex de dxvk-nvapi. auto (défaut) : active
+                               # si NVAPI l'est et la couche installée ; 1 force
+                               # NVAPI ; 0 coupe (aussi par jeu : VKREFLEX=)
+export WSQUASHFS_FSR=1         # FSR de Wine en plein écran (défaut 0 ; par jeu : FSR=1)
+export WSQUASHFS_FSR4=1        # FSR4 (carte AMD, amdxcffx64.dll copiée par --setup) :
+                               # DLL posée dans le prefix, le jeu décide de l'utiliser
+                               # (défaut 0 ; par jeu : FSR4=1)
 export WSQUASHFS_DXVK=0        # désactive DXVK (activé par défaut)
 export WSQUASHFS_HIDRAW=1      # manettes Sony par hidraw ("DisableHidraw"=0)
                                # si lisibles ; défaut XInput (Xbox), comme

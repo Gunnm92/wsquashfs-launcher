@@ -185,6 +185,28 @@ le jeu tient-il 60 s, erreurs connues dans le journal — `SOCK_RAW`,
 `install_bpf`, `out of memory`, `page fault`), résultat joint à la
 proposition.
 
+### 2.6 Sauvegardes entre machines
+
+Onglet **Sauvegardes**, premier onglet et vue de démarrage. Les machines sont
+associées par le code `wsq://…` de `wsquashfs-launcher --pair` et jointes par
+leur agent (`--agent`, voir [agent.md](agent.md)) ; le manager garde sa propre
+copie de chaque jeu.
+
+- Bandeau : une carte par machine, plus le manager. Un clic sur une carte
+  n'affiche que les sauvegardes de cette machine (second clic : tout) ; le
+  chevron à droite ouvre son menu (icône, oubli).
+- Tableau jeux × machines : plus avancée (la plus lourde, puis la plus
+  récente), en retard, identique, absente (pas une différence), injoignable,
+  à vérifier. Filtres d'état : Tous, Différences, Identiques, Sur le manager.
+- Actions : Sync (la plus avancée vers les machines en retard), depuis une
+  machine précise ou le manager, installer sur une machine qui n'a pas le jeu,
+  copier vers le manager, supprimer (archivé avant). Une machine où le jeu
+  tourne n'est pas touchée.
+
+Détail des écrans, des états et des routes `/api/saves/*` : README de
+wsquashfs-manager, section « Sauvegardes entre machines ». Même règle de
+conflit que `--sync` en ligne de commande.
+
 ## 3. Opérations sur une image
 
 ### 3.1 Principe commun : reconstruire sans extraire
