@@ -702,16 +702,16 @@ func knownGames() []string {
 	return out
 }
 
-// gameHasFiles : le jeu a encore quelque chose d'écrit : un fichier dans sa couche de sauvegardes (hors
-// marqueurs d'overlay .wh.*, qui ne contiennent rien), une copie de travail ou une mise de côté du mode
-// copy.
+// gameHasFiles : le jeu a encore quelque chose d'écrit : un fichier régulier dans sa couche de
+// sauvegardes (ni marqueur d'overlay .wh.*, ni lien comme Documents → HOME posé par Wine, qui ne
+// contiennent rien), une copie de travail ou une mise de côté du mode copy.
 func gameHasFiles(name string) bool {
 	if isDirPath(filepath.Join(cacheDir, "wine", name)) || isDirPath(copyUsersStash(name)) {
 		return true
 	}
 	found := false
 	_ = filepath.WalkDir(filepath.Join(savesDir, name), func(_ string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || strings.HasPrefix(d.Name(), ".wh.") {
+		if err != nil || !d.Type().IsRegular() || strings.HasPrefix(d.Name(), ".wh.") {
 			return nil
 		}
 		found = true

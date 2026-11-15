@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -69,11 +70,16 @@ func TestListFindsImagesNotRecorded(t *testing.T) {
 // shellOnly : sauvegardes réduites à des marqueurs d'overlay (comme après « Supprimer… » du manager).
 func shellOnly(t *testing.T, game string) {
 	t.Helper()
-	writeTree(t, filepath.Join(savesDir, game, "drive_c", "users", "arcade"), map[string]string{
+	users := filepath.Join(savesDir, game, "drive_c", "users", "arcade")
+	writeTree(t, users, map[string]string{
 		".wh..wh..opq":           "",
 		"AppData/.wh..wh..opq":   "",
 		"Documents/.wh..wh..opq": "",
 	})
+	// Liens que Wine pose vers HOME : ils ne contiennent rien
+	if err := os.Symlink(os.TempDir(), filepath.Join(users, "Desktop")); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // TestCleanPrunesOrphanSaves : --clean retire un jeu sans image et sans rien d'écrit (overlay réduit
