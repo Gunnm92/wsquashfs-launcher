@@ -168,11 +168,13 @@ func completeWords(args []string, cur string) []string {
 	return nil
 }
 
-// completeSync : --sync [jeu | status [jeu] | forget <machine> | dir [add <nom> <chemin> | forget <nom>]].
+// completeSync : --sync [jeu | status [jeu] | forget <machine> | dir [add <nom> <chemin> | forget <nom>] | auto [on | off]].
 func completeSync(rest []string) []string {
 	switch {
 	case len(rest) == 0:
-		return append([]string{"dir", "forget", "status"}, syncNames()...)
+		return append([]string{"auto", "dir", "forget", "status"}, syncNames()...)
+	case len(rest) == 1 && rest[0] == "auto":
+		return []string{"off", "on"}
 	case len(rest) == 1 && rest[0] == "status":
 		return syncNames()
 	case len(rest) == 1 && rest[0] == "forget":

@@ -473,6 +473,14 @@ wsquashfs-launcher --sync dir forget hookshot   # retire la déclaration (fichie
 wsquashfs-launcher --sync "dossier:hookshot"    # ce dossier seulement
 ```
 
+**Synchro automatique avec le manager** : quand wsquashfs-manager est joignable, il
+déclare lui-même la machine (port 8790, HTTPS, certificat épinglé). `wsquashfs-launcher
+--sync auto on` fait alors partir la partie vers le manager à la sortie de chaque jeu,
+si elle a changé depuis le dernier envoi. Rien n'est reçu automatiquement, et sans
+manager (éteint, hors réseau) le jeu se termine normalement avec une ligne d'information.
+`--sync auto` montre l'état, `--sync auto off` le désactive ; le réglage est gardé dans
+`sync.json`, un script de démarrage peut donc le répéter sans risque.
+
 - **Code à usage unique** : le code `wsq://…` ne sert qu'à une association, pendant
   les 10 minutes d'attente de `--pair`. Chaque machine associée a son propre jeton
   (l'agent n'en garde que l'empreinte) ; `--pair forget` coupe une machine sans

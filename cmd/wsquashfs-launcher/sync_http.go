@@ -32,6 +32,7 @@ type syncPeer struct {
 	URL         string `json:"url"`   // https://hôte:port
 	Token       string `json:"token"` // jeton durable de cette machine chez l'autre (jamais le secret du code)
 	Fingerprint string `json:"fingerprint"`
+	Manager     bool   `json:"manager,omitempty"` // wsquashfs-manager : déclaré par lui (PUT /v1/saves/manager), cible de --sync auto
 }
 
 // syncConfig : sync.json (identifiant de cette machine et machines associées).
@@ -39,6 +40,17 @@ type syncConfig struct {
 	ID    string     `json:"id"`
 	Peers []syncPeer `json:"peers"`
 	Dirs  []syncDir  `json:"dirs,omitempty"` // dossiers déclarés (--sync dir add), synchronisés comme des jeux
+	Auto  bool       `json:"auto,omitempty"` // --sync auto on : envoi au manager à la sortie d'un jeu (sync_auto.go)
+}
+
+// managerPeer : le pair déclaré par le manager (Manager), s'il y en a un.
+func managerPeer(cfg syncConfig) (syncPeer, bool) {
+	for _, p := range cfg.Peers {
+		if p.Manager {
+			return p, true
+		}
+	}
+	return syncPeer{}, false
 }
 
 // syncConfigPath : ~/.config/wsquashfs/sync.json (XDG_CONFIG_HOME respecté).
@@ -133,6 +145,22 @@ func parsePairCode(code string) (syncPeer, error) {
 	}, nil
 }
 
+// managerURL : adresse du manager telle qu'elle est gardée, https://hôte:port (port obligatoire, sans
+// chemin ni requête). Erreur sinon.
+func managerURL(raw string) (string, error) {
+	const msg = "adresse du manager : https://hôte:port attendue"
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "https" || u.Hostname() == "" || u.User != nil || u.RawQuery != "" ||
+		(u.Path != "" && u.Path != "/") {
+		return "", errors.New(msg)
+	}
+	port, err := strconv.Atoi(u.Port())
+	if err != nil || port < 1 || port > 65535 {
+		return "", errors.New(msg)
+	}
+	return "https://" + u.Host, nil
+}
+
 // errSyncBusy : un jeu est en cours d'utilisation sur la machine distante (409).
 var errSyncBusy = errors.New("jeu en cours sur la machine distante")
 
@@ -171,13 +199,18 @@ var syncFetchHeaderTimeout = 10 * time.Minute
 // remoteSave : une entrée de /v1/saves/list (côté client).
 // (Le type est partagé avec la route : voir agent_http.go.)
 
-// newSyncClient : client pour une machine distante. TLS 1.3 ; le certificat est accepté si son
-// empreinte SHA-256 (DER) est celle du code d'association.
+// newSyncClient : client pour une machine distante (délai de connexion de 3 s). Voir newSyncClientDial.
 func newSyncClient(peer syncPeer, id string) *syncClient {
+	return newSyncClientDial(peer, id, 3*time.Second)
+}
+
+// newSyncClientDial : newSyncClient avec le délai de connexion donné (sortie de jeu : court, sync_auto.go).
+// TLS 1.3 ; le certificat est accepté si son empreinte SHA-256 (DER) est celle du code d'association.
+func newSyncClientDial(peer syncPeer, id string, dial time.Duration) *syncClient {
 	want := strings.ToUpper(peer.Fingerprint)
 	tr := &http.Transport{
 		Proxy:                 nil, // réseau local : pas de proxy d'environnement
-		DialContext:           (&net.Dialer{Timeout: 3 * time.Second}).DialContext,
+		DialContext:           (&net.Dialer{Timeout: dial}).DialContext,
 		TLSHandshakeTimeout:   5 * time.Second,
 		ResponseHeaderTimeout: syncHeaderTimeout,
 		TLSClientConfig: &tls.Config{
@@ -389,7 +422,13 @@ func (c *syncClient) send(t syncTarget) (string, string, error) {
 	if len(files) == 0 {
 		return "", "", errors.New("rien à envoyer : aucune sauvegarde locale")
 	}
-	headers := map[string]string{}
+	// Empreinte, taille des fichiers et date du plus récent : l'agent les ignore, le manager les garde
+	// (état de synchro, et les valeurs qui départagent un conflit, comme dans la liste d'un agent).
+	headers := map[string]string{
+		"X-Wsq-Fingerprint": t.fingerprint(files),
+		"X-Wsq-Size":        strconv.FormatInt(saveSize(files), 10),
+		"X-Wsq-Newest":      strconv.FormatInt(newestSave(files), 10),
+	}
 	if !t.Plain {
 		if profs := fileProfiles(files); len(profs) == 1 {
 			headers["X-Wsq-Profile"] = profs[0]

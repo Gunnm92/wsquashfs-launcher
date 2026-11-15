@@ -12,6 +12,7 @@ package main
 //   --sync forget <machine>   retirer une machine associée
 //   --sync dir                dossiers déclarés et jeux Switch d'Eden
 //   --sync dir add <nom> <chemin> | dir forget <nom>   déclarer ou retirer un dossier
+//   --sync auto [on | off]    envoi au manager à la sortie d'un jeu (sync_auto.go), état sans argument
 
 import (
 	"errors"
@@ -22,7 +23,10 @@ import (
 	"strings"
 )
 
-const syncUsage = "wsquashfs-launcher --sync [jeu | status [jeu] | forget <machine> | dir … | wsq://…]"
+const syncUsage = "wsquashfs-launcher --sync [jeu | status [jeu] | forget <machine> | dir … | auto [on | off] | wsq://…]"
+
+// syncAutoUsage : syntaxe de --sync auto.
+const syncAutoUsage = "wsquashfs-launcher --sync auto [on | off]"
 
 // syncLockGame : verrou local d'un jeu (lockIdleGame). Variable : les tests simulent deux machines
 // dans un même processus, qui partagent les globales (et donc le fichier de verrou) ; ils la
@@ -48,6 +52,8 @@ func cmdSync(args []string) int {
 		return syncForget(cfg, args[1])
 	case first == "dir":
 		return syncDirCmd(cfg, args[1:])
+	case first == "auto":
+		return syncAutoCmd(cfg, args[1:])
 	case first == "status":
 		if len(args) > 2 {
 			usageError("wsquashfs-launcher --sync status [jeu]")
@@ -114,6 +120,65 @@ func syncDirCmd(cfg syncConfig, args []string) int {
 	}
 	usageError("wsquashfs-launcher --sync dir [add <nom> <chemin depuis le dossier personnel> | forget <nom>]")
 	return 1
+}
+
+// syncAutoSet : configuration avec la synchro automatique activée (on) ou désactivée. Activer sans
+// manager déclaré est refusé : le manager déclare la machine lui-même (PUT /v1/saves/manager).
+func syncAutoSet(cfg syncConfig, on bool) (syncConfig, error) {
+	if on {
+		if _, ok := managerPeer(cfg); !ok {
+			return cfg, errors.New("aucun manager déclaré : associer la machine dans wsquashfs-manager d'abord")
+		}
+	}
+	cfg.Auto = on
+	return cfg, nil
+}
+
+// syncAutoCmd : --sync auto [on | off]. Sans argument, l'état ; on et off sont persistants et
+// idempotents (déjà dans l'état demandé : message, code 0).
+func syncAutoCmd(cfg syncConfig, args []string) int {
+	uiTitle("Synchronisation automatique", "sortie de jeu")
+	if len(args) == 0 {
+		state := "inactive"
+		if cfg.Auto {
+			state = "active"
+		}
+		manager := "aucun manager déclaré"
+		if p, ok := managerPeer(cfg); ok {
+			manager = p.Name
+		}
+		uiKV(2, kv{"État", state}, kv{"Manager", manager})
+		if !cfg.Auto {
+			uiNote("Activer : wsquashfs-launcher --sync auto on")
+		}
+		return 0
+	}
+	if len(args) != 1 || (args[0] != "on" && args[0] != "off") {
+		usageError(syncAutoUsage)
+	}
+	on := args[0] == "on"
+	next, err := syncAutoSet(cfg, on)
+	if err != nil {
+		die(err.Error())
+	}
+	if cfg.Auto == on {
+		word := "désactivée"
+		if on {
+			word = "activée"
+		}
+		uiStatusLine(stOK, "synchro automatique déjà "+word)
+		return 0
+	}
+	if err := saveSyncConfig(next); err != nil {
+		die("configuration non enregistrée : " + err.Error())
+	}
+	if on {
+		p, _ := managerPeer(next)
+		uiStatusLine(stOK, "Synchro automatique activée : la partie part vers "+p.Name+" à la sortie d'un jeu, si joignable")
+		return 0
+	}
+	uiStatusLine(stOK, "Synchro automatique désactivée")
+	return 0
 }
 
 // syncDirList : dossiers déclarés, puis les jeux Switch d'Eden.

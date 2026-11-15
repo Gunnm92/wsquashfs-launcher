@@ -780,6 +780,9 @@ func runGame() {
 	}
 	_ = runWineserver(winePoint, "-w")
 	stopAttachCommand()
+	if action == "run" { // lancement normal seulement (pas --exec)
+		autoSyncAfterGame(gameName)
+	}
 	uiRule("")
 	uiVerdict(code == 0, fmt.Sprintf("Jeu terminé (code : %d)", code))
 	exitNow(code)

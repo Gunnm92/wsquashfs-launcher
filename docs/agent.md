@@ -98,7 +98,7 @@ est retiré. Un code expiré, déjà utilisé ou faux : 401 (« relancer --pair 
 | Route | Rôle |
 |---|---|
 | `POST /v1/pair` | association (hors du contrôle de jeton), voir ci-dessous |
-| `GET /v1/info` | version, machine, utilisateur, dossiers roms/, `os` (ID de `/etc/os-release`, `linux` par défaut), `games_dir` (dossier d'installation effectif) et `games_dir_set` (choix manuel en vigueur) |
+| `GET /v1/info` | version, machine, utilisateur, dossiers roms/, `os` (ID de `/etc/os-release`, `linux` par défaut), `games_dir` (dossier d'installation effectif), `games_dir_set` (choix manuel en vigueur), `manager` (empreinte du manager déclaré, `""` sinon) et `auto` (synchro automatique à la sortie d'un jeu, `--sync auto on`) |
 | `GET /v1/doctor[?refresh=1]` | rapport `--doctor json` (mis en cache 5 min) |
 | `POST /v1/trial` `{rel, duration}` | essai : rapport `--trial` et capture (base64) |
 | `POST /v1/maintenance` `{action, rel?}` | voir la table ci-dessous |
@@ -122,7 +122,7 @@ Toutes les routes sauf `POST /v1/pair` exigent un jeton de machine associée (40
 - Succès : `pair.json` est retiré d'abord (usage unique ; s'il ne peut l'être, 500 et
   rien n'est délivré) ; un jeton durable est créé ; l'entrée de même identifiant de
   `agent.json` est remplacée, ou ajoutée ; `last-pair.json` est écrit ; réponse **200**
-  `{"token": "<jeton durable>", "host": "<nom d'hôte de l'agent>", "version": "7"}`.
+  `{"token": "<jeton durable>", "host": "<nom d'hôte de l'agent>", "version": "9"}`.
   C'est la seule fois où le jeton sort de l'agent.
 - 404 : la machine qui s'associe a un lanceur trop ancien (`--update` là-bas).
 ### Installation des images (`/v1/games/*`)
@@ -161,7 +161,7 @@ avec `GET /v1/games/part`, puis `PUT` à partir de `part_size`.
 ### Maintenance (`POST /v1/maintenance`)
 
 Table fermée (`maintenanceActions` dans `agent_http.go`), contrat commun avec
-wsquashfs-manager (version de l'agent : **8**, route `GET /v1/info`).
+wsquashfs-manager (version de l'agent : **9**, route `GET /v1/info`).
 
 | `action` | Lanceur | `rel` (image du jeu) |
 |---|---|---|
@@ -203,6 +203,7 @@ jamais modifiée. Un jeu Switch est refusé (409) tant qu'Eden tourne.
 | `GET /v1/saves/dirs` | dossiers déclarés `{dirs:[{name,path}], eden}`, chemins à partir de HOME (`eden` : dossier d'Eden détecté, `""` sinon) |
 | `PUT /v1/saves/dirs` `{name, path}` | déclare (ou remplace, même nom) un dossier à synchroniser : chemin à partir de HOME (`.local/share/x`, aussi `~/…` ou absolu sous HOME ; HOME exclu), qui peut ne pas exister encore ; nom : lettres, chiffres, espace, `_` et `-` (48 au plus) ; 400 sinon. Répond la liste |
 | `DELETE /v1/saves/dirs?name=` | retire la déclaration, les fichiers restent (404 nom inconnu). Répond la liste |
+| `PUT /v1/saves/manager` `{name, url, token, fingerprint}` | déclare le manager (wsquashfs-manager) comme pair `manager` de cette machine : `url` en `https://hôte:port` (port obligatoire, sans chemin), `token` (lettres, chiffres, `_`, `-`), `fingerprint` (64 caractères hexadécimaux, certificat épinglé). Remplace le manager déclaré précédemment, les autres machines restent. Réponse `{manager, auto}` ; 400 avec `detail` sinon |
 | `DELETE /v1/saves/tar?game=` | supprime les sauvegardes du jeu sur cette machine : le périmètre est archivé d'abord dans le dossier backups (réponse `archived`, en 500 sans rien supprimer si l'archivage échoue) ; seuls les fichiers du périmètre partent, puis les dossiers devenus vides (caches et fichiers hors périmètre restent) ; l'état de synchro de la machine appelante pour ce jeu est effacé (réponse `removed`, nombre de fichiers). Sans sauvegarde : 200 `removed: 0`, rien d'archivé |
 
 Règle du conflit (les deux côtés ont changé depuis la dernière synchro) : la version la plus lourde gagne, à taille égale la plus récente ; la perdante est archivée dans le dossier backups.

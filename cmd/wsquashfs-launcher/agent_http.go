@@ -46,7 +46,7 @@ type agentServer struct {
 	docOut    []byte
 	docAt     time.Time
 	pairMu    sync.Mutex // POST /v1/pair : un code consommé à la fois
-	syncCfgMu sync.Mutex // sync.json : déclarations de dossiers (PUT/DELETE /v1/saves/dirs)
+	syncCfgMu sync.Mutex // sync.json : déclarations de dossiers et du manager (PUT/DELETE /v1/saves/dirs, PUT /v1/saves/manager)
 	// Installation des images (games_http.go) : dossier détecté (cache de 10 min), envois en
 	// cours par nom. gamesMu protège aussi cfg.GamesDir.
 	gamesMu          sync.Mutex
@@ -77,6 +77,7 @@ func (s *agentServer) httpServer() *http.Server {
 	mux.HandleFunc("GET /v1/saves/dirs", s.syncMachine(s.savesDirs))
 	mux.HandleFunc("PUT /v1/saves/dirs", s.syncMachine(s.savesDirPut))
 	mux.HandleFunc("DELETE /v1/saves/dirs", s.syncMachine(s.savesDirDelete))
+	mux.HandleFunc("PUT /v1/saves/manager", s.syncMachine(s.savesManagerPut))
 	mux.HandleFunc("GET /v1/games/list", s.auth(s.gamesList))
 	mux.HandleFunc("POST /v1/games/dir", s.auth(s.gamesSetDir))
 	mux.HandleFunc("GET /v1/games/part", s.auth(s.gamesPart))
@@ -306,6 +307,12 @@ func launcherExe() string {
 func (s *agentServer) info(w http.ResponseWriter, r *http.Request) {
 	host, _ := os.Hostname()
 	gamesDir, gamesSet, _, _ := s.gamesDir()
+	// manager : empreinte du manager déclaré ("" sans déclaration) ; auto : synchro à la sortie d'un jeu.
+	cfg := loadSyncConfig()
+	manager := ""
+	if p, ok := managerPeer(cfg); ok {
+		manager = p.Fingerprint
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"version":         agentVersion,
 		"host":            host,
@@ -316,6 +323,8 @@ func (s *agentServer) info(w http.ResponseWriter, r *http.Request) {
 		"os":              osID("/etc/os-release"),
 		"games_dir":       gamesDir,
 		"games_dir_set":   gamesSet,
+		"manager":         manager,
+		"auto":            cfg.Auto,
 	})
 }
 
@@ -972,6 +981,62 @@ func (s *agentServer) savesDirPut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, syncDirsReply())
+}
+
+// savesManagerPut : PUT /v1/saves/manager {name, url, token, fingerprint} : le manager se déclare comme
+// pair de cette machine (sync.json, Manager). Remplace le manager déclaré précédemment. Répond son
+// empreinte et l'état de la synchro automatique.
+func (s *agentServer) savesManagerPut(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name        string `json:"name"`
+		URL         string `json:"url"`
+		Token       string `json:"token"`
+		Fingerprint string `json:"fingerprint"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 8192)).Decode(&req); err != nil {
+		writeDetail(w, http.StatusBadRequest, "requête illisible")
+		return
+	}
+	peerURL, err := managerURL(req.URL)
+	if err != nil {
+		writeDetail(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if !pairTokenRe.MatchString(req.Token) {
+		writeDetail(w, http.StatusBadRequest, "jeton du manager absent ou mal formé")
+		return
+	}
+	if !pairFPRe.MatchString(req.Fingerprint) {
+		writeDetail(w, http.StatusBadRequest, "empreinte du manager invalide (64 caractères hexadécimaux)")
+		return
+	}
+	name := cleanMachineName(req.Name)
+	if name == "" {
+		name = peerURL
+	}
+	peer := syncPeer{
+		Name:        name,
+		URL:         peerURL,
+		Token:       req.Token,
+		Fingerprint: strings.ToUpper(req.Fingerprint),
+		Manager:     true,
+	}
+	s.syncCfgMu.Lock()
+	defer s.syncCfgMu.Unlock()
+	cfg := loadSyncConfig()
+	kept := []syncPeer{}
+	for _, p := range cfg.Peers {
+		if !p.Manager {
+			kept = append(kept, p)
+		}
+	}
+	cfg.Peers = kept
+	cfg = addSyncPeer(cfg, peer)
+	if err := saveSyncConfig(cfg); err != nil {
+		writeDetail(w, http.StatusInternalServerError, "configuration non enregistrée")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"manager": peer.Fingerprint, "auto": cfg.Auto})
 }
 
 // savesDirDelete : DELETE /v1/saves/dirs?name= : retire la déclaration (les fichiers restent).
