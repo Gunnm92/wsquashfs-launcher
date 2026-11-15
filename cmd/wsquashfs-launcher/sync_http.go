@@ -434,6 +434,9 @@ func (c *syncClient) send(t syncTarget) (string, string, error) {
 			headers["X-Wsq-Profile"] = profs[0]
 		}
 	}
+	if rel := t.relDir(); rel != "" {
+		headers[syncDirHeader] = url.PathEscape(rel) // la cible le déclare si elle ne l'a pas
+	}
 	pr, pw := io.Pipe()
 	werrCh := make(chan error, 1)
 	go func() {

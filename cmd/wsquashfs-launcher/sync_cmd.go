@@ -436,6 +436,10 @@ func syncRun(cfg syncConfig, game string, dryRun bool) int {
 					continue
 				}
 			}
+			if errors.Is(terr, errSyncAbsent) && byName[name].Dir != "" && !dryRun {
+				// Dossier déclaré sur l'autre machine, pas ici : déclaré avec son chemin, puis reçu.
+				t, terr = declareFromPeer(name, byName[name].Dir)
+			}
 			if terr != nil {
 				g.line(stSkip, labels[name], "absent ici (dossier non déclaré : --sync dir add, ou Eden absent)")
 				continue

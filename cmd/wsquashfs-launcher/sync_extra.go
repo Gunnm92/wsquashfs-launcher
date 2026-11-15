@@ -105,6 +105,38 @@ func checkSyncDirPath(p string) (string, error) {
 	return real, nil
 }
 
+// syncDirHeader : en-tête qui transporte le chemin d'un dossier déclaré (à partir de HOME, encodé en
+// pourcentage : accents et espaces passent dans un en-tête HTTP). Une machine qui reçoit un dossier
+// qu'elle n'a pas déclaré le déclare avec ce chemin, sous le même nom (comme un jeu installé ailleurs).
+const syncDirHeader = "X-Wsq-Dir"
+
+// relDir : chemin d'un dossier déclaré à partir de HOME, "" s'il est ailleurs (rien à transmettre).
+func (t syncTarget) relDir() string {
+	if !strings.HasPrefix(t.Name, syncDirPrefix) {
+		return ""
+	}
+	if rel := homeRel(t.Dir); rel != "" && !filepath.IsAbs(rel) {
+		return rel
+	}
+	return ""
+}
+
+// declareFromPeer : déclare ici le dossier « dossier:<nom> » reçu d'une autre machine, avec le chemin
+// qu'elle donne (à partir de HOME, vérifié par checkSyncDirPath). Rend la cible.
+func declareFromPeer(name, rel string) (syncTarget, error) {
+	if !strings.HasPrefix(name, syncDirPrefix) || rel == "" {
+		return syncTarget{}, errSyncAbsent
+	}
+	cfg, err := addSyncDir(loadSyncConfig(), strings.TrimPrefix(name, syncDirPrefix), rel)
+	if err != nil {
+		return syncTarget{}, err
+	}
+	if err := saveSyncConfig(cfg); err != nil {
+		return syncTarget{}, err
+	}
+	return syncTargetOf(name)
+}
+
 // homeRel : chemin affiché à partir de HOME (« .local/share/x »), absolu s'il est ailleurs.
 func homeRel(p string) string {
 	if p == "" {

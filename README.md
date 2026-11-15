@@ -504,8 +504,10 @@ manager (éteint, hors réseau) le jeu se termine normalement avec une ligne d'i
   SAVEDIR ou SAVEFILES, registre Windows) ne sont pas synchronisés. Le jeu doit
   être arrêté sur les deux machines.
 - **Dossiers déclarés** (`dossier:<nom>`) : tout le dossier est copié tel quel.
-  Une machine où il n'est pas déclaré n'est pas touchée. On peut aussi les
-  déclarer depuis wsquashfs-manager (menu de la machine, onglet Sauvegardes).
+  Il suffit de le déclarer sur une machine : il se propage comme une sauvegarde.
+  Une machine qui le reçoit sans l'avoir déclaré (`--sync "dossier:<nom>"`, ou
+  envoi du manager) le déclare elle-même, sous le même nom et au même chemin à
+  partir de son dossier personnel. Sinon, elle n'est jamais touchée.
 - **Jeux Switch (Eden)** : synchronisés d'office, **jeu par jeu**
   (`switch:<TitleID>`), depuis `~/.local/share/eden/nand/user/save/` (Flatpak
   aussi ; `WSQUASHFS_EDEN_DIR` pour un autre emplacement). Chaque machine a son

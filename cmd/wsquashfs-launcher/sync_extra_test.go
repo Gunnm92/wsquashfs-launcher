@@ -4,9 +4,13 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -371,5 +375,70 @@ func TestSwitchNamesFromRomFiles(t *testing.T) {
 	}
 	if tg, _ := syncTargetOf("switch:01006F8002326000"); tg.Label != "Switch · Animal Crossing New Horizons" {
 		t.Errorf("libellé : %q", tg.Label)
+	}
+}
+
+// TestDeclaredDirPropagates : un dossier déclaré sur une machine se propage comme une sauvegarde : la
+// liste donne son chemin (à partir de HOME), l'envoi le transmet (X-Wsq-Dir) et une machine qui ne l'a
+// pas déclaré le déclare à la réception, sous le même nom. Sans chemin : refusé comme avant ; chemin
+// hors de HOME : refusé.
+func TestDeclaredDirPropagates(t *testing.T) {
+	_, h, _ := agentFixture(t)
+	isolateSaves(t)
+	t.Setenv("WSQUASHFS_EDEN_DIR", "")
+	home, _ := filepath.EvalSymlinks(os.Getenv("HOME"))
+	src := t.TempDir()
+	writeTree(t, src, map[string]string{"slot.sav": "zelda"})
+	archive := plainArchive(t, src)
+	name := "dossier:Zelda Ocarina Of Time"
+	put := func(dir string) int {
+		req := httptest.NewRequest("PUT", "/v1/saves/tar?game="+url.QueryEscape(name), bytes.NewReader(archive))
+		req.Header.Set("Authorization", "Bearer secret-token")
+		req.Header.Set("X-Wsq-Machine", "client-machine-01")
+		if dir != "" {
+			req.Header.Set(syncDirHeader, url.PathEscape(dir))
+		}
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec.Code
+	}
+	if code := put(""); code != http.StatusNotFound {
+		t.Errorf("sans chemin : %d, attendu 404", code)
+	}
+	if code := put("../ailleurs"); code != http.StatusBadRequest {
+		t.Errorf("chemin hors de HOME : %d, attendu 400", code)
+	}
+	if code := put(".local/share/hookshot/save"); code != http.StatusOK {
+		t.Fatalf("avec chemin : %d", code)
+	}
+	if got, _ := os.ReadFile(filepath.Join(home, ".local", "share", "hookshot", "save", "slot.sav")); string(got) != "zelda" {
+		t.Errorf("fichier reçu : %q", got)
+	}
+	dirs := loadSyncConfig().Dirs
+	if len(dirs) != 1 || dirs[0].Name != "Zelda Ocarina Of Time" {
+		t.Fatalf("déclaration : %+v", dirs)
+	}
+	rec := doSync(h, "GET", "/v1/saves/list", "client-machine-01", nil)
+	if !strings.Contains(rec.Body.String(), `"dir":".local/share/hookshot/save"`) {
+		t.Errorf("liste sans le chemin : %s", rec.Body.String())
+	}
+	// L'envoi d'un dossier déclaré transmet son chemin.
+	var got string
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Get(syncDirHeader)
+		writeJSON(w, http.StatusOK, map[string]string{"fingerprint": "x"})
+	}))
+	t.Cleanup(srv.Close)
+	sum := sha256.Sum256(srv.Certificate().Raw)
+	peer := syncPeer{Name: "b", URL: srv.URL, Token: "t", Fingerprint: strings.ToUpper(hex.EncodeToString(sum[:]))}
+	tg, err := syncTargetOf(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := newSyncClient(peer, "client-machine-01").send(tg); err != nil {
+		t.Fatal(err)
+	}
+	if dec, _ := url.PathUnescape(got); dec != ".local/share/hookshot/save" {
+		t.Errorf("en-tête %s : %q", syncDirHeader, got)
 	}
 }

@@ -21,6 +21,7 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -694,6 +695,7 @@ func (s *agentServer) syncMachine(next http.HandlerFunc) http.HandlerFunc {
 type remoteSave struct {
 	Name        string `json:"name"`
 	Label       string `json:"label,omitempty"` // dossier déclaré, jeu Switch : nom lisible
+	Dir         string `json:"dir,omitempty"`   // dossier déclaré : chemin à partir de HOME (propagé à la cible)
 	Fingerprint string `json:"fingerprint"`
 	Newest      int64  `json:"newest"`
 	Size        int64  `json:"size"`
@@ -733,7 +735,7 @@ func (s *agentServer) savesList(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		st := loadSyncState(syncStateRoot(), machine, name)
-		games = append(games, remoteSave{Name: name, Label: t.Label, Fingerprint: fp, Newest: newestSave(files), Size: saveSize(files), State: st.Fingerprint})
+		games = append(games, remoteSave{Name: name, Label: t.Label, Dir: t.relDir(), Fingerprint: fp, Newest: newestSave(files), Size: saveSize(files), State: st.Fingerprint})
 	}
 	sort.Slice(games, func(i, j int) bool { return games[i].Name < games[j].Name })
 	writeJSON(w, http.StatusOK, map[string]any{"games": games})
@@ -799,6 +801,22 @@ func (s *agentServer) savesGet(w http.ResponseWriter, r *http.Request) {
 func (s *agentServer) savesPut(w http.ResponseWriter, r *http.Request) {
 	game := r.URL.Query().Get("game")
 	t, err := syncTargetOf(game)
+	if errors.Is(err, errSyncAbsent) && r.Header.Get(syncDirHeader) != "" {
+		// Dossier déclaré sur l'envoyeur, pas ici : déclaré avec son chemin (à partir de HOME), comme
+		// un jeu reçu pour la première fois.
+		rel, uerr := url.PathUnescape(r.Header.Get(syncDirHeader))
+		if uerr != nil {
+			writeDetail(w, http.StatusBadRequest, "chemin du dossier illisible")
+			return
+		}
+		s.syncCfgMu.Lock()
+		t, err = declareFromPeer(game, rel)
+		s.syncCfgMu.Unlock()
+		if err != nil && !errors.Is(err, errSyncAbsent) && !errors.Is(err, errSyncInvalid) {
+			writeDetail(w, http.StatusBadRequest, "dossier non déclaré ici : "+err.Error())
+			return
+		}
+	}
 	if err != nil {
 		writeSyncTargetErr(w, err)
 		return
