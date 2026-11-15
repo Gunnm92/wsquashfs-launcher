@@ -353,3 +353,65 @@ func TestAutoSyncAfterGame(t *testing.T) {
 		t.Errorf("SAVEFILES : %d envoi(s), attendu 2", m.puts)
 	}
 }
+
+// doManager : requête du manager au handler de l'agent (jeton du manager côté agent, identifiant mgrID).
+func doManager(h http.Handler, method, target, machine string, body []byte) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(method, target, strings.NewReader(string(body)))
+	req.Header.Set("Authorization", "Bearer mgr-agent-token")
+	req.Header.Set("X-Wsq-Machine", machine)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	return rec
+}
+
+// TestManagerPushRecordedAsSent : le manager pousse la version la plus récente à cette machine (PUT
+// /v1/saves/tar puis POST /v1/saves/state, sous son identifiant). La sortie suivante du jeu ne la
+// renvoie pas au manager ; une partie modifiée ensuite part bien.
+func TestManagerPushRecordedAsSent(t *testing.T) {
+	r := newSyncRig(t)
+	const mgrID = "mgr-machine-01"
+	enrollMachine(t, mgrID, "wsquashfs-manager", "mgr-agent-token")
+	m, peer := newAutoManager(t)
+
+	// Le manager se déclare sur l'agent (PUT /v1/saves/manager), synchro automatique active.
+	rec := doManager(r.h, "PUT", "/v1/saves/manager", mgrID, managerBody(t, peer.URL, "manager-token", peer.Fingerprint))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("déclaration du manager : code %d (%s)", rec.Code, rec.Body.String())
+	}
+	cfg := loadSyncConfig()
+	cfg.ID = "client-machine-01"
+	cfg.Auto = true
+	if err := saveSyncConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	// Le manager pousse une archive (autre profil), puis confirme son empreinte.
+	rec = doManager(r.h, "PUT", "/v1/saves/tar?game="+syncRigGame, mgrID, syncTestSaveArchive(t))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("réception : code %d (%s)", rec.Code, rec.Body.String())
+	}
+	var put struct {
+		Fingerprint string `json:"fingerprint"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &put); err != nil || put.Fingerprint == "" {
+		t.Fatalf("réponse de réception : %s (%v)", rec.Body.String(), err)
+	}
+	state, _ := json.Marshal(map[string]string{"game": syncRigGame, "fingerprint": put.Fingerprint})
+	if rec := doManager(r.h, "POST", "/v1/saves/state", mgrID, state); rec.Code != http.StatusOK {
+		t.Fatalf("confirmation : code %d (%s)", rec.Code, rec.Body.String())
+	}
+
+	// Sortie du jeu : la version reçue du manager n'est pas renvoyée.
+	out, _ := capteUI(t)
+	autoSyncAfterGame(syncRigGame)
+	if m.puts != 0 {
+		t.Fatalf("version reçue du manager renvoyée : %d envoi(s), sortie %q", m.puts, out.String())
+	}
+
+	// Partie modifiée ensuite : elle part.
+	syncTestPut(t, filepath.Join(r.users, "deck", "Documents", "Game", "save1.sav"), "partie jouée", syncTestTime.Add(time.Hour))
+	autoSyncAfterGame(syncRigGame)
+	if m.puts != 1 {
+		t.Fatalf("partie modifiée : %d envoi(s), attendu 1, sortie %q", m.puts, out.String())
+	}
+}

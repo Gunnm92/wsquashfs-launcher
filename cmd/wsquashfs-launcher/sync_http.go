@@ -33,6 +33,7 @@ type syncPeer struct {
 	Token       string `json:"token"` // jeton durable de cette machine chez l'autre (jamais le secret du code)
 	Fingerprint string `json:"fingerprint"`
 	Manager     bool   `json:"manager,omitempty"` // wsquashfs-manager : déclaré par lui (PUT /v1/saves/manager), cible de --sync auto
+	MachineID   string `json:"machine,omitempty"` // manager : identifiant qu'il porte dans X-Wsq-Machine de ses envois (agent, PUT /v1/saves/manager)
 }
 
 // syncConfig : sync.json (identifiant de cette machine et machines associées).

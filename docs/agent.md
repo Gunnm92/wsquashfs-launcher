@@ -208,4 +208,6 @@ jamais modifiée. Un jeu Switch est refusé (409) tant qu'Eden tourne.
 
 Règle du conflit (les deux côtés ont changé depuis la dernière synchro) : la version la plus lourde gagne, à taille égale la plus récente ; la perdante est archivée dans le dossier backups.
 
+Poussée du manager (synchro automatique active sur la machine) : le manager envoie aussi sa version la plus récente aux machines en retard, par `PUT /v1/saves/tar` puis `POST /v1/saves/state`, sous son identifiant (`X-Wsq-Machine`). Elle n'est envoyée que si la machine n'a pas de partie non envoyée ; sinon le conflit se règle dans le manager. L'agent doit tourner (`--agent`) pour recevoir. Un jeu en cours répond 409 et la poussée est retentée. Une fois reçue, la version n'est pas renvoyée au manager à la sortie du jeu.
+
 Un jeu verrouillé (lancé, monté, en maintenance) répond 409 `jeu en cours`.

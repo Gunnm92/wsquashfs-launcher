@@ -855,11 +855,26 @@ func (s *agentServer) savesPut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	fp := t.fingerprint(t.files())
-	if err := saveSyncState(syncStateRoot(), machine, game, fp); err != nil {
-		writeDetail(w, http.StatusInternalServerError, "état de synchro non enregistré")
-		return
+	for _, key := range stateKeysOf(machine) {
+		if err := saveSyncState(syncStateRoot(), key, game, fp); err != nil {
+			writeDetail(w, http.StatusInternalServerError, "état de synchro non enregistré")
+			return
+		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"fingerprint": fp, "archived": archived})
+}
+
+// stateKeysOf : clés sous lesquelles l'état de synchro d'un appelant est tenu. Le manager (pair
+// déclaré par PUT /v1/saves/manager, identifiant de ses envois) l'est aussi sous syncPeerID : c'est
+// la clé que lit --sync auto à la sortie d'un jeu (sync_auto.go).
+func stateKeysOf(machine string) []string {
+	keys := []string{machine}
+	if peer, ok := managerPeer(loadSyncConfig()); ok && peer.MachineID == machine {
+		if key := syncPeerID(peer); validSyncID(key) {
+			keys = append(keys, key)
+		}
+	}
+	return keys
 }
 
 // savesDelete : supprime les sauvegardes d'un jeu sur cette machine (le manager, par l'agent). Le
@@ -890,7 +905,7 @@ func (s *agentServer) savesDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	files := t.files()
 	if len(files) == 0 {
-		if err := removeSyncState(syncStateRoot(), machine, game); err != nil {
+		if err := removeStateKeys(machine, game); err != nil {
 			writeDetail(w, http.StatusInternalServerError, "état de synchro non supprimé")
 			return
 		}
@@ -907,11 +922,21 @@ func (s *agentServer) savesDelete(w http.ResponseWriter, r *http.Request) {
 		writeDetail(w, http.StatusInternalServerError, "suppression impossible ("+err.Error()+"), archive : "+archived)
 		return
 	}
-	if err := removeSyncState(syncStateRoot(), machine, game); err != nil {
+	if err := removeStateKeys(machine, game); err != nil {
 		writeDetail(w, http.StatusInternalServerError, "état de synchro non supprimé, archive : "+archived)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"archived": archived, "removed": removed})
+}
+
+// removeStateKeys : efface l'état de synchro d'un appelant pour ce jeu (toutes ses clés, voir stateKeysOf).
+func removeStateKeys(machine, game string) error {
+	for _, key := range stateKeysOf(machine) {
+		if err := removeSyncState(syncStateRoot(), key, game); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // removeEmptyDirs : supprime dir, puis ses parents devenus vides, jusqu'à (exclu) stop. Un dossier
@@ -949,9 +974,11 @@ func (s *agentServer) savesState(w http.ResponseWriter, r *http.Request) {
 		writeDetail(w, http.StatusConflict, "le jeu a changé sur cette machine depuis la lecture : relancer --sync")
 		return
 	}
-	if err := saveSyncState(syncStateRoot(), r.Header.Get("X-Wsq-Machine"), req.Game, cur); err != nil {
-		writeDetail(w, http.StatusInternalServerError, "état de synchro non enregistré")
-		return
+	for _, key := range stateKeysOf(r.Header.Get("X-Wsq-Machine")) {
+		if err := saveSyncState(syncStateRoot(), key, req.Game, cur); err != nil {
+			writeDetail(w, http.StatusInternalServerError, "état de synchro non enregistré")
+			return
+		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"fingerprint": cur})
 }
@@ -1038,6 +1065,7 @@ func (s *agentServer) savesManagerPut(w http.ResponseWriter, r *http.Request) {
 		Token:       req.Token,
 		Fingerprint: strings.ToUpper(req.Fingerprint),
 		Manager:     true,
+		MachineID:   r.Header.Get("X-Wsq-Machine"),
 	}
 	s.syncCfgMu.Lock()
 	defer s.syncCfgMu.Unlock()

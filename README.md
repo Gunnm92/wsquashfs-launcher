@@ -476,7 +476,10 @@ wsquashfs-launcher --sync "dossier:hookshot"    # ce dossier seulement
 **Synchro automatique avec le manager** : quand wsquashfs-manager est joignable, il
 déclare lui-même la machine (port 8790, HTTPS, certificat épinglé). `wsquashfs-launcher
 --sync auto on` fait alors partir la partie vers le manager à la sortie de chaque jeu,
-si elle a changé depuis le dernier envoi. Rien n'est reçu automatiquement, et sans
+si elle a changé depuis le dernier envoi. Le manager peut aussi pousser la version la
+plus récente vers une machine en retard dont la synchro auto est activée, seulement si elle
+n'a pas de partie non envoyée (sinon le conflit se règle dans le manager). Pour recevoir,
+l'agent doit être lancé (`--agent`). Un jeu en cours refuse la réception, qui sera retentée. Sans
 manager (éteint, hors réseau) le jeu se termine normalement avec une ligne d'information.
 `--sync auto` montre l'état, `--sync auto off` le désactive ; le réglage est gardé dans
 `sync.json`, un script de démarrage peut donc le répéter sans risque. L'envoi n'a pas
