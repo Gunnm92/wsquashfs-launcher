@@ -60,3 +60,21 @@ func TestListFindsImagesNotRecorded(t *testing.T) {
 		t.Errorf("« inconnue » alors que l'image est là :\n%s", out)
 	}
 }
+
+// TestEraseForgetsTheGame : --erase efface l'overlay d'un jeu (ex. celui d'une image renommée depuis)
+// et son chemin d'image mémorisé : --list ne le montre plus.
+func TestEraseForgetsTheGame(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	isolateSaves(t)
+	writeTree(t, filepath.Join(savesDir, "After Dark", "drive_c", "users", "arcade"), map[string]string{".wh..wh..opq": ""})
+	writeTree(t, filepath.Join(savesDir, ".images"), map[string]string{"After Dark": "/roms/unis/After Dark.wsquashfs\n"})
+	capteUI(t)
+	eraseSaves("After Dark", newUIGames([]string{"After Dark"}))
+	if pathExists(filepath.Join(savesDir, "After Dark")) || pathExists(filepath.Join(savesDir, ".images", "After Dark")) {
+		t.Error("overlay ou chemin mémorisé encore là")
+	}
+	if len(knownGames()) != 0 {
+		t.Errorf("--list : %v", knownGames())
+	}
+}

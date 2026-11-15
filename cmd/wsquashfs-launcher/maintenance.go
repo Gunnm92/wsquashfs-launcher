@@ -523,6 +523,7 @@ func cmdClean() {
 	if untouched > 0 {
 		bilan = append(bilan, kv{"Sans doublon", plural(untouched, "jeu", "jeux")})
 	}
+
 	if skipped := len(busy) + len(noImage) + len(failed); skipped > 0 {
 		bilan = append(bilan, kv{"Non traités", plural(skipped, "jeu", "jeux") + " (voir ci-dessus)"})
 	}
@@ -585,13 +586,21 @@ func eraseSaves(name string, g uiGames) {
 			return
 		}
 	}
-	_ = os.RemoveAll(saves)
-	_ = os.RemoveAll(stash)
+	forgetGameSaves(name)
 	if archive != "" {
 		g.line(stOK, name, "supprimé, archive : "+filepath.Base(archive)+" ("+duHuman(archive)+")")
 	} else {
 		g.line(stOK, name, "supprimé (pas de drive_c/users à archiver)")
 	}
+}
+
+// forgetGameSaves : --erase : efface tout l'overlay d'un jeu (couche de sauvegardes, mise de côté du
+// mode copy) et son chemin d'image mémorisé : il repart de son image et --list ne le montre plus.
+// Le jeu doit être arrêté (verrou tenu par l'appelant).
+func forgetGameSaves(name string) {
+	_ = os.RemoveAll(filepath.Join(savesDir, name))
+	_ = os.RemoveAll(copyUsersStash(name))
+	_ = os.Remove(filepath.Join(savesDir, ".images", name))
 }
 
 // saveTargetsOf : jeux visés par --clear ou --erase (un seul, ou tous).

@@ -229,7 +229,9 @@ wsquashfs-launcher --clear ["Nom du jeu"]
 
 # Tout effacer, de tous les jeux ou d'un seul : drive_c/users est archivé dans
 # ~/.local/share/wsquashfs/backups (<jeu>-AAAAMMJJ-HHMMSS.tar.zst), puis
-# toutes les sauvegardes du jeu sont supprimées ; il repart de son image.
+# toutes les sauvegardes du jeu sont supprimées ; il repart de son image, et
+# --list ne le montre plus. C'est aussi ce qui retire l'overlay orphelin d'une
+# image renommée depuis (« introuvable » dans --list, avec l'image proche).
 # Restauration : tar -xf <archive> -C ~/.local/share/wsquashfs/saves/<jeu>/
 wsquashfs-launcher --erase ["Nom du jeu"]
 
