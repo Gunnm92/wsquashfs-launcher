@@ -263,18 +263,8 @@ f cache/locks/Solo Game.lock ->
 f cache/locks/Two Runners Game.lock -> 
 f cache/locks/Wine Joint Game.lock -> 
 f saves/.images/Arcade Game -> 
-f saves/.images/Hook Game -> 
 f saves/.images/Joint Game -> 
-f saves/.images/Loader Game -> 
-f saves/.images/Missing Runner Game -> 
-f saves/.images/Named Game -> 
-f saves/.images/Old32 -> 
-f saves/.images/Pre Fail Game -> 
 f saves/.images/Proton Game -> 
-f saves/.images/Relative Runner Game -> 
-f saves/.images/Solo Game -> 
-f saves/.images/Two Runners Game -> 
-f saves/.images/Wine Joint Game -> 
 f saves/Arcade Game/drive_c/Game Dir/Bin/Game.EXE -> 
 f saves/Arcade Game/regs/b.reg -> 
 f src/Arcade Game.wine/autorun.cmd -> 
@@ -684,25 +674,16 @@ WINESERVER -w
 ################ kernel-list
 ╭─────────────╮
 │ Jeux connus │
-│ 13 jeux     │
+│ 4 jeux      │
 ╰─────────────╯
-╭──────────────────────┬──────────┬─────────┬─────────────┬──────────────────────────────────────────────────────────────────────────────────╮
-│ Jeu                  │ État     │ Version │ Sauvegardes │ Image                                                                            │
-├──────────────────────┼──────────┼─────────┼─────────────┼──────────────────────────────────────────────────────────────────────────────────┤
-│ Arcade Game          │ -        │ 1.2.3   │ SIZE │ ROOT/userdata/roms/windows/Arcade Game.wsquashfs          │
-│ Hook Game            │ -        │ -       │      aucune │ ROOT/userdata/roms/windows/Hook Game.wsquashfs            │
-│ Joint Game           │ -        │ -       │      aucune │ ROOT/userdata/roms/windows/Joint Game.wsquashfs           │
-│ Loader Game          │ -        │ -       │      aucune │ ROOT/userdata/roms/windows/Loader Game.wsquashfs          │
-│ Missing Runner Game  │ -        │ -       │      aucune │ ROOT/userdata/roms/windows/Missing Runner Game.wsquashfs  │
-│ Named Game           │ -        │ -       │      aucune │ ROOT/userdata/roms/windows/Named Game.wsquashfs           │
-│ Old32                │ -        │ -       │      aucune │ ROOT/userdata/roms/windows/Old32.wsquashfs                │
-│ Pre Fail Game        │ -        │ -       │      aucune │ ROOT/userdata/roms/windows/Pre Fail Game.wsquashfs        │
-│ Proton Game          │ -        │ -       │      aucune │ ROOT/userdata/roms/windows/Proton Game.wsquashfs          │
-│ Relative Runner Game │ -        │ -       │      aucune │ ROOT/userdata/roms/windows/Relative Runner Game.wsquashfs │
-│ Solo Game            │ en cours │ -       │ SIZE │ ROOT/userdata/roms/windows/Solo Game.wsquashfs            │
-│ Two Runners Game     │ -        │ -       │      aucune │ ROOT/userdata/roms/windows/Two Runners Game.wsquashfs     │
-│ Wine Joint Game      │ -        │ -       │      aucune │ ROOT/userdata/roms/windows/Wine Joint Game.wsquashfs      │
-╰──────────────────────┴──────────┴─────────┴─────────────┴──────────────────────────────────────────────────────────────────────────────────╯
+╭─────────────┬──────────┬─────────┬─────────────┬─────────────────────────────────────────────────────────────────────────╮
+│ Jeu         │ État     │ Version │ Sauvegardes │ Image                                                                   │
+├─────────────┼──────────┼─────────┼─────────────┼─────────────────────────────────────────────────────────────────────────┤
+│ Arcade Game │ -        │ 1.2.3   │ SIZE │ ROOT/userdata/roms/windows/Arcade Game.wsquashfs │
+│ Joint Game  │ -        │ -       │      aucune │ ROOT/userdata/roms/windows/Joint Game.wsquashfs  │
+│ Proton Game │ -        │ -       │      aucune │ ROOT/userdata/roms/windows/Proton Game.wsquashfs │
+│ Solo Game   │ en cours │ -       │ SIZE │ ROOT/userdata/roms/windows/Solo Game.wsquashfs   │
+╰─────────────┴──────────┴─────────┴─────────────┴─────────────────────────────────────────────────────────────────────────╯
 
 Sauvegardes      : ROOT/saves (SIZE au total)
 == rc=0

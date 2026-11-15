@@ -7,8 +7,9 @@ import (
 )
 
 // TestListFindsImagesNotRecorded : --list retrouve l'image d'un jeu dont rien n'est mémorisé
-// (sauvegardes reçues par --sync) ou dont l'image a changé de système ; sinon il dit « introuvable »
-// et propose l'image au nom proche (« (demul) » ajouté, .squashfs d'un autre émulateur).
+// (sauvegardes reçues par --sync) ou dont l'image a changé de système. Un jeu sans image (renommée
+// ou retirée) n'a pas de ligne : un rappel en fin de liste propose --clean (rien d'écrit) ou de
+// réinstaller le jeu (sauvegardes, avec l'image au nom proche).
 func TestListFindsImagesNotRecorded(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -26,16 +27,16 @@ func TestListFindsImagesNotRecorded(t *testing.T) {
 	if err := saveAgentConfig(agentConfig{Port: 8790, Roms: []string{roms}}); err != nil {
 		t.Fatal(err)
 	}
-	for _, g := range []string{"Dispatch", "Moved", "After Dark", "Chase H.Q. 2", "Disparu"} {
+	for _, g := range []string{"Dispatch", "Moved", "Chase H.Q. 2"} {
 		writeTree(t, filepath.Join(savesDir, g, "drive_c", "users", "steamuser", "Documents"), map[string]string{"s.sav": g})
 	}
+	shellOnly(t, "After Dark") // sauvegardes supprimées : marqueurs d'overlay seulement
 	record := func(game, path string) {
 		writeTree(t, filepath.Join(savesDir, ".images"), map[string]string{game: path + "\n"})
 	}
-	record("Moved", filepath.Join(roms, "segare", "Moved.wsquashfs"))         // déplacée vers win/
-	record("After Dark", filepath.Join(roms, "unis", "After Dark.wsquashfs")) // renommée « (demul) »
+	record("Moved", filepath.Join(roms, "segare", "Moved.wsquashfs"))
+	record("After Dark", filepath.Join(roms, "unis", "After Dark.wsquashfs"))
 	record("Chase H.Q. 2", filepath.Join(roms, "type-x", "Chase H.Q. 2.wsquashfs"))
-	record("Disparu", filepath.Join(roms, "win", "Disparu.wsquashfs"))
 
 	if got := gameImage("Dispatch"); got != filepath.Join(roms, "win", "Dispatch.wsquashfs") {
 		t.Errorf("Dispatch (rien de mémorisé) : %q", got)
@@ -45,19 +46,69 @@ func TestListFindsImagesNotRecorded(t *testing.T) {
 	}
 	capture, _ := capteUI(t)
 	cmdList()
-	out := capture.String()
+	out := strings.Join(strings.Fields(capture.String()), " ")
 	for _, want := range []string{
+		"2 jeux",
 		filepath.Join(roms, "win", "Dispatch.wsquashfs"),
-		"introuvable : " + filepath.Join(roms, "unis", "After Dark.wsquashfs") + " (proche : " + filepath.Join(roms, "unis", "After Dark (demul).wsquashfs") + ")",
-		"(proche : " + filepath.Join(roms, "type-x2", "Chase H.Q. 2.squashfs") + ")",
-		"introuvable : " + filepath.Join(roms, "win", "Disparu.wsquashfs"),
+		filepath.Join(roms, "win", "Moved.wsquashfs"),
+		"1 jeu sans image ni sauvegarde, non listé(s) : wsquashfs-launcher --clean les retire.",
+		"1 jeu sans image mais avec des sauvegardes, non listé(s) : réinstaller le jeu",
+		"Chase H.Q. 2 (image proche : " + filepath.Join(roms, "type-x2", "Chase H.Q. 2.squashfs") + ")",
 	} {
-		if !strings.Contains(strings.Join(strings.Fields(out), " "), strings.Join(strings.Fields(want), " ")) {
-			t.Errorf("--list sans %q :\n%s", want, out)
+		if !strings.Contains(out, strings.Join(strings.Fields(want), " ")) {
+			t.Errorf("--list sans %q :\n%s", want, capture.String())
 		}
 	}
-	if strings.Contains(out, "inconnue") {
-		t.Errorf("« inconnue » alors que l'image est là :\n%s", out)
+	for _, unwanted := range []string{"inconnue", "introuvable", "│ After Dark"} {
+		if strings.Contains(capture.String(), unwanted) {
+			t.Errorf("--list contient %q :\n%s", unwanted, capture.String())
+		}
+	}
+}
+
+// shellOnly : sauvegardes réduites à des marqueurs d'overlay (comme après « Supprimer… » du manager).
+func shellOnly(t *testing.T, game string) {
+	t.Helper()
+	writeTree(t, filepath.Join(savesDir, game, "drive_c", "users", "arcade"), map[string]string{
+		".wh..wh..opq":           "",
+		"AppData/.wh..wh..opq":   "",
+		"Documents/.wh..wh..opq": "",
+	})
+}
+
+// TestCleanPrunesOrphanSaves : --clean retire un jeu sans image et sans rien d'écrit (overlay réduit
+// à des marqueurs, ou seul le chemin mémorisé) ; il garde un jeu dont l'image existe, même vide, et
+// un jeu sans image qui a encore des sauvegardes.
+func TestCleanPrunesOrphanSaves(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	isolateSaves(t)
+	romsIndexDone = nil
+	t.Cleanup(func() { romsIndexDone = nil })
+	roms := filepath.Join(home, "roms")
+	writeTree(t, roms, map[string]string{"win/Present.wsquashfs": "hsqs"})
+	record := func(game, path string) {
+		writeTree(t, filepath.Join(savesDir, ".images"), map[string]string{game: path + "\n"})
+	}
+	shellOnly(t, "After Dark")
+	record("After Dark", filepath.Join(roms, "unis", "After Dark.wsquashfs"))
+	shellOnly(t, "Present")
+	record("Present", filepath.Join(roms, "win", "Present.wsquashfs"))
+	writeTree(t, filepath.Join(savesDir, "Gardé", "drive_c", "users", "arcade", "Documents"), map[string]string{"slot.sav": "x"})
+	record("Gardé", filepath.Join(roms, "win", "Gardé.wsquashfs"))
+	record("Chemin seul", filepath.Join(roms, "type-x", "Chemin seul.wsquashfs"))
+
+	if got := strings.Join(pruneOrphanSaves(), ","); got != "After Dark,Chemin seul" {
+		t.Errorf("retirés : %q", got)
+	}
+	for _, g := range []string{"After Dark", "Chemin seul"} {
+		if pathExists(filepath.Join(savesDir, g)) || pathExists(filepath.Join(savesDir, ".images", g)) {
+			t.Errorf("%s : restes encore là", g)
+		}
+	}
+	if strings.Join(knownGames(), ",") != "Gardé,Present" {
+		t.Errorf("jeux restants : %v", knownGames())
 	}
 }
 

@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -473,6 +474,7 @@ func cmdClean() {
 	uiTitle("Nettoyage", "copies de travail et doublons des sauvegardes")
 	cacheFreed := cleanCache()
 	archives, archivesFreed := pruneBackups()
+	orphans := pruneOrphanSaves()
 
 	games := savedGames()
 	var busy, noImage, failed []string
@@ -508,6 +510,7 @@ func cmdClean() {
 	uiList("En cours ou montés, ignorés", busy)
 	uiList("Image inconnue, doublons non cherchés (lancer le jeu une fois)", noImage)
 	uiList("Doublons non cherchés", failed)
+	uiList("Sans image ni sauvegarde, retirés", orphans)
 
 	uiSection("Bilan")
 	placeLibre := cacheFreed + archivesFreed + freed
@@ -522,6 +525,9 @@ func cmdClean() {
 	}
 	if untouched > 0 {
 		bilan = append(bilan, kv{"Sans doublon", plural(untouched, "jeu", "jeux")})
+	}
+	if len(orphans) > 0 {
+		bilan = append(bilan, kv{"Sans image ni sauvegarde", plural(len(orphans), "jeu retiré", "jeux retirés")})
 	}
 
 	if skipped := len(busy) + len(noImage) + len(failed); skipped > 0 {
@@ -696,6 +702,48 @@ func knownGames() []string {
 	return out
 }
 
+// gameHasFiles : le jeu a encore quelque chose d'écrit : un fichier dans sa couche de sauvegardes (hors
+// marqueurs d'overlay .wh.*, qui ne contiennent rien), une copie de travail ou une mise de côté du mode
+// copy.
+func gameHasFiles(name string) bool {
+	if isDirPath(filepath.Join(cacheDir, "wine", name)) || isDirPath(copyUsersStash(name)) {
+		return true
+	}
+	found := false
+	_ = filepath.WalkDir(filepath.Join(savesDir, name), func(_ string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || strings.HasPrefix(d.Name(), ".wh.") {
+			return nil
+		}
+		found = true
+		return fs.SkipAll
+	})
+	return found
+}
+
+// pruneOrphanSaves : --clean : jeux sans image (renommée ou retirée, introuvable aussi dans les roms/)
+// qui n'ont plus rien d'écrit (gameHasFiles faux) : leur dossier et leur chemin mémorisé sont retirés ;
+// rien n'est perdu. Jeux en cours ou montés : ignorés. Retourne les jeux retirés.
+func pruneOrphanSaves() []string {
+	var out []string
+	for _, g := range knownGames() {
+		if img := gameImage(g); (img != "" && pathExists(img)) || gameHasFiles(g) {
+			continue
+		}
+		lock, ok := lockIdleGame(g)
+		if !ok {
+			continue
+		}
+		if os.RemoveAll(filepath.Join(savesDir, g)) == nil {
+			_ = os.Remove(filepath.Join(savesDir, ".images", g))
+			out = append(out, g)
+		}
+		if lock != nil {
+			lock.Close()
+		}
+	}
+	return out
+}
+
 // gameState : état d'un jeu (en cours, verrouillé, monté, -).
 func gameState(name string) string {
 	switch {
@@ -717,26 +765,24 @@ func cmdList() {
 		return
 	}
 	var rows [][]string
+	var orphanEmpty, orphanSaves []string
 	for _, g := range games {
 		version, size, image := "-", "aucune", ""
-		recorded := recordedImage(g)
 		img := gameImage(g) // mémorisée, sinon <jeu>.wsquashfs retrouvée dans les roms/
-		switch {
-		case img != "" && pathExists(img):
-			image = img
-			version = gameVersion(img)
-			if version == "" {
-				version = "-"
+		if img == "" || !pathExists(img) {
+			// Image renommée ou retirée : pas de ligne, un rappel en fin de liste (--clean, ou
+			// réinstaller le jeu s'il reste des sauvegardes)
+			if gameHasFiles(g) {
+				orphanSaves = append(orphanSaves, g)
+			} else {
+				orphanEmpty = append(orphanEmpty, g)
 			}
-		case recorded == "":
-			image = "inconnue"
-		default:
-			image = "introuvable : " + recorded
+			continue
 		}
-		if !pathExists(img) {
-			if near := nearImages(g, recorded); len(near) > 0 {
-				image += " (proche : " + near[0] + ")"
-			}
+		image = img
+		version = gameVersion(img)
+		if version == "" {
+			version = "-"
 		}
 		if isDirPath(savesDir + "/" + g) {
 			size = duHuman(savesDir + "/" + g)
@@ -744,10 +790,25 @@ func cmdList() {
 		rows = append(rows, []string{truncate(g, uiNameMax), gameState(g), version, size, image})
 	}
 	// Taille totale : sur la ligne « Sauvegardes » en fin de liste.
-	uiTitle("Jeux connus", plural(len(games), "jeu", "jeux"))
-	uiTable([]string{"Jeu", "État", "Version", "Sauvegardes", "Image"}, rows, []int{3}, uiStateCell(1, 4))
+	uiTitle("Jeux connus", plural(len(rows), "jeu", "jeux"))
+	if len(rows) > 0 {
+		uiTable([]string{"Jeu", "État", "Version", "Sauvegardes", "Image"}, rows, []int{3}, uiStateCell(1, 4))
+	}
 	uiOut("")
 	uiKVLine("Sauvegardes", savesDir+" ("+duHuman(savesDir)+" au total)")
+	if len(orphanEmpty) > 0 {
+		uiNote(plural(len(orphanEmpty), "jeu", "jeux") + " sans image ni sauvegarde, non listé(s) : wsquashfs-launcher --clean les retire.")
+	}
+	if len(orphanSaves) > 0 {
+		uiNote(plural(len(orphanSaves), "jeu", "jeux") + " sans image mais avec des sauvegardes, non listé(s) : réinstaller le jeu (ou --erase pour tout effacer) :")
+		for _, g := range orphanSaves {
+			line := "  " + g
+			if near := nearImages(g, recordedImage(g)); len(near) > 0 {
+				line += " (image proche : " + near[0] + ")"
+			}
+			uiNote(line)
+		}
+	}
 }
 
 // ── --info (29/09) et --show (06/11) ───────────────────────────────────

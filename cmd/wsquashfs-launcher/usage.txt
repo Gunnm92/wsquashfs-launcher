@@ -27,7 +27,7 @@ Sauvegardes :
   wsquashfs-launcher --save <jeu>  |  --saves
         Copie les sauvegardes de partie dans la ludothèque.
   wsquashfs-launcher --clean
-        Ménage sans risque : cache et doublons, rien de ce que le jeu a écrit.
+        Ménage sans risque : cache, doublons, jeux sans image ni sauvegarde.
   wsquashfs-launcher --clear [jeu]
         Ne garde que drive_c/users (sans archive, confirmation demandée).
   wsquashfs-launcher --erase [jeu]

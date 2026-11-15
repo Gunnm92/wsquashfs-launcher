@@ -219,6 +219,8 @@ wsquashfs-launcher --pack MonJeu.pc            # → MonJeu.wsquashfs
 # sauvegardes (fichiers du jeu recopiés sans modification, DLL que Proton
 # recopie à chaque lancement). Tout ce que le jeu a écrit est gardé ; jeux en
 # cours exceptés. Ne garde que les 3 dernières archives de --erase par jeu.
+# Retire aussi les jeux sans image (renommée ou retirée) qui n'ont plus rien
+# d'écrit : overlay vide (dossiers et marqueurs seulement) et chemin mémorisé.
 wsquashfs-launcher --clean
 
 # Plus profond : ne garder que drive_c/users (sauvegardes de partie) de tous
@@ -230,8 +232,7 @@ wsquashfs-launcher --clear ["Nom du jeu"]
 # Tout effacer, de tous les jeux ou d'un seul : drive_c/users est archivé dans
 # ~/.local/share/wsquashfs/backups (<jeu>-AAAAMMJJ-HHMMSS.tar.zst), puis
 # toutes les sauvegardes du jeu sont supprimées ; il repart de son image, et
-# --list ne le montre plus. C'est aussi ce qui retire l'overlay orphelin d'une
-# image renommée depuis (« introuvable » dans --list, avec l'image proche).
+# --list ne le montre plus.
 # Restauration : tar -xf <archive> -C ~/.local/share/wsquashfs/saves/<jeu>/
 wsquashfs-launcher --erase ["Nom du jeu"]
 
@@ -247,7 +248,9 @@ wsquashfs-launcher --save "Nom du jeu"
 wsquashfs-launcher --saves
 
 # Jeux connus : état (en cours, verrouillé, monté), version, taille des
-# sauvegardes et image d'origine
+# sauvegardes et image d'origine (mémorisée au lancement, sinon cherchée dans
+# les roms/). Un jeu dont l'image n'existe plus n'est pas listé : une note
+# propose --clean s'il n'a plus rien d'écrit, sinon de réinstaller le jeu.
 wsquashfs-launcher --list
 
 # Vérifier l'installation : FUSE, Wine/Proton et runners, umu, DXVK, VKD3D,
