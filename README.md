@@ -447,8 +447,9 @@ wsquashfs-launcher --sync forget <machine>   # retirer une machine (côté A)
 wsquashfs-launcher --pair forget <machine>
 
 # D'autres sauvegardes : un dossier quelconque, déclaré sur chaque machine (même
-# nom, chemin propre à la machine, sous HOME), puis synchronisé comme un jeu
-wsquashfs-launcher --sync dir add hookshot ~/.local/share/hookshot/save
+# nom ; chemin propre à la machine, donné à partir du dossier personnel),
+# puis synchronisé comme un jeu
+wsquashfs-launcher --sync dir add hookshot .local/share/hookshot/save
 wsquashfs-launcher --sync dir                # dossiers déclarés et jeux Switch d'Eden
 wsquashfs-launcher --sync dir forget hookshot   # retire la déclaration (fichiers gardés)
 wsquashfs-launcher --sync "dossier:hookshot"    # ce dossier seulement

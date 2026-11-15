@@ -937,13 +937,14 @@ func writeSyncTargetErr(w http.ResponseWriter, err error) {
 
 // ── Dossiers déclarés (manager) ─────────────────────────────────────────
 
-// syncDirsReply : dossiers déclarés et dossier d'Eden détecté ("" si absent).
+// syncDirsReply : dossiers déclarés et dossier d'Eden détecté ("" si absent), chemins donnés à
+// partir de HOME (« .local/share/x »).
 func syncDirsReply() map[string]any {
-	dirs := loadSyncConfig().Dirs
-	if dirs == nil {
-		dirs = []syncDir{}
+	dirs := []syncDir{}
+	for _, d := range loadSyncConfig().Dirs {
+		dirs = append(dirs, syncDir{Name: d.Name, Path: homeRel(d.Path)})
 	}
-	return map[string]any{"dirs": dirs, "eden": edenDataDir()}
+	return map[string]any{"dirs": dirs, "eden": homeRel(edenDataDir())}
 }
 
 // savesDirs : GET /v1/saves/dirs.

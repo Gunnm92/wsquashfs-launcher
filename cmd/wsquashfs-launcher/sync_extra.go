@@ -73,12 +73,20 @@ func checkSyncDirName(name string) error {
 	return nil
 }
 
-// checkSyncDirPath : chemin d'un dossier déclaré : absolu, sous HOME (HOME exclu), liens résolus sur
-// la partie existante. Le dossier peut ne pas exister encore (il sera créé à la première réception).
-// Retourne le chemin avec le préfixe réel.
+// checkSyncDirPath : chemin d'un dossier déclaré, donné à partir de HOME (« .local/share/x »,
+// « ~/.local/share/x ») ou absolu ; il doit être sous HOME (HOME exclu), liens résolus sur la partie
+// existante. Le dossier peut ne pas exister encore (il sera créé à la première réception).
+// Retourne le chemin absolu avec le préfixe réel.
 func checkSyncDirPath(p string) (string, error) {
-	if !filepath.IsAbs(p) {
-		return "", errors.New("chemin absolu requis : " + p)
+	p = strings.TrimSpace(p)
+	home := os.Getenv("HOME")
+	switch {
+	case p == "" || p == "~":
+		return "", errors.New("chemin requis, à partir du dossier personnel (ex. .local/share/jeu/save)")
+	case strings.HasPrefix(p, "~/"):
+		p = filepath.Join(home, p[2:])
+	case !filepath.IsAbs(p):
+		p = filepath.Join(home, p)
 	}
 	real, code, msg := gamesVerify(filepath.Clean(p))
 	if code != 0 {
@@ -95,6 +103,19 @@ func checkSyncDirPath(p string) (string, error) {
 		return "", errors.New("pas un dossier : " + p)
 	}
 	return real, nil
+}
+
+// homeRel : chemin affiché à partir de HOME (« .local/share/x »), absolu s'il est ailleurs.
+func homeRel(p string) string {
+	if p == "" {
+		return ""
+	}
+	if home, err := gamesHome(); err == nil && gamesStrictlyUnder(home, p) {
+		if rel, err := filepath.Rel(home, p); err == nil {
+			return filepath.ToSlash(rel)
+		}
+	}
+	return p
 }
 
 // addSyncDir : déclare (ou remplace, même nom) un dossier ; chemin vérifié.

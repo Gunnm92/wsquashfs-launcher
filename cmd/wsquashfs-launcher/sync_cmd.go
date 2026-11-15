@@ -96,7 +96,7 @@ func syncDirCmd(cfg syncConfig, args []string) int {
 		}
 		for _, d := range next.Dirs {
 			if d.Name == args[1] {
-				uiStatusLine(stOK, "Dossier déclaré : "+d.Name+" ("+d.Path+")")
+				uiStatusLine(stOK, "Dossier déclaré : "+d.Name+" (~/"+homeRel(d.Path)+")")
 			}
 		}
 		uiNote("Le déclarer aussi sur les autres machines (même nom, leur chemin), puis --sync.")
@@ -112,7 +112,7 @@ func syncDirCmd(cfg syncConfig, args []string) int {
 		uiStatusLine(stOK, "Dossier retiré : "+args[1]+" (ses fichiers restent)")
 		return 0
 	}
-	usageError("wsquashfs-launcher --sync dir [add <nom> <chemin> | forget <nom>]")
+	usageError("wsquashfs-launcher --sync dir [add <nom> <chemin depuis le dossier personnel> | forget <nom>]")
 	return 1
 }
 
@@ -126,9 +126,13 @@ func syncDirList(cfg syncConfig) {
 	for _, d := range cfg.Dirs {
 		t := syncTarget{Dir: d.Path, Plain: true}
 		files := t.files()
-		detail := d.Path + " · vide"
+		where := homeRel(d.Path)
+		if !filepath.IsAbs(where) {
+			where = "~/" + where
+		}
+		detail := where + " · vide"
 		if len(files) > 0 {
-			detail = d.Path + " · " + sizeText(saveSize(files))
+			detail = where + " · " + sizeText(saveSize(files))
 		}
 		uiKV(2, kv{d.Name, detail})
 	}

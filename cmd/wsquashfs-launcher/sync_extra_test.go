@@ -117,14 +117,21 @@ func TestSyncDirPathChecks(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	real, _ := filepath.EvalSymlinks(home)
-	for _, p := range []string{"relatif/save", "/etc", home, filepath.Join(home, "..", "ailleurs")} {
+	for _, p := range []string{"", "~", ".", "../ailleurs", "/etc", home, filepath.Join(home, "..", "ailleurs")} {
 		if _, err := checkSyncDirPath(p); err == nil {
 			t.Errorf("%q accepté", p)
 		}
 	}
-	got, err := checkSyncDirPath(filepath.Join(home, ".local", "share", "hookshot", "save"))
-	if err != nil || got != filepath.Join(real, ".local", "share", "hookshot", "save") {
-		t.Errorf("chemin sous HOME : %q, %v", got, err)
+	want := filepath.Join(real, ".local", "share", "hookshot", "save")
+	// À partir de HOME (forme attendue), avec ~/, ou absolu sous HOME : même dossier
+	for _, p := range []string{".local/share/hookshot/save", "~/.local/share/hookshot/save",
+		filepath.Join(home, ".local", "share", "hookshot", "save")} {
+		if got, err := checkSyncDirPath(p); err != nil || got != want {
+			t.Errorf("%q : %q, %v", p, got, err)
+		}
+	}
+	if got := homeRel(want); got != ".local/share/hookshot/save" {
+		t.Errorf("affichage : %q", got)
 	}
 	for _, n := range []string{"", "../x", "a/b", ".cache", strings.Repeat("a", 49)} {
 		if checkSyncDirName(n) == nil {
@@ -247,12 +254,13 @@ func TestAgentSyncDirsRoutes(t *testing.T) {
 	dir := filepath.Join(home, ".local", "share", "hookshot", "save")
 	writeTree(t, dir, map[string]string{"slot.sav": "progression"})
 
-	body, _ := json.Marshal(syncDir{Name: "hookshot", Path: dir})
-	if rec := doSync(h, "PUT", "/v1/saves/dirs", "client-machine-01", body); rec.Code != http.StatusOK {
+	body, _ := json.Marshal(syncDir{Name: "hookshot", Path: ".local/share/hookshot/save"})
+	if rec := doSync(h, "PUT", "/v1/saves/dirs", "client-machine-01", body); rec.Code != http.StatusOK ||
+		!strings.Contains(rec.Body.String(), `"path":".local/share/hookshot/save"`) {
 		t.Fatalf("PUT dirs : %d %s", rec.Code, rec.Body.String())
 	}
 	// Un dossier déclaré mais vide n'est pas listé : la machine est « absente » pour lui.
-	empty, _ := json.Marshal(syncDir{Name: "vide", Path: filepath.Join(home, "vide")})
+	empty, _ := json.Marshal(syncDir{Name: "vide", Path: "vide"})
 	if rec := doSync(h, "PUT", "/v1/saves/dirs", "client-machine-01", empty); rec.Code != http.StatusOK {
 		t.Fatalf("PUT dirs vide : %d %s", rec.Code, rec.Body.String())
 	}
