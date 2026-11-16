@@ -44,6 +44,8 @@ func detectDistro() {
 	}
 	fields := " " + id + " " + like + " "
 	switch {
+	case id == "steamos":
+		distro = "steamos"
 	case strings.Contains(fields, " debian ") || strings.Contains(fields, " ubuntu "):
 		distro = "debian"
 	case strings.Contains(fields, " arch ") || strings.Contains(fields, " cachyos "):
@@ -76,6 +78,9 @@ func needSudo() bool {
 }
 
 func checkDependencies() bool {
+	if distro == "steamos" {
+		return depsSteamOS() // vérification seulement : ni sudo ni pacman
+	}
 	if !needSudo() {
 		return false
 	}
@@ -271,6 +276,55 @@ func depsArch() bool {
 		uiNote("Activez-le dans /etc/pacman.conf (section [multilib]), puis relancez l'installation.")
 		ok = false
 		_ = pacmanEnsure("MangoHud (facultatif)", "mangohud")
+	}
+	return ok
+}
+
+// ── SteamOS (Steam Deck) ───────────────────────────────────────────────
+
+// depsSteamOS : la racine est en lecture seule et remplacée à chaque mise à
+// jour du système : rien n'est installé par pacman (ce serait effacé). Tout
+// ce que le lanceur demande y est déjà, bibliothèques 32 bits comprises
+// (Steam) : SteamOS 3.9, vérifié le 16/11. On vérifie seulement.
+func depsSteamOS() bool {
+	uiItem(stInfo, "SteamOS : système en lecture seule, aucun paquet installé (vérification seulement)")
+	ok := true
+	check := func(label string, required bool, pkgs ...string) {
+		var missing []string
+		for _, p := range pkgs {
+			if !pacmanInstalled(p) {
+				missing = append(missing, p)
+			}
+		}
+		switch {
+		case len(missing) == 0:
+			setupHave(label + " : présent")
+		case required:
+			setupFail(label + " : absent (" + strings.Join(missing, " ") + ")")
+			ok = false
+		default:
+			setupSkip(label + " : absent (" + strings.Join(missing, " ") + ")")
+		}
+	}
+	check("Images squashfs", true, "fuse3", "squashfs-tools", "xz")
+	check("Mode overlay", false, "fuse-overlayfs")
+	check("Outils (--clean, archives)", false, "attr", "zstd", "unzip")
+	check("Bibliothèques 32 bits (wine-tkg, jeux 32 bits)", true,
+		"lib32-glibc", "lib32-gcc-libs", "lib32-libx11", "lib32-wayland", "lib32-freetype2",
+		"lib32-fontconfig", "lib32-gnutls", "lib32-libpulse", "lib32-alsa-lib", "lib32-mesa",
+		"lib32-vulkan-icd-loader", "lib32-vulkan-radeon")
+	// Absentes de SteamOS 3.9 : pilote Wayland 32 bits de Wine (le Deck passe
+	// par XWayland/gamescope), SDL2 et GStreamer 32 bits (rares jeux 32 bits).
+	check("Bibliothèques 32 bits facultatives", false, "lib32-libxkbcommon", "lib32-sdl2", "lib32-gst-plugins-base-libs")
+	if !pacmanInstalled("wl-clipboard") && !pacmanInstalled("xclip") {
+		setupSkip("Presse-papiers (--tray) : ni wl-clipboard ni xclip — le code d'association de --tray reste à recopier")
+	} else {
+		setupHave("Presse-papiers (--tray) : présent")
+	}
+	check("MangoHud (facultatif)", false, "mangohud", "lib32-mangohud")
+	if !ok {
+		uiNote("SteamOS : un paquet système manquant ne s'installe pas durablement (racine en lecture seule,",
+			"remplacée aux mises à jour) ; le lanceur passe au mode copy si FUSE manque.")
 	}
 	return ok
 }

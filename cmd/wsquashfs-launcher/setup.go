@@ -166,6 +166,8 @@ func createMimeType() {
 	}
 	if dryRun {
 		simLine(filepath.Join(mimeDir, "packages/wsquashfs.xml"))
+		createDesktopEntry()
+		createThumbnailer()
 		return
 	}
 	if err := os.MkdirAll(filepath.Join(mimeDir, "packages"), 0o755); err != nil {
