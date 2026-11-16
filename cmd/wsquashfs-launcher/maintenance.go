@@ -208,6 +208,10 @@ func removeDuplicates(name, saves string) (skip string, n int, bytesFreed int64)
 			isDirImg = true
 		}
 		if isDirImg || execQuiet("squashfuse", img, mnt) == nil {
+			if !isDirImg {
+				// Interrompu (signal) : cleanup démonte l'image au lieu de la laisser montée.
+				purgeMount.Store(&mnt)
+			}
 			opaqueCache = map[string]string{}
 			_ = filepath.Walk(saves, func(f string, info os.FileInfo, err error) error {
 				if err != nil || !info.Mode().IsRegular() {
@@ -236,6 +240,7 @@ func removeDuplicates(name, saves string) (skip string, n int, bytesFreed int64)
 			})
 			if !isDirImg {
 				umountRetry(mnt)
+				purgeMount.Store(nil)
 			}
 		} else {
 			skip = "montage de l'image impossible"
@@ -389,7 +394,8 @@ func archiveUsers(name, parent, member string) (string, error) {
 		out = fmt.Sprintf("%s-%d.%s", base, i, ext)
 	}
 	part := out + ".part"
-	if err := execQuiet("tar", flag, "-cf", part, "-C", parent, member); err != nil {
+	// « -- » : un membre qui commence par un tiret (nom de jeu, de dossier) n'est pas une option.
+	if err := execQuiet("tar", flag, "-cf", part, "-C", parent, "--", member); err != nil {
 		_ = os.Remove(part)
 		return "", err
 	}
@@ -453,6 +459,7 @@ func cleanCache() (freed int64) {
 			lock.Close()
 		}
 	}
+	freed += pruneSyncTemp()
 	uiStatusLine(stOK, "Copies de travail supprimées")
 	return freed
 }

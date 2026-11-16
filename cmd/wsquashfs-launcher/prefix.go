@@ -702,9 +702,15 @@ func applySavedir(savedir, savefiles string) {
 			"  définir WSQUASHFS_BATOCERA_SAVES)")
 		return
 	}
+	// Chemins relatifs au prefix seulement : un chemin absolu ou avec « .. » désignerait un dossier
+	// de la machine, qui serait déplacé vers la ludothèque puis remplacé par un lien.
+	savedir = strings.ReplaceAll(savedir, `\`, "/")
+	if savedir != "" && !filepath.IsLocal(savedir) {
+		warn("SAVEDIR ignoré : " + savedir + " sort du prefix (chemin relatif au prefix attendu)")
+		return
+	}
 	_ = os.MkdirAll(sysdir, 0o755)
 	if savedir != "" {
-		savedir = strings.ReplaceAll(savedir, `\`, "/")
 		parent := winePoint + "/" + filepath.Dir(savedir)
 		base := filepath.Base(savedir)
 		_ = os.MkdirAll(parent, 0o755)
@@ -724,6 +730,10 @@ func applySavedir(savedir, savefiles string) {
 	} else {
 		for _, f := range strings.Split(strings.ReplaceAll(savefiles, `\`, "/"), ";") {
 			if f == "" {
+				continue
+			}
+			if !filepath.IsLocal(f) {
+				warn("SAVEFILES : " + f + " ignoré, il sort du prefix (chemin relatif au prefix attendu)")
 				continue
 			}
 			_ = os.MkdirAll(filepath.Dir(sysdir+"/"+f), 0o755)

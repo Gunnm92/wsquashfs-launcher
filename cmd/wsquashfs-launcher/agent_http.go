@@ -503,6 +503,10 @@ var maintenanceActions = map[string]maintenanceSpec{
 	"sync-status": {[]string{"--sync", "status"}, noGame},
 }
 
+// maintenanceStopDelay : temps laissé à une action de maintenance interrompue pour s'arrêter
+// proprement (démontage : quelques secondes). Variable pour les tests.
+var maintenanceStopDelay = 30 * time.Second
+
 type maintenanceRequest struct {
 	Action string `json:"action"`
 	Rel    string `json:"rel"`
@@ -542,7 +546,14 @@ func (s *agentServer) maintenance(w http.ResponseWriter, r *http.Request) {
 	// (codes ANSI convertis en HTML). NO_COLOR, s'il est posé, l'emporte.
 	cmd := exec.CommandContext(ctx, launcherExe(), args...)
 	cmd.Env = append(os.Environ(), "CLICOLOR_FORCE=1")
+	// Interruption (délai, client parti) : SIGTERM, pour que le lanceur fasse son nettoyage (image
+	// démontée…) ; SIGKILL seulement s'il ne s'est pas arrêté à temps.
+	cmd.Cancel = func() error { return cmd.Process.Signal(syscall.SIGTERM) }
+	cmd.WaitDelay = maintenanceStopDelay
 	out, err := cmd.CombinedOutput()
+	if ctx.Err() != nil {
+		out = append(out, []byte("maintenance interrompue (délai dépassé ou client parti)\n")...)
+	}
 	// code : code de sortie du lanceur, comme en mode local (wsquashfs-manager teste code !== 0).
 	// -1 si le processus n'a pas pu démarrer ou a été tué (délai) : le motif est ajouté à la sortie.
 	code := 0
@@ -764,7 +775,7 @@ func (s *agentServer) savesGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	fp := t.fingerprint(files)
-	tmp, err := os.CreateTemp("", "wsq-sync-*.tar.gz")
+	tmp, err := syncTempFile("wsq-sync-*.tar.gz")
 	if err != nil {
 		writeDetail(w, http.StatusInternalServerError, "erreur interne de l'agent")
 		return

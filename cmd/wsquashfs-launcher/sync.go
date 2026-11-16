@@ -405,6 +405,56 @@ func checkSyncDests(users string, moves []syncMove) error {
 // l'extraction s'arrête et rien n'est modifié. Variable pour les tests.
 var syncMaxUnpacked int64 = 4 << 30
 
+// syncTempMaxAge : âge au-delà duquel une archive temporaire de synchro est un reste (processus tué) :
+// --clean la retire.
+const syncTempMaxAge = 24 * time.Hour
+
+// syncTempDir : dossier des archives temporaires de synchro, dans le cache du lanceur (sur disque).
+func syncTempDir() string {
+	return filepath.Join(cacheDir, "tmp")
+}
+
+// syncTempFile : fichier temporaire d'une archive de synchro (envoyée par l'agent, reçue par --sync).
+// Dans le cache du lanceur et non dans /tmp, souvent en mémoire : une grosse sauvegarde y prendrait
+// la RAM. Cache inconnu ou non inscriptible : dossier temporaire du système.
+func syncTempFile(pattern string) (*os.File, error) {
+	if cacheDir != "" {
+		if err := os.MkdirAll(syncTempDir(), 0o700); err == nil {
+			if f, err := os.CreateTemp(syncTempDir(), pattern); err == nil {
+				return f, nil
+			}
+		}
+	}
+	return os.CreateTemp("", pattern)
+}
+
+// pruneSyncTemp : retire les archives temporaires de synchro laissées par un processus tué (plus
+// vieilles que syncTempMaxAge : une synchro en cours n'est pas touchée). Retourne la place libérée.
+func pruneSyncTemp() (freed int64) {
+	entries, _ := os.ReadDir(syncTempDir())
+	for _, e := range entries {
+		info, err := e.Info()
+		if err != nil || !info.Mode().IsRegular() || time.Since(info.ModTime()) < syncTempMaxAge {
+			continue
+		}
+		if os.Remove(filepath.Join(syncTempDir(), e.Name())) == nil {
+			freed += info.Size()
+		}
+	}
+	return freed
+}
+
+// archiveFileMode : droits d'un fichier extrait d'une archive de synchro : ceux de l'en-tête (bits
+// de permission seulement), lisible et inscriptible par son propriétaire au moins ; 644 si l'en-tête
+// n'en donne pas.
+func archiveFileMode(hdr *tar.Header) os.FileMode {
+	mode := os.FileMode(hdr.Mode).Perm()
+	if mode == 0 {
+		return 0o644
+	}
+	return mode | 0o600
+}
+
 // applySaveArchive : remplace le périmètre de users/ par le contenu de l'archive. Tout est extrait
 // d'abord dans un dossier temporaire frère : une archive refusée ne modifie rien. Seuls les fichiers du
 // périmètre actuel sont retirés ; le reste de users/ n'est jamais touché. Le jeu doit être arrêté.
@@ -485,13 +535,18 @@ func replaceFromArchive(r io.Reader, root string, entry func(*tar.Header) (strin
 		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 			return err
 		}
-		f, err := os.OpenFile(p, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+		mode := archiveFileMode(hdr)
+		f, err := os.OpenFile(p, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
 		if err != nil {
 			return err
 		}
 		_, cerr := io.CopyN(f, tr, hdr.Size)
 		if err := f.Close(); cerr == nil {
 			cerr = err
+		}
+		// Droits de l'archive tels quels (la création les a filtrés par l'umask).
+		if cerr == nil {
+			cerr = os.Chmod(p, mode)
 		}
 		if cerr != nil {
 			return cerr

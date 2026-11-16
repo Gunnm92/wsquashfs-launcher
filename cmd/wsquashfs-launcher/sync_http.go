@@ -386,7 +386,7 @@ func (c *syncClient) list() ([]remoteSave, error) {
 }
 
 // fetch : reçoit les sauvegardes d'une cible (jeu, dossier, jeu Switch) de la machine distante et
-// les applique ici. L'archive est d'abord copiée dans un fichier temporaire (sa taille est annoncée :
+// les applique ici. L'archive est d'abord copiée dans un fichier temporaire (syncTempFile ; sa taille est annoncée :
 // une coupure est détectée avant toute modification). L'archivage de la version locale est à la
 // charge de l'appelant. Retourne l'empreinte distante.
 func (c *syncClient) fetch(t syncTarget) (string, error) {
@@ -398,14 +398,20 @@ func (c *syncClient) fetch(t syncTarget) (string, error) {
 	defer resp.Body.Close()
 	fp := resp.Header.Get("X-Wsq-Fingerprint")
 	profile := resp.Header.Get("X-Wsq-Profile")
-	tmp, err := os.CreateTemp("", "wsq-recu-*.tar.gz")
+	tmp, err := syncTempFile("wsq-recu-*.tar.gz")
 	if err != nil {
 		return "", err
 	}
 	defer os.Remove(tmp.Name())
 	defer tmp.Close()
-	if _, err := io.Copy(tmp, resp.Body); err != nil {
+	// Même limite que celle de l'agent pour une archive envoyée : une machine distante ne remplit
+	// pas le disque d'ici.
+	n, err := io.Copy(tmp, io.LimitReader(resp.Body, syncMaxBody+1))
+	if err != nil {
 		return "", fmt.Errorf("%s : transfert interrompu : %w", c.label(), err)
+	}
+	if n > syncMaxBody {
+		return "", fmt.Errorf("%s : archive trop volumineuse (plus de %s)", c.label(), sizeText(syncMaxBody))
 	}
 	if _, err := tmp.Seek(0, io.SeekStart); err != nil {
 		return "", err

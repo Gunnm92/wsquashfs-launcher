@@ -148,6 +148,11 @@ func cleanup() {
 	_ = os.Chdir("/")
 	stopAttachCommand()
 	stopDualsenseBridge()
+	// --clean interrompu pendant la recherche de doublons : image démontée, dossier retiré.
+	if p := purgeMount.Load(); p != nil {
+		umountRetry(*p)
+		_ = os.Remove(*p)
+	}
 	if mounted.Load() {
 		stopWineserver()
 		if mountMode == "overlay" {

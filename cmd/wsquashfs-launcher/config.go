@@ -48,19 +48,20 @@ var (
 	dirMode         bool   // jeu installé, lancé sur place
 	folderOverlay   bool   // dossier .pc essayé en overlay (lecture seule, comme son image)
 	gameName        string
-	autorunOverride string       // <jeu>.wsquashfs.autorun s'il existe
-	mountMode       string       // overlay | copy | dir
-	overlayKind     string       // kernel | fuse
-	mounted         atomic.Bool  // cleanup() doit arrêter Wine et démonter (lu par le gestionnaire de signaux)
-	squashfsPoint   string       // image montée (lowerdir)
-	winePoint       string       // prefix vu par Wine
-	savePoint       string       // couche de sauvegardes du jeu (upperdir)
-	workPoint       string       // workdir de l'overlay
-	nsStage         string       // "1" : relancé dans le namespace de l'overlay noyau
-	nsDir           string       // dossier d'échange hôte/namespace
-	nsPID           atomic.Int64 // lanceur en namespace démarré par ce processus (hôte)
-	packagedPrefix  bool         // l'image contient un prefix (system.reg)
-	protonPrefix    bool         // prefix créé par Proton (config_info)
+	autorunOverride string                 // <jeu>.wsquashfs.autorun s'il existe
+	mountMode       string                 // overlay | copy | dir
+	overlayKind     string                 // kernel | fuse
+	mounted         atomic.Bool            // cleanup() doit arrêter Wine et démonter (lu par le gestionnaire de signaux)
+	squashfsPoint   string                 // image montée (lowerdir)
+	winePoint       string                 // prefix vu par Wine
+	savePoint       string                 // couche de sauvegardes du jeu (upperdir)
+	workPoint       string                 // workdir de l'overlay
+	nsStage         string                 // "1" : relancé dans le namespace de l'overlay noyau
+	nsDir           string                 // dossier d'échange hôte/namespace
+	nsPID           atomic.Int64           // lanceur en namespace démarré par ce processus (hôte)
+	packagedPrefix  bool                   // l'image contient un prefix (system.reg)
+	protonPrefix    bool                   // prefix créé par Proton (config_info)
+	purgeMount      atomic.Pointer[string] // image montée par --clean (doublons), démontée par cleanup sur signal
 	lockFile        *os.File
 	lockedGame      string
 )

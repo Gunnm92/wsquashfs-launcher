@@ -457,7 +457,7 @@ Quitter l'icône n'arrête ni l'agent ni les jeux. `--setup uninstall` retire le
 
 | Variable | Description | Exemples |
 |---|---|---|
-| `SAVEDIR` | Dossier de sauvegarde du jeu, relié à `saves/<système>/<jeu>` (à côté de `roms/`). Les sauvegardes packagées y sont copiées sans jamais écraser l'existant | `drive_c/game/saves` |
+| `SAVEDIR` | Dossier de sauvegarde du jeu, relié à `saves/<système>/<jeu>` (à côté de `roms/`). Les sauvegardes packagées y sont copiées sans jamais écraser l'existant. Chemin relatif au prefix : un chemin absolu ou avec `..` est ignoré (comme pour `SAVEFILES`) | `drive_c/game/saves` |
 | `SAVEFILES` | Fichiers de sauvegarde (séparés par `;`, relatifs au prefix), reliés au même dossier | `drive_c/game/save.dat;drive_c/game/cfg.ini` |
 
 #### Synchroniser entre machines
