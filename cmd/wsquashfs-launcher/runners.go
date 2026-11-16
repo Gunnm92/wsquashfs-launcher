@@ -18,7 +18,7 @@ import (
 // sysPath : chemin sous SYSROOT (vide en usage normal ; les tests le font
 // pointer sur un dossier vide).
 func sysPath(p string) string {
-	return sysroot + p
+	return conf.sysroot + p
 }
 
 // installedWines : binaires bin/wine installés par l'installeur ou à la main,
@@ -192,7 +192,7 @@ func findUmuRun() string {
 // prefixProtonVersion : version de Proton qui a créé le prefix (1re ligne de
 // config_info), vide pour un prefix Batocera ou Wine simple.
 func prefixProtonVersion() string {
-	data, err := os.ReadFile(winePoint + "/config_info")
+	data, err := os.ReadFile(launch.winePoint + "/config_info")
 	if err != nil {
 		return ""
 	}
@@ -335,10 +335,10 @@ func protonDirOf(bin string) string {
 // imageRoot : racine de l'image en lecture seule (l'image montée, ou le prefix
 // en mode copy ou dossier).
 func imageRoot() string {
-	if mountMode == "overlay" && squashfsPoint != "" {
-		return squashfsPoint
+	if launch.mountMode == "overlay" && launch.squashfsPoint != "" {
+		return launch.squashfsPoint
 	}
-	return winePoint
+	return launch.winePoint
 }
 
 // runnerWineOf : binaire wine d'un dossier de runner (Proton ou Wine).
@@ -394,15 +394,15 @@ func singleImageRunner() string {
 
 // resolveImageRunner : PROTON= / WINE= (ou runner seul) → imageRunner.
 func resolveImageRunner() {
-	imageRunner = ""
-	if runnerKey != "" {
-		if !strings.HasPrefix(runnerKey, "/") && wineOverride == "" {
-			die(fmt.Sprintf("RUNNER=%s : chemin absolu de la machine attendu", runnerKey),
+	launch.imageRunner = ""
+	if launch.runnerKey != "" {
+		if !strings.HasPrefix(launch.runnerKey, "/") && launch.wineOverride == "" {
+			die(fmt.Sprintf("RUNNER=%s : chemin absolu de la machine attendu", launch.runnerKey),
 				"  → runner joint au jeu : dossier runners/<nom>/ de l'image et PROTON=<nom> (ou WINE=<nom>)")
 		}
 		return
 	}
-	if protonVersion == "" && wineVersion == "" {
+	if launch.protonVersion == "" && launch.wineVersion == "" {
 		name := singleImageRunner()
 		if name == "" {
 			if st, err := os.Stat(imageRoot() + "/runners"); err == nil && st.IsDir() {
@@ -411,16 +411,16 @@ func resolveImageRunner() {
 			return
 		}
 		if path := findImageRunner(name); protonDirOf(path) != "" {
-			protonVersion = name
+			launch.protonVersion = name
 		} else {
-			wineVersion = name
+			launch.wineVersion = name
 		}
 	}
-	want := protonVersion
+	want := launch.protonVersion
 	if want == "" {
-		want = wineVersion
+		want = launch.wineVersion
 	}
-	imageRunner = findImageRunner(want)
+	launch.imageRunner = findImageRunner(want)
 }
 
 // ── 9.6 Choix du runner ────────────────────────────────────────────────
@@ -428,83 +428,83 @@ func resolveImageRunner() {
 // chooseProtonDefault : prefix créé par Proton, ou jeu seul sans prefix : Proton
 // via umu. Le choix de l'autorun.cmd (PROTON=) l'emporte.
 func chooseProtonDefault() {
-	prefixProton = prefixProtonVersion()
-	if wineOverride != "" {
-		if found := resolveWineOverride(wineOverride); found != "" && protonDirOf(found) != "" &&
-			(prefixProton != "" || !isFile(winePoint+"/system.reg")) {
-			overrideProton = protonDirOf(found)
+	launch.prefixProton = prefixProtonVersion()
+	if launch.wineOverride != "" {
+		if found := resolveWineOverride(launch.wineOverride); found != "" && protonDirOf(found) != "" &&
+			(launch.prefixProton != "" || !isFile(launch.winePoint+"/system.reg")) {
+			launch.overrideProton = protonDirOf(found)
 		}
 	}
-	forcedWine = runnerKey + wineVersion
-	if wineOverride != "" && overrideProton == "" {
-		forcedWine += wineOverride
+	launch.forcedWine = launch.runnerKey + launch.wineVersion
+	if launch.wineOverride != "" && launch.overrideProton == "" {
+		launch.forcedWine += launch.wineOverride
 	}
 	// Image sans prefix : prefix créé par Proton (proton-cachyos, UMU, GE) ;
 	// un prefix Wine déjà créé dans les sauvegardes reste sous Wine.
-	if prefixProton == "" && !packagedPrefix && forcedWine == "" {
-		if !isFile(winePoint + "/system.reg") {
-			autoProton = true
-		} else if dirMode {
-			warn("prefix Wine déjà créé dans " + winePoint + ", gardé sous " + runnerName(wineBinary) + " (Proton ne sait pas le convertir)")
+	if launch.prefixProton == "" && !launch.packagedPrefix && launch.forcedWine == "" {
+		if !isFile(launch.winePoint + "/system.reg") {
+			launch.autoProton = true
+		} else if launch.dirMode {
+			warn("prefix Wine déjà créé dans " + launch.winePoint + ", gardé sous " + runnerName(launch.wineBinary) + " (Proton ne sait pas le convertir)")
 		} else {
-			warn("prefix Wine déjà créé dans les sauvegardes, gardé sous " + runnerName(wineBinary) +
-				" — supprimer " + savePoint + " (sauvegardes du jeu comprises) pour passer sous Proton")
+			warn("prefix Wine déjà créé dans les sauvegardes, gardé sous " + runnerName(launch.wineBinary) +
+				" — supprimer " + launch.savePoint + " (sauvegardes du jeu comprises) pour passer sous Proton")
 		}
 	}
-	if protonVersion != "" {
+	if launch.protonVersion != "" {
 		return
 	}
-	if prefixProton == "" && !autoProton {
+	if launch.prefixProton == "" && !launch.autoProton {
 		return
 	}
-	if found := findProtonRunner(prefixProton); found != "" {
-		wineBinary = found + "/files/bin/wine"
-		if prefixProton != "" && !protonRunnerIs(found, prefixProton) {
-			warn("prefix créé par " + prefixProton + " (absent), utilisation de " + filepath.Base(found))
+	if found := findProtonRunner(launch.prefixProton); found != "" {
+		launch.wineBinary = found + "/files/bin/wine"
+		if launch.prefixProton != "" && !protonRunnerIs(found, launch.prefixProton) {
+			warn("prefix créé par " + launch.prefixProton + " (absent), utilisation de " + filepath.Base(found))
 		}
 	} else {
-		if prefixProton != "" {
-			warn("prefix Proton (" + prefixProton + ") voulu, aucun Proton installé, utilisation de " + runnerName(wineBinary))
+		if launch.prefixProton != "" {
+			warn("prefix Proton (" + launch.prefixProton + ") voulu, aucun Proton installé, utilisation de " + runnerName(launch.wineBinary))
 		} else {
-			warn("prefix Proton voulu, aucun Proton installé, utilisation de " + runnerName(wineBinary))
+			warn("prefix Proton voulu, aucun Proton installé, utilisation de " + runnerName(launch.wineBinary))
 		}
-		autoProton = false
+		launch.autoProton = false
 	}
 }
 
 // applyAutorunRunner : runner imposé par l'autorun.cmd (RUNNER, PROTON, WINE),
 // joint à l'image d'abord, puis sur la machine. Introuvable : erreur.
 func applyAutorunRunner() {
-	if wineOverride != "" {
+	if launch.wineOverride != "" {
 		return
 	}
 	switch {
-	case runnerKey != "":
-		if !isExecutable(runnerKey) {
-			die("runner "+runnerKey+" introuvable ou non exécutable",
+	case launch.runnerKey != "":
+		if !isExecutable(launch.runnerKey) {
+			die("runner "+launch.runnerKey+" introuvable ou non exécutable",
 				"  → --wine <runner> pour en utiliser un autre")
 		}
-		wineBinary = runnerKey
-	case protonVersion != "":
-		if imageRunner != "" {
-			wineBinary = imageRunner
-		} else if found := findProtonRunner(protonVersion); found != "" && protonRunnerIs(found, protonVersion) {
-			wineBinary = found + "/files/bin/wine"
+		launch.wineBinary = launch.runnerKey
+	case launch.protonVersion != "":
+		if launch.imageRunner != "" {
+			launch.wineBinary = launch.imageRunner
+		} else if found := findProtonRunner(launch.protonVersion); found != "" && protonRunnerIs(found, launch.protonVersion) {
+			launch.wineBinary = found + "/files/bin/wine"
 		} else if len(protonRunnerDirs()) == 0 && isExecutable(sysPath("/usr/local/bin/proton")) {
-			wineBinary = sysPath("/usr/local/bin/proton")
+			launch.wineBinary = sysPath("/usr/local/bin/proton")
 		} else {
-			die("Proton "+protonVersion+" introuvable",
+			die("Proton "+launch.protonVersion+" introuvable",
 				"  cherché : runners/ de l'image, Heroic, Steam (compatibilitytools.d)",
-				"  → le joindre à l'image (runners/"+protonVersion+"/), l'installer, ou --wine <runner>")
+				"  → le joindre à l'image (runners/"+launch.protonVersion+"/), l'installer, ou --wine <runner>")
 		}
-	case wineVersion != "":
-		found := imageRunner
-		if found == "" && strings.EqualFold(wineVersion, "system") {
+	case launch.wineVersion != "":
+		found := launch.imageRunner
+		if found == "" && strings.EqualFold(launch.wineVersion, "system") {
 			if p, err := exec.LookPath("wine"); err == nil {
 				found = p
 			}
 		}
-		for _, d := range []string{sysPath("/opt/wine-" + wineVersion), filepath.Join(os.Getenv("HOME"), ".local/share/wsquashfs/wine/wine-"+wineVersion)} {
+		for _, d := range []string{sysPath("/opt/wine-" + launch.wineVersion), filepath.Join(os.Getenv("HOME"), ".local/share/wsquashfs/wine/wine-"+launch.wineVersion)} {
 			if found != "" {
 				break
 			}
@@ -513,21 +513,21 @@ func applyAutorunRunner() {
 			}
 		}
 		if found == "" {
-			die("Wine "+wineVersion+" introuvable",
-				"  cherché : runners/ de l'image, /opt/wine-"+wineVersion+", ~/.local/share/wsquashfs/wine/wine-"+wineVersion,
-				"  → le joindre à l'image (runners/"+wineVersion+"/), l'installer, ou --wine <runner>")
+			die("Wine "+launch.wineVersion+" introuvable",
+				"  cherché : runners/ de l'image, /opt/wine-"+launch.wineVersion+", ~/.local/share/wsquashfs/wine/wine-"+launch.wineVersion,
+				"  → le joindre à l'image (runners/"+launch.wineVersion+"/), l'installer, ou --wine <runner>")
 		}
-		wineBinary = found
+		launch.wineBinary = found
 	}
 }
 
 // applyWineOption : --wine (ligne de commande), prioritaire sur l'autorun.cmd.
 func applyWineOption() {
-	if wineOverride == "" {
+	if launch.wineOverride == "" {
 		return
 	}
-	if found := resolveWineOverride(wineOverride); found != "" {
-		wineBinary = found
+	if found := resolveWineOverride(launch.wineOverride); found != "" {
+		launch.wineBinary = found
 		return
 	}
 	details := []string{"  Runners installés :"}
@@ -539,33 +539,33 @@ func applyWineOption() {
 		wineAbs = "absent"
 	}
 	details = append(details, "    system ("+wineAbs+")")
-	uiError("runner Wine introuvable : "+wineOverride, details...)
+	uiError("runner Wine introuvable : "+launch.wineOverride, details...)
 	exitNow(1)
 }
 
 // setupUmu : prefix Proton ou jeu seul : lancé par umu-run (script proton
 // complet), comme Heroic.
 func setupUmu() {
-	if (prefixProton+protonVersion+overrideProton != "" || autoProton) && forcedWine == "" {
-		if prefixProton == "" && isFile(winePoint+"/system.reg") {
-			wineBinary = findWineBinary()
-			warn("PROTON=" + protonVersion + " ignoré, prefix Wine existant — Proton ne sait pas le convertir")
-		} else if dir := protonDirOf(wineBinary); dir != "" && findUmuRunLookup() != "" {
-			umuRun = findUmuRunLookup()
-			protonDir = dir
+	if (launch.prefixProton+launch.protonVersion+launch.overrideProton != "" || launch.autoProton) && launch.forcedWine == "" {
+		if launch.prefixProton == "" && isFile(launch.winePoint+"/system.reg") {
+			launch.wineBinary = findWineBinary()
+			warn("PROTON=" + launch.protonVersion + " ignoré, prefix Wine existant — Proton ne sait pas le convertir")
+		} else if dir := protonDirOf(launch.wineBinary); dir != "" && findUmuRunLookup() != "" {
+			launch.umuRun = findUmuRunLookup()
+			launch.protonDir = dir
 			if os.Getenv("GAMEID") == "" {
 				os.Setenv("GAMEID", "umu-default")
 			}
-			os.Setenv("PROTONPATH", protonDir)
-			if wineBinary == imageRunner {
+			os.Setenv("PROTONPATH", launch.protonDir)
+			if launch.wineBinary == launch.imageRunner {
 				os.Setenv("PYTHONDONTWRITEBYTECODE", "1")
 			}
-		} else if autoProton {
-			umuRun = ""
-			wineBinary = findWineBinary()
-			warn("umu-run absent, prefix créé par " + runnerName(wineBinary) + " au lieu de Proton")
+		} else if launch.autoProton {
+			launch.umuRun = ""
+			launch.wineBinary = findWineBinary()
+			warn("umu-run absent, prefix créé par " + runnerName(launch.wineBinary) + " au lieu de Proton")
 		} else {
-			umuRun = ""
+			launch.umuRun = ""
 			warn("prefix Proton lancé directement par Wine (umu-run ou Proton absent) — rendu ou stabilité possiblement dégradés")
 		}
 	}
@@ -579,7 +579,7 @@ func findUmuRunLookup() string {
 // selectRunner : Wine par défaut, runner joint, Proton du prefix, autorun.cmd,
 // --wine, puis umu.
 func selectRunner() {
-	wineBinary = findWineBinary()
+	launch.wineBinary = findWineBinary()
 	resolveImageRunner()
 	chooseProtonDefault()
 	applyAutorunRunner()

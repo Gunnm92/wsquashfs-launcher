@@ -33,8 +33,8 @@ type syncPeer struct {
 	Token       string `json:"token"` // jeton durable de cette machine chez l'autre (jamais le secret du code)
 	Fingerprint string `json:"fingerprint"`
 	Manager     bool   `json:"manager,omitempty"` // wsquashfs-manager : déclaré par lui (PUT /v1/saves/manager), cible de --sync auto
-	MachineID   string `json:"machine,omitempty"`
-	UI          string `json:"ui,omitempty"` // manager : adresse de son interface web (--tray, « Ouvrir le manager ») // manager : identifiant qu'il porte dans X-Wsq-Machine de ses envois (agent, PUT /v1/saves/manager)
+	MachineID   string `json:"machine,omitempty"` // manager : identifiant qu'il porte dans X-Wsq-Machine de ses envois (agent, PUT /v1/saves/manager)
+	UI          string `json:"ui,omitempty"`      // manager : adresse de son interface web (--tray, « Ouvrir le manager »)
 }
 
 // syncConfig : sync.json (identifiant de cette machine et machines associées).
@@ -57,10 +57,7 @@ func managerPeer(cfg syncConfig) (syncPeer, bool) {
 
 // syncConfigPath : ~/.config/wsquashfs/sync.json (XDG_CONFIG_HOME respecté).
 func syncConfigPath() string {
-	base := os.Getenv("XDG_CONFIG_HOME")
-	if base == "" {
-		base = filepath.Join(os.Getenv("HOME"), ".config")
-	}
+	base := configHome()
 	return filepath.Join(base, "wsquashfs", "sync.json")
 }
 

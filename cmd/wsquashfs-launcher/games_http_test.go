@@ -30,9 +30,8 @@ type gamesRig struct {
 func newGamesRig(t *testing.T) *gamesRig {
 	t.Helper()
 	s, h, _ := agentFixture(t)
-	oldSaves, oldCache := savesDir, cacheDir
-	t.Cleanup(func() { savesDir, cacheDir = oldSaves, oldCache })
-	savesDir, cacheDir = t.TempDir(), t.TempDir()
+	isolateState(t)
+	conf.savesDir, conf.cacheDir = t.TempDir(), t.TempDir()
 	home, err := filepath.EvalSymlinks(os.Getenv("HOME"))
 	if err != nil {
 		t.Fatal(err)

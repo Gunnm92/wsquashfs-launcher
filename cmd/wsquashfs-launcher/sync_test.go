@@ -399,15 +399,14 @@ func TestSyncValidIDs(t *testing.T) {
 }
 
 func TestSyncUsersDir(t *testing.T) {
-	oldSaves, oldCache := savesDir, cacheDir
-	t.Cleanup(func() { savesDir, cacheDir = oldSaves, oldCache })
-	savesDir = t.TempDir()
-	cacheDir = t.TempDir()
+	isolateState(t)
+	conf.savesDir = t.TempDir()
+	conf.cacheDir = t.TempDir()
 	// Overlay : la couche avec des sauvegardes.
-	if got, want := syncUsersDir("Game"), filepath.Join(savesDir, "Game", "drive_c", "users"); got != want {
+	if got, want := syncUsersDir("Game"), filepath.Join(conf.savesDir, "Game", "drive_c", "users"); got != want {
 		t.Errorf("sans rien : %q, attendu %q", got, want)
 	}
-	copyDir := filepath.Join(cacheDir, "wine", "Game")
+	copyDir := filepath.Join(conf.cacheDir, "wine", "Game")
 	if err := os.MkdirAll(copyDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -417,8 +416,8 @@ func TestSyncUsersDir(t *testing.T) {
 	if got, want := syncUsersDir("Game"), copyDir+"/drive_c/users"; got != want {
 		t.Errorf("copie marquée : %q, attendu %q", got, want)
 	}
-	syncTestPut(t, filepath.Join(savesDir, "Game", "drive_c", "users", "deck", "Documents", "s.sav"), "x", syncTestTime)
-	if got, want := syncUsersDir("Game"), filepath.Join(savesDir, "Game", "drive_c", "users"); got != want {
+	syncTestPut(t, filepath.Join(conf.savesDir, "Game", "drive_c", "users", "deck", "Documents", "s.sav"), "x", syncTestTime)
+	if got, want := syncUsersDir("Game"), filepath.Join(conf.savesDir, "Game", "drive_c", "users"); got != want {
 		t.Errorf("overlay avec sauvegardes : %q, attendu %q", got, want)
 	}
 }

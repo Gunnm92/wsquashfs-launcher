@@ -24,7 +24,7 @@ func main() {
 
 // run : point d'entrée (section 10 du script bash).
 func run(args []string) int {
-	origArgs = append([]string{}, args...)
+	launch.origArgs = append([]string{}, args...)
 	if len(args) > 0 && args[0] == "--complete" { // complétion bash (completion.go) : rien d'autre
 		return cmdComplete(args[1:])
 	}
@@ -53,13 +53,13 @@ func run(args []string) int {
 
 // applyOptions : options de la ligne de commande dans l'état du lancement.
 func applyOptions(o *options) {
-	action = o.action
-	gameArg = o.gameArg
-	wineOverride = o.wineOver
-	setArgs = o.setArgs
-	headless = o.headless
-	execCmd = o.execCmd
-	cmdArgs = o.cmdArgs
+	launch.action = o.action
+	launch.gameArg = o.gameArg
+	launch.wineOverride = o.wineOver
+	launch.setArgs = o.setArgs
+	launch.headless = o.headless
+	launch.execCmd = o.execCmd
+	launch.cmdArgs = o.cmdArgs
 }
 
 // launcherMain : enchaînement principal (main de la section 10).
@@ -71,11 +71,11 @@ func launcherMain() int {
 
 	// Relancé dans le namespace de l'overlay noyau : variables d'échange.
 	if stage := os.Getenv("WSQUASHFS_NS_STAGE"); stage != "" {
-		nsStage = stage
-		nsDir = os.Getenv("WSQUASHFS_NS_DIR")
+		launch.nsStage = stage
+		launch.nsDir = os.Getenv("WSQUASHFS_NS_DIR")
 		if fd, err := strconv.Atoi(os.Getenv("WSQUASHFS_NS_LOCK_FD")); err == nil && fd >= 0 {
 			if _, err := os.Stat(fmt.Sprintf("/proc/self/fd/%d", fd)); err == nil {
-				lockFile = os.NewFile(uintptr(fd), "lock")
+				launch.lockFile = os.NewFile(uintptr(fd), "lock")
 			}
 		}
 		os.Unsetenv("WSQUASHFS_NS_STAGE")
@@ -85,14 +85,14 @@ func launcherMain() int {
 	// cleanupHook avant le gestionnaire : la goroutine le lit sans verrou.
 	cleanupHook = cleanup
 	// --trial gère lui-même SIGTERM (arrêt du jeu qu'il a lancé, puis rapport).
-	if action != "trial" {
+	if launch.action != "trial" {
 		installSignals()
 	}
 
-	fixOwnership(cacheDir)
-	fixOwnership(savesDir)
+	fixOwnership(conf.cacheDir)
+	fixOwnership(conf.savesDir)
 
-	switch action {
+	switch launch.action {
 	case "clean", "clear", "erase", "umount", "pack", "install", "info", "show", "save", "saves",
 		"list", "doctor", "agent", "pair", "sync", "tray", "trial", "update":
 		return maintenanceMain()
@@ -155,12 +155,12 @@ func cleanup() {
 	}
 	if mounted.Load() {
 		stopWineserver()
-		if mountMode == "overlay" {
-			umountRetry(winePoint)
-			umountRetry(squashfsPoint)
-			if st, err := os.Stat(workPoint); err == nil && st.IsDir() {
-				resetWorkdir(workPoint)
-				_ = os.Remove(workPoint)
+		if launch.mountMode == "overlay" {
+			umountRetry(launch.winePoint)
+			umountRetry(launch.squashfsPoint)
+			if st, err := os.Stat(launch.workPoint); err == nil && st.IsDir() {
+				resetWorkdir(launch.workPoint)
+				_ = os.Remove(launch.workPoint)
 			}
 		}
 	}

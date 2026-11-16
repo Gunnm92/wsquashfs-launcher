@@ -20,9 +20,9 @@ import (
 // capacités sans être setuid).
 func asWineUser(name string, args ...string) *exec.Cmd {
 	if dropsToTargetUser() {
-		return exec.Command("sudo", append([]string{"-u", targetUser, name}, args...)...)
+		return exec.Command("sudo", append([]string{"-u", conf.targetUser, name}, args...)...)
 	}
-	if nsStage != "" {
+	if launch.nsStage != "" {
 		return exec.Command("setpriv", append([]string{"--inh-caps=-all", "--ambient-caps=-all", name}, args...)...)
 	}
 	return exec.Command(name, args...)
@@ -32,8 +32,8 @@ func asWineUser(name string, args ...string) *exec.Cmd {
 // runner choisi, sinon celui du PATH).
 func runWineserver(prefix string, args ...string) error {
 	server := "wineserver"
-	if wineBinary != "" && isExecutable(filepath.Dir(wineBinary)+"/wineserver") {
-		server = filepath.Dir(wineBinary) + "/wineserver"
+	if launch.wineBinary != "" && isExecutable(filepath.Dir(launch.wineBinary)+"/wineserver") {
+		server = filepath.Dir(launch.wineBinary) + "/wineserver"
 	}
 	cmd := asWineUser("env", append([]string{"WINEPREFIX=" + prefix, server}, args...)...)
 	return cmd.Run()
@@ -41,31 +41,31 @@ func runWineserver(prefix string, args ...string) error {
 
 // runWineboot : crée ou met à jour le prefix.
 func runWineboot(winedebug string) error {
-	cmd := asWineUser("env", "DISPLAY="+os.Getenv("DISPLAY"), "WINEPREFIX="+winePoint, "WINEARCH="+wineArch,
+	cmd := asWineUser("env", "DISPLAY="+os.Getenv("DISPLAY"), "WINEPREFIX="+launch.winePoint, "WINEARCH="+launch.wineArch,
 		"WINEDEBUG="+winedebug, "WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d",
-		wineBinary, "wineboot", "-u")
+		launch.wineBinary, "wineboot", "-u")
 	return cmd.Run()
 }
 
 // runWineTool : outil Wine (regedit, reg) sur le prefix, par umu pour un prefix Proton.
 func runWineTool(args ...string) error {
-	full := append([]string{"env", "DISPLAY=" + os.Getenv("DISPLAY"), "WINEPREFIX=" + winePoint, "WINEARCH=" + wineArch,
+	full := append([]string{"env", "DISPLAY=" + os.Getenv("DISPLAY"), "WINEPREFIX=" + launch.winePoint, "WINEARCH=" + launch.wineArch,
 		"WINEDEBUG=" + os.Getenv("WINEDEBUG"), "WINEDLLOVERRIDES=" + os.Getenv("WINEDLLOVERRIDES"),
-		"GAMEID=" + os.Getenv("GAMEID"), "PROTONPATH=" + os.Getenv("PROTONPATH")}, wineTool...)
+		"GAMEID=" + os.Getenv("GAMEID"), "PROTONPATH=" + os.Getenv("PROTONPATH")}, launch.wineTool...)
 	full = append(full, args...)
 	return asWineUser(full[0], full[1:]...).Run()
 }
 
 // stopWineserver : arrêt propre (kill, wait, puis kill -9).
 func stopWineserver() {
-	_ = runWineserver(winePoint, "-k")
+	_ = runWineserver(launch.winePoint, "-k")
 	for i := 0; i < 10; i++ {
-		if runWineserver(winePoint, "-w") == nil {
+		if runWineserver(launch.winePoint, "-w") == nil {
 			return
 		}
 		time.Sleep(time.Second)
 	}
-	killByEnv("WINEPREFIX=" + winePoint)
+	killByEnv("WINEPREFIX=" + launch.winePoint)
 }
 
 // killByEnv : kill -9 des processus dont une variable d'environnement vaut
@@ -101,7 +101,7 @@ func envHas(environ, needle string) bool {
 
 // detectPrefixArch : architecture réelle du prefix (ligne #arch=win32).
 func detectPrefixArch() string {
-	for _, f := range []string{winePoint + "/system.reg", winePoint + "/userdef.reg"} {
+	for _, f := range []string{launch.winePoint + "/system.reg", launch.winePoint + "/userdef.reg"} {
 		data, err := os.ReadFile(f)
 		if err == nil && strings.Contains("\n"+string(data), "\n#arch=win32") {
 			return "win32"
@@ -113,7 +113,7 @@ func detectPrefixArch() string {
 // detectWineUsername : nom d'utilisateur Wine du prefix (packagé par Batocera :
 // steamuser), premier hors comptes système.
 func detectWineUsername() string {
-	entries, err := os.ReadDir(winePoint + "/drive_c/users")
+	entries, err := os.ReadDir(launch.winePoint + "/drive_c/users")
 	if err != nil {
 		return ""
 	}
@@ -161,7 +161,7 @@ func syncWineStubs(wineBin, targetRoot string) {
 	for _, e := range srcs {
 		dstSub := e.dst
 		// Prefix win32 : seules les DLL 32 bits, toutes dans system32.
-		if wineArch == "win32" {
+		if launch.wineArch == "win32" {
 			if dstSub == "system32" {
 				continue
 			}
@@ -174,7 +174,7 @@ func syncWineStubs(wineBin, targetRoot string) {
 		dstDir := targetRoot + "/drive_c/windows/" + dstSub
 		_ = os.MkdirAll(dstDir, 0o755)
 		owned := map[string]bool{}
-		if files, _ := filepath.Glob(winePoint + "/drive_c/windows/" + dstSub + "/*"); files != nil {
+		if files, _ := filepath.Glob(launch.winePoint + "/drive_c/windows/" + dstSub + "/*"); files != nil {
 			for _, f := range files {
 				if wineOwned(f) {
 					owned[filepath.Base(f)] = true
@@ -187,7 +187,7 @@ func syncWineStubs(wineBin, targetRoot string) {
 				continue
 			}
 			name := filepath.Base(src)
-			existing := winePoint + "/drive_c/windows/" + dstSub + "/" + name
+			existing := launch.winePoint + "/drive_c/windows/" + dstSub + "/" + name
 			if isFile(existing) && !owned[name] {
 				continue
 			}
@@ -203,7 +203,7 @@ func syncWineStubs(wineBin, targetRoot string) {
 func linkDllSet(srcDir, dir64, dir32, targetRoot string, dlls ...string) {
 	for _, pair := range [][2]string{{dir64, "system32"}, {dir32, "syswow64"}} {
 		arch, sub := pair[0], pair[1]
-		if wineArch == "win32" {
+		if launch.wineArch == "win32" {
 			if arch == dir64 {
 				continue
 			}
@@ -270,10 +270,10 @@ func installD7vk(target string) {
 		return
 	}
 	sub := "syswow64"
-	if wineArch == "win32" {
+	if launch.wineArch == "win32" {
 		sub = "system32"
 	}
-	wineRoot := runnerRoot(wineBinary)
+	wineRoot := runnerRoot(launch.wineBinary)
 	builtin := ""
 	for _, c := range []string{wineRoot + "/lib/wine/i386-windows/ddraw.dll", wineRoot + "/lib32/wine/i386-windows/ddraw.dll",
 		sysPath("/usr/lib/wine/i386-windows/ddraw.dll")} {
@@ -297,7 +297,7 @@ func installD7vk(target string) {
 
 // detectGpus : fournisseurs présents d'après l'ID PCI (0x10de NVIDIA, 0x1002 AMD).
 func detectGpus() {
-	hasNvidia, hasAMD = "0", "0"
+	launch.hasNvidia, launch.hasAMD = "0", "0"
 	vendors, _ := filepath.Glob(envOr("WSQUASHFS_DRM_SYSFS", "/sys/class/drm") + "/card*/device/vendor")
 	for _, v := range vendors {
 		data, err := os.ReadFile(v)
@@ -306,9 +306,9 @@ func detectGpus() {
 		}
 		switch strings.TrimSpace(string(data)) {
 		case "0x10de":
-			hasNvidia = "1"
+			launch.hasNvidia = "1"
 		case "0x1002":
-			hasAMD = "1"
+			launch.hasAMD = "1"
 		}
 	}
 }
@@ -320,15 +320,15 @@ func findNvapiDir() string {
 // resolveNvapi : NVAPI posée seulement si demandée (NVAPI=1, VKREFLEX=1), une
 // carte NVIDIA et dxvk-nvapi présents. auto : décidé sur la machine.
 func resolveNvapi() {
-	nvapiOn = "0"
-	want := nvapi
-	if vkreflex == "1" {
+	launch.nvapiOn = "0"
+	want := launch.nvapi
+	if launch.vkreflex == "1" {
 		want = "1"
 	}
 	if want == "0" {
 		return
 	}
-	if hasNvidia != "1" {
+	if launch.hasNvidia != "1" {
 		if want == "1" {
 			warn("NVAPI=1 ignoré : aucune carte NVIDIA détectée")
 		}
@@ -337,20 +337,20 @@ func resolveNvapi() {
 			warn("NVAPI=1 ignoré : dxvk-nvapi introuvable (/usr/share/dxvk-nvapi)")
 		}
 	} else {
-		nvapiOn = "1"
+		launch.nvapiOn = "1"
 	}
 }
 
 // resolveVkreflex : couche Reflex de dxvk-nvapi.
 func resolveVkreflex() {
-	vkreflexOn = "0"
-	if vkreflex == "0" || nvapiOn != "1" {
+	launch.vkreflexOn = "0"
+	if launch.vkreflex == "0" || launch.nvapiOn != "1" {
 		return
 	}
 	nvDir := findNvapiDir()
 	if isFile(nvDir + "/layer/VkLayer_DXVK_NVAPI_reflex.json") {
-		vkreflexOn = "1"
-	} else if vkreflex == "1" {
+		launch.vkreflexOn = "1"
+	} else if launch.vkreflex == "1" {
 		warn("VKREFLEX=1 ignoré : couche Reflex absente (" + nvDir + "/layer)")
 	}
 }
@@ -358,9 +358,9 @@ func resolveVkreflex() {
 // linkRunnerComponents : icu (et vkd3d si VKD3D=1) des runners qui rangent ces
 // DLL hors de lib/wine (GE-Proton, wine-ge).
 func linkRunnerComponents(target string) {
-	wineRoot := runnerRoot(wineBinary)
+	wineRoot := runnerRoot(launch.wineBinary)
 	comps := []string{"icu"}
-	if vkd3d == "1" {
+	if launch.vkd3d == "1" {
 		comps = []string{"icu", "vkd3d"}
 	}
 	for _, comp := range comps {
@@ -371,7 +371,7 @@ func linkRunnerComponents(target string) {
 			} else {
 				sub = "syswow64"
 			}
-			if wineArch == "win32" {
+			if launch.wineArch == "win32" {
 				if arch == "x86_64-windows" {
 					continue
 				}
@@ -414,23 +414,23 @@ func findFsr4Dll() string {
 
 // resolveFsr4 : FSR4 seulement si FSR4=1, une carte AMD et la DLL présentes.
 func resolveFsr4() {
-	fsr4On = "0"
-	if fsr4 != "1" {
+	launch.fsr4On = "0"
+	if launch.fsr4 != "1" {
 		return
 	}
-	if hasAMD != "1" {
+	if launch.hasAMD != "1" {
 		warn("FSR4=1 ignoré : aucune carte AMD détectée")
 	} else if findFsr4Dll() == "" {
 		warn("FSR4=1 ignoré : amdxcffx64.dll introuvable (--setup propose de la copier depuis proton-cachyos)")
 	} else {
-		fsr4On = "1"
+		launch.fsr4On = "1"
 	}
 }
 
 // installFsr4 : lien FSR4 posé ; retiré quand FSR4 n'est plus demandé.
 func installFsr4(target string) {
 	link := target + "/drive_c/windows/system32/amdxcffx64.dll"
-	if fsr4On != "1" {
+	if launch.fsr4On != "1" {
 		if st, err := os.Lstat(link); err == nil && st.Mode()&os.ModeSymlink != 0 {
 			_ = os.Remove(link)
 		}
@@ -452,7 +452,7 @@ func installNvapi(target string) {
 		return
 	}
 	sub32 := "syswow64"
-	if wineArch == "win32" {
+	if launch.wineArch == "win32" {
 		sub32 = "system32"
 	}
 	_ = os.MkdirAll(target+"/drive_c/windows/system32", 0o755)
@@ -461,7 +461,7 @@ func installNvapi(target string) {
 		_ = os.Remove(dst)
 		_ = os.Symlink(src, dst)
 	}
-	if wineArch != "win32" {
+	if launch.wineArch != "win32" {
 		link(nv+"/x64/nvapi64.dll", target+"/drive_c/windows/system32/nvapi64.dll")
 		if isFile(nv + "/x64/nvofapi64.dll") {
 			link(nv+"/x64/nvofapi64.dll", target+"/drive_c/windows/system32/nvofapi64.dll")
@@ -471,7 +471,7 @@ func installNvapi(target string) {
 		link(nv+"/x32/nvapi.dll", target+"/drive_c/windows/"+sub32+"/nvapi.dll")
 	}
 	ngx := sysPath("/usr/lib/nvidia/wine")
-	if wineArch != "win32" && isFile(ngx+"/nvngx.dll") {
+	if launch.wineArch != "win32" && isFile(ngx+"/nvngx.dll") {
 		for _, f := range []string{"_nvngx.dll", "nvngx.dll", "nvngx_dlssg.dll"} {
 			if isFile(ngx + "/" + f) {
 				link(ngx+"/"+f, target+"/drive_c/windows/system32/"+f)
@@ -482,18 +482,18 @@ func installNvapi(target string) {
 
 // linkRuntimeDlls : DLL du runner, DXVK, VKD3D, d7vk, NVAPI, FSR4.
 func linkRuntimeDlls(target string) {
-	syncWineStubs(wineBinary, target)
+	syncWineStubs(launch.wineBinary, target)
 	linkRunnerComponents(target)
-	if dxvk == "1" {
+	if launch.dxvk == "1" {
 		installDxvk(target)
 	}
-	if vkd3d == "1" {
+	if launch.vkd3d == "1" {
 		installVkd3d(target)
 	}
-	if d7vk == "1" {
+	if launch.d7vk == "1" {
 		installD7vk(target)
 	}
-	if nvapiOn == "1" {
+	if launch.nvapiOn == "1" {
 		installNvapi(target)
 	}
 	installFsr4(target)
@@ -501,21 +501,21 @@ func linkRuntimeDlls(target string) {
 
 // writeNvidiaRegistry : clé NGXCore pour DLSS (une fois par prefix).
 func writeNvidiaRegistry() {
-	if nvapiOn != "1" || !isFile(sysPath("/usr/lib/nvidia/wine/nvngx.dll")) {
+	if launch.nvapiOn != "1" || !isFile(sysPath("/usr/lib/nvidia/wine/nvngx.dll")) {
 		return
 	}
-	if data, err := os.ReadFile(winePoint + "/system.reg"); err == nil && strings.Contains(string(data), "NGXCore") {
+	if data, err := os.ReadFile(launch.winePoint + "/system.reg"); err == nil && strings.Contains(string(data), "NGXCore") {
 		return
 	}
 	_ = runWineTool("reg", "add", `HKLM\Software\NVIDIA Corporation\Global\NGXCore`,
 		"/v", "FullPath", "/t", "REG_SZ", "/d", `C:\Windows\System32`, "/f")
-	_ = runWineserver(winePoint, "-k")
-	_ = runWineserver(winePoint, "-w")
+	_ = runWineserver(launch.winePoint, "-k")
+	_ = runWineserver(launch.winePoint, "-w")
 }
 
 // configureGpuEnv : caches de shaders et journaux, réglés pour tous les GPU.
 func configureGpuEnv() {
-	shaderDir := cacheDir + "/shaders"
+	shaderDir := conf.cacheDir + "/shaders"
 	_ = os.MkdirAll(shaderDir+"/dxvk", 0o755)
 	_ = os.MkdirAll(shaderDir+"/vkd3d", 0o755)
 	chownToTarget(shaderDir)
@@ -524,25 +524,25 @@ func configureGpuEnv() {
 	os.Setenv("DXVK_LOG_LEVEL", envOr("DXVK_LOG_LEVEL", "none"))
 	os.Setenv("VKD3D_DEBUG", envOr("VKD3D_DEBUG", "none"))
 	os.Setenv("WINE_MONO_OVERRIDES", "Microsoft.Xna.Framework.*,Gac=n")
-	if fsr == "1" {
+	if launch.fsr == "1" {
 		os.Setenv("WINE_FULLSCREEN_FSR", "1")
 	} else {
 		os.Setenv("WINE_FULLSCREEN_FSR", "0")
 	}
 	// Couche Reflex : Proton charge la sienne sous umu.
-	if vkreflexOn == "1" {
+	if launch.vkreflexOn == "1" {
 		os.Setenv("DXVK_NVAPI_VKREFLEX", "1")
-		if umuRun == "" {
+		if launch.umuRun == "" {
 			add := findNvapiDir() + "/layer"
 			if cur := os.Getenv("VK_ADD_IMPLICIT_LAYER_PATH"); cur != "" {
 				add = cur + ":" + add
 			}
 			os.Setenv("VK_ADD_IMPLICIT_LAYER_PATH", add)
 		}
-	} else if umuRun == "" {
+	} else if launch.umuRun == "" {
 		os.Setenv("DISABLE_DXVK_NVAPI_VKREFLEX", "1")
 	}
-	if hasNvidia == "1" {
+	if launch.hasNvidia == "1" {
 		nvDir := shaderDir + "/nvidia"
 		_ = os.MkdirAll(nvDir, 0o755)
 		chownToTarget(nvDir)
@@ -555,10 +555,10 @@ func configureGpuEnv() {
 // updatePrefixIfNeeded : mise à jour du prefix au changement de runner
 // (comme createOrUpdatePrefix de batocera-wine).
 func updatePrefixIfNeeded() {
-	if !isFile(winePoint + "/system.reg") {
+	if !isFile(launch.winePoint + "/system.reg") {
 		return
 	}
-	wineRoot := runnerRoot(wineBinary)
+	wineRoot := runnerRoot(launch.wineBinary)
 	inf := wineRoot + "/share/wine/wine.inf"
 	if !isFile(inf) {
 		return
@@ -568,17 +568,17 @@ func updatePrefixIfNeeded() {
 		return
 	}
 	ts := fmt.Sprint(st.ModTime().Unix())
-	stamp := strings.TrimRight(strings.SplitN(readTrim(winePoint+"/.update-timestamp"), "\n", 2)[0], "\r")
+	stamp := strings.TrimRight(strings.SplitN(readTrim(launch.winePoint+"/.update-timestamp"), "\n", 2)[0], "\r")
 	if stamp == "disable" || stamp == ts {
 		return
 	}
-	version := strings.TrimSpace(runVersion(wineBinary))
+	version := strings.TrimSpace(runVersion(launch.wineBinary))
 	if version == "" {
 		version = filepath.Base(wineRoot)
 	}
 	uiKVLine("Préfixe", "mise à jour pour "+version)
 	for _, d := range []string{"system32", "syswow64"} {
-		links, _ := filepath.Glob(winePoint + "/drive_c/windows/" + d + "/*")
+		links, _ := filepath.Glob(launch.winePoint + "/drive_c/windows/" + d + "/*")
 		for _, l := range links {
 			if lst, err := os.Lstat(l); err == nil && lst.Mode()&os.ModeSymlink != 0 {
 				_ = os.Remove(l)
@@ -586,12 +586,12 @@ func updatePrefixIfNeeded() {
 		}
 	}
 	_ = runWineboot("-all")
-	_ = runWineserver(winePoint, "-w")
+	_ = runWineserver(launch.winePoint, "-w")
 	// wineboot -u vient d'écrire ~1 600 DLL dans l'upperdir : retirées, puis
 	// remplacées par des liens (prefix packagé seulement).
-	if mountMode == "overlay" && packagedPrefix {
-		_ = os.RemoveAll(savePoint + "/drive_c/windows/system32")
-		_ = os.RemoveAll(savePoint + "/drive_c/windows/syswow64")
+	if launch.mountMode == "overlay" && launch.packagedPrefix {
+		_ = os.RemoveAll(launch.savePoint + "/drive_c/windows/system32")
+		_ = os.RemoveAll(launch.savePoint + "/drive_c/windows/syswow64")
 		reloadOverlay("après mise à jour du préfixe")
 	}
 }
@@ -608,7 +608,7 @@ func runVersion(bin string) string {
 // fixUserdataLinks : les dossiers du profil liés à /userdata (absent ici)
 // deviennent de vrais dossiers, dans l'upperdir en overlay.
 func fixUserdataLinks() {
-	users := winePoint + "/drive_c/users"
+	users := launch.winePoint + "/drive_c/users"
 	_ = filepath.Walk(users, func(p string, info os.FileInfo, err error) error {
 		if err != nil || info.Mode()&os.ModeSymlink == 0 {
 			return nil
@@ -629,15 +629,15 @@ func fixUserdataLinks() {
 // (<racine>/saves/<système>/<jeu>) ; faux hors d'un dossier roms/<système>/.
 func batoceraSavesDir() (string, bool) {
 	if v := os.Getenv("WSQUASHFS_BATOCERA_SAVES"); v != "" {
-		return v + "/" + gameName, true
+		return v + "/" + launch.gameName, true
 	}
-	romDir := filepath.Dir(wsquashfsFile)
+	romDir := filepath.Dir(launch.wsquashfsFile)
 	sys := filepath.Base(romDir)
 	root := filepath.Dir(filepath.Dir(romDir))
 	if filepath.Base(filepath.Dir(romDir)) != "roms" {
 		return "", false
 	}
-	return root + "/saves/" + sys + "/" + gameName, true
+	return root + "/saves/" + sys + "/" + launch.gameName, true
 }
 
 // moveFile : déplace un fichier, y compris vers un autre système de fichiers
@@ -711,7 +711,7 @@ func applySavedir(savedir, savefiles string) {
 	}
 	_ = os.MkdirAll(sysdir, 0o755)
 	if savedir != "" {
-		parent := winePoint + "/" + filepath.Dir(savedir)
+		parent := launch.winePoint + "/" + filepath.Dir(savedir)
 		base := filepath.Base(savedir)
 		_ = os.MkdirAll(parent, 0o755)
 		p := parent + "/" + base
@@ -737,8 +737,8 @@ func applySavedir(savedir, savefiles string) {
 				continue
 			}
 			_ = os.MkdirAll(filepath.Dir(sysdir+"/"+f), 0o755)
-			_ = os.MkdirAll(filepath.Dir(winePoint+"/"+f), 0o755)
-			target := winePoint + "/" + f
+			_ = os.MkdirAll(filepath.Dir(launch.winePoint+"/"+f), 0o755)
+			target := launch.winePoint + "/" + f
 			if st, err := os.Lstat(target); err == nil && st.Mode().IsRegular() {
 				if _, err := os.Lstat(sysdir + "/" + f); err != nil {
 					// Le fichier n'est retiré du prefix qu'une fois arrivé.

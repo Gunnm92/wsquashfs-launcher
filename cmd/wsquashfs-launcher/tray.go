@@ -103,7 +103,7 @@ func trayState(cfg syncConfig, agentRunning bool, machines, games []string) tray
 // lastLaunch : date du dernier lancement d'un jeu (savesDir/.images/<jeu>, réécrit à chaque
 // lancement par prepareMountDirs) ; zéro si inconnue.
 func lastLaunch(name string) time.Time {
-	if fi, err := os.Stat(filepath.Join(savesDir, ".images", name)); err == nil {
+	if fi, err := os.Stat(filepath.Join(conf.savesDir, ".images", name)); err == nil {
 		return fi.ModTime()
 	}
 	return time.Time{}
@@ -234,10 +234,10 @@ func (a *trayApp) build() {
 	for i := 0; i < trayMaxGames; i++ {
 		g := a.gamesMenu.AddSubMenuItem("", "")
 		g.Hide()
-		launch := g.AddSubMenuItem("Lancer", "")
+		launchItem := g.AddSubMenuItem("Lancer", "")
 		save := g.AddSubMenuItem("Copier les sauvegardes", "")
-		a.gameSlots = append(a.gameSlots, trayGameSlot{menu: g, launch: launch, save: save})
-		onClick(launch, func() { a.launchGame(i) })
+		a.gameSlots = append(a.gameSlots, trayGameSlot{menu: g, launch: launchItem, save: save})
+		onClick(launchItem, func() { a.launchGame(i) })
 		onClick(save, func() { a.saveGame(i) })
 	}
 	a.gamesMore = a.gamesMenu.AddSubMenuItem("", "")

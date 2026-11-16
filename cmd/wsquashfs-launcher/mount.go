@@ -52,8 +52,8 @@ func umountRetry(p string) {
 // mountSquashfs : squashfuse, allow_other en root.
 func mountSquashfs(image, point string) bool {
 	args := []string{}
-	if allowOtherOpt != "" {
-		args = append(args, "-o", allowOtherOpt)
+	if conf.allowOtherOpt != "" {
+		args = append(args, "-o", conf.allowOtherOpt)
 	}
 	args = append(args, image, point)
 	return execQuiet("squashfuse", args...) == nil
@@ -65,19 +65,19 @@ func mountSquashfs(image, point string) bool {
 // en contient (nom du jeu) est refusé ; le lancement passe alors en copie.
 func mountOverlay(lower string) bool {
 	if lower == "" {
-		lower = squashfsPoint
+		lower = launch.squashfsPoint
 	}
-	for _, p := range []string{lower, savePoint, workPoint} {
+	for _, p := range []string{lower, launch.savePoint, launch.workPoint} {
 		if strings.ContainsAny(p, ",:") {
 			warn("virgule ou deux-points dans " + p + " : fuse-overlayfs impossible")
 			return false
 		}
 	}
-	opts := fmt.Sprintf("lowerdir=%s,upperdir=%s,workdir=%s,%s", lower, savePoint, workPoint, overlaySquashOp)
-	if allowOtherOpt != "" {
-		opts += "," + allowOtherOpt
+	opts := fmt.Sprintf("lowerdir=%s,upperdir=%s,workdir=%s,%s", lower, launch.savePoint, launch.workPoint, conf.overlaySquashOp)
+	if conf.allowOtherOpt != "" {
+		opts += "," + conf.allowOtherOpt
 	}
-	return execQuiet("fuse-overlayfs", "-o", opts, winePoint) == nil
+	return execQuiet("fuse-overlayfs", "-o", opts, launch.winePoint) == nil
 }
 
 // resetWorkdir : vide le workdir. L'overlay noyau y laisse work/ en mode 000.
@@ -94,18 +94,18 @@ func resetWorkdir(d string) {
 
 // reloadOverlay : remonte l'overlay, qui garde sa vue des dossiers en mémoire.
 func reloadOverlay(msg string) {
-	if overlayKind == "kernel" {
-		if execQuiet("umount", winePoint) != nil {
-			_ = execQuiet("umount", "-l", winePoint)
+	if launch.overlayKind == "kernel" {
+		if execQuiet("umount", launch.winePoint) != nil {
+			_ = execQuiet("umount", "-l", launch.winePoint)
 		}
 		if msg := mountKernelOverlayLayer(); msg != "" {
 			die("échec du rechargement de l'overlay " + msg)
 		}
 		return
 	}
-	fuseUmount(winePoint)
-	resetWorkdir(workPoint)
-	chownToTarget(workPoint)
+	fuseUmount(launch.winePoint)
+	resetWorkdir(launch.workPoint)
+	chownToTarget(launch.workPoint)
 	if !mountOverlay("") {
 		die("échec du rechargement de l'overlay " + msg)
 	}
@@ -120,10 +120,10 @@ const kernelOverlayOpts = "userxattr,redirect_dir=nofollow"
 // kernelOverlayUnavailable : raison pour laquelle l'overlay noyau ne peut pas
 // être essayé, "" sinon.
 func kernelOverlayUnavailable() string {
-	if overlayPref == "fuse" {
+	if conf.overlayPref == "fuse" {
 		return "WSQUASHFS_OVERLAY=fuse"
 	}
-	if runAsRoot {
+	if conf.runAsRoot {
 		return "lancé en root"
 	}
 	for _, tool := range []string{"unshare", "setpriv", "squashfuse_ll", "mount", "umount", "mountpoint", "getfattr", "setfattr"} {

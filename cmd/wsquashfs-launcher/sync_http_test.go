@@ -45,9 +45,8 @@ func newSyncRig(t *testing.T) *syncRig {
 func newSyncRigWith(t *testing.T, setup func(*httptest.Server)) *syncRig {
 	t.Helper()
 	_, h, _ := agentFixture(t)
-	oldSaves, oldCache := savesDir, cacheDir
-	t.Cleanup(func() { savesDir, cacheDir = oldSaves, oldCache })
-	savesDir, cacheDir = t.TempDir(), t.TempDir()
+	isolateState(t)
+	conf.savesDir, conf.cacheDir = t.TempDir(), t.TempDir()
 	backups := t.TempDir()
 	t.Setenv("WSQUASHFS_BACKUP_DIR", backups)
 
@@ -65,7 +64,7 @@ func newSyncRigWith(t *testing.T, setup func(*httptest.Server)) *syncRig {
 		Token:       "secret-token",
 		Fingerprint: strings.ToUpper(hex.EncodeToString(sum[:])),
 	}
-	users := filepath.Join(savesDir, syncRigGame, "drive_c", "users")
+	users := filepath.Join(conf.savesDir, syncRigGame, "drive_c", "users")
 	syncTestPopulate(t, users, "steamuser")
 	return &syncRig{
 		srv:     srv,
@@ -190,7 +189,7 @@ func clientUsers(t *testing.T) string {
 func TestSyncListStates(t *testing.T) {
 	r := newSyncRig(t)
 	// Jeu sans sauvegarde (profil vide) : absent de la liste.
-	if err := os.MkdirAll(filepath.Join(savesDir, "Vide", "drive_c", "users", "steamuser"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(conf.savesDir, "Vide", "drive_c", "users", "steamuser"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	// Jeu sans sauvegarde mais avec un état pour ce client : listé, empreinte vide.
@@ -498,7 +497,7 @@ func TestSyncConfigRoundTrip(t *testing.T) {
 func TestSyncGamesListsCopyModes(t *testing.T) {
 	r := newSyncRig(t)
 	const wineGame, stashGame = "Wine Game", "Stash Game"
-	wine := filepath.Join(cacheDir, "wine", wineGame)
+	wine := filepath.Join(conf.cacheDir, "wine", wineGame)
 	syncTestPopulate(t, filepath.Join(wine, "drive_c", "users"), "steamuser")
 	syncTestPut(t, filepath.Join(wine, ".wsquashfs_cache"), "sig", syncTestTime)
 	syncTestPopulate(t, copyUsersStash(stashGame), "steamuser")

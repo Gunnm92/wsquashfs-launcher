@@ -34,11 +34,12 @@ func otherFilesystem(t *testing.T, disk string) string {
 }
 
 func TestSavefilesMovedAcrossFilesystems(t *testing.T) {
+	isolateState(t)
 	disk := t.TempDir()
-	winePoint = otherFilesystem(t, disk)
-	gameName = "Jeu"
+	launch.winePoint = otherFilesystem(t, disk)
+	launch.gameName = "Jeu"
 	t.Setenv("WSQUASHFS_BATOCERA_SAVES", disk)
-	save := winePoint + "/drive_c/game/score.dat"
+	save := launch.winePoint + "/drive_c/game/score.dat"
 	if err := os.MkdirAll(filepath.Dir(save), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -60,14 +61,15 @@ func TestSavefilesMovedAcrossFilesystems(t *testing.T) {
 }
 
 func TestSavefilesKeptWhenMoveFails(t *testing.T) {
+	isolateState(t)
 	if os.Geteuid() == 0 {
 		t.Skip("root écrit partout")
 	}
 	disk := t.TempDir()
-	winePoint = otherFilesystem(t, disk)
-	gameName = "Jeu"
+	launch.winePoint = otherFilesystem(t, disk)
+	launch.gameName = "Jeu"
 	t.Setenv("WSQUASHFS_BATOCERA_SAVES", disk)
-	save := winePoint + "/drive_c/game/score.dat"
+	save := launch.winePoint + "/drive_c/game/score.dat"
 	_ = os.MkdirAll(filepath.Dir(save), 0o755)
 	_ = os.WriteFile(save, []byte("MES SCORES"), 0o644)
 	// Ludothèque en lecture seule : le déplacement échoue.
@@ -86,11 +88,12 @@ func TestSavefilesKeptWhenMoveFails(t *testing.T) {
 }
 
 func TestSavedirMovedAndKeptOnFailure(t *testing.T) {
+	isolateState(t)
 	disk := t.TempDir()
-	winePoint = otherFilesystem(t, disk)
-	gameName = "Jeu"
+	launch.winePoint = otherFilesystem(t, disk)
+	launch.gameName = "Jeu"
 	t.Setenv("WSQUASHFS_BATOCERA_SAVES", disk)
-	dir := winePoint + "/drive_c/Saves"
+	dir := launch.winePoint + "/drive_c/Saves"
 	_ = os.MkdirAll(dir+"/slot", 0o755)
 	_ = os.WriteFile(dir+"/slot/a.sav", []byte("A"), 0o644)
 	// Déjà dans la ludothèque : jamais écrasé.
@@ -113,8 +116,8 @@ func TestSavedirMovedAndKeptOnFailure(t *testing.T) {
 		return
 	}
 	// Copie impossible : le dossier reste un vrai dossier, avec son contenu.
-	gameName = "Autre"
-	dir2 := winePoint + "/drive_c/Saves2"
+	launch.gameName = "Autre"
+	dir2 := launch.winePoint + "/drive_c/Saves2"
 	_ = os.MkdirAll(dir2+"/slot", 0o755)
 	_ = os.WriteFile(dir2+"/slot/b.sav", []byte("B"), 0o644)
 	blocked := filepath.Join(disk, "Autre")
@@ -149,15 +152,16 @@ func TestWineOwnedReadsHeaderOnly(t *testing.T) {
 }
 
 func TestLockIdleGameRefusesLockedGame(t *testing.T) {
+	isolateState(t)
 	dir := t.TempDir()
-	cacheDir, savesDir = filepath.Join(dir, "cache"), filepath.Join(dir, "saves")
-	lockedGame = ""
+	conf.cacheDir, conf.savesDir = filepath.Join(dir, "cache"), filepath.Join(dir, "saves")
+	launch.lockedGame = ""
 	lock, idle := lockIdleGame("Jeu")
 	if !idle || lock == nil {
 		t.Fatalf("jeu arrêté non verrouillé (idle=%v)", idle)
 	}
 	// Un lancement pendant la maintenance : verrou refusé (« déjà lancé »).
-	gameName = "Jeu"
+	launch.gameName = "Jeu"
 	if acquireGameLock() {
 		t.Error("lancement accepté pendant une maintenance")
 	}
@@ -170,9 +174,9 @@ func TestLockIdleGameRefusesLockedGame(t *testing.T) {
 	if !acquireGameLock() {
 		t.Fatal("lancement refusé après la maintenance")
 	}
-	defer func() { lockFile.Close(); lockFile, lockedGame = nil, "" }()
+	defer func() { launch.lockFile.Close(); launch.lockFile, launch.lockedGame = nil, "" }()
 	// Jeu verrouillé par un lancement : la maintenance le laisse.
-	lockedGame = ""
+	launch.lockedGame = ""
 	if l, idle := lockIdleGame("Jeu"); idle {
 		l.Close()
 		t.Error("maintenance acceptée sur un jeu en cours de lancement")
@@ -180,11 +184,12 @@ func TestLockIdleGameRefusesLockedGame(t *testing.T) {
 }
 
 func TestRunnerTarSkipsUnreadableFile(t *testing.T) {
+	isolateState(t)
 	if os.Geteuid() == 0 {
 		t.Skip("root lit tout")
 	}
 	_, h, _ := agentFixture(t)
-	sysroot = ""
+	conf.sysroot = ""
 	runner := filepath.Join(os.Getenv("HOME"), ".local/share/wsquashfs/wine/wine-test")
 	_ = os.MkdirAll(runner+"/bin", 0o755)
 	_ = os.WriteFile(runner+"/bin/wine", []byte("#!/bin/sh\n"), 0o755)
@@ -286,18 +291,19 @@ func TestPruneBackupsKeepsLatestPerGame(t *testing.T) {
 }
 
 func TestEraseSavesArchivesThenRemoves(t *testing.T) {
+	isolateState(t)
 	dir := t.TempDir()
-	cacheDir, savesDir = filepath.Join(dir, "cache"), filepath.Join(dir, "saves")
+	conf.cacheDir, conf.savesDir = filepath.Join(dir, "cache"), filepath.Join(dir, "saves")
 	backups := filepath.Join(dir, "backups")
 	t.Setenv("WSQUASHFS_BACKUP_DIR", backups)
-	lockedGame = ""
-	save := savesDir + "/Jeu/drive_c/users/u/Documents/slot.sav"
+	launch.lockedGame = ""
+	save := conf.savesDir + "/Jeu/drive_c/users/u/Documents/slot.sav"
 	_ = os.MkdirAll(filepath.Dir(save), 0o755)
 	_ = os.WriteFile(save, []byte("PARTIE"), 0o644)
-	_ = os.WriteFile(savesDir+"/Jeu/system.reg", []byte("reg"), 0o644)
+	_ = os.WriteFile(conf.savesDir+"/Jeu/system.reg", []byte("reg"), 0o644)
 	eraseSaves("Jeu", newUIGames([]string{"Jeu"}))
 
-	if pathExists(savesDir + "/Jeu") {
+	if pathExists(conf.savesDir + "/Jeu") {
 		t.Error("sauvegardes non supprimées")
 	}
 	archives, _ := filepath.Glob(backups + "/Jeu-*.tar.*")
@@ -319,17 +325,18 @@ func TestEraseSavesArchivesThenRemoves(t *testing.T) {
 }
 
 func TestEraseSavesKeepsSavesWhenArchiveFails(t *testing.T) {
+	isolateState(t)
 	if os.Geteuid() == 0 {
 		t.Skip("root écrit partout")
 	}
 	dir := t.TempDir()
-	cacheDir, savesDir = filepath.Join(dir, "cache"), filepath.Join(dir, "saves")
+	conf.cacheDir, conf.savesDir = filepath.Join(dir, "cache"), filepath.Join(dir, "saves")
 	blocked := filepath.Join(dir, "lecture-seule")
 	_ = os.MkdirAll(blocked, 0o555)
 	t.Cleanup(func() { os.Chmod(blocked, 0o755) })
 	t.Setenv("WSQUASHFS_BACKUP_DIR", filepath.Join(blocked, "backups"))
-	lockedGame = ""
-	save := savesDir + "/Jeu/drive_c/users/u/slot.sav"
+	launch.lockedGame = ""
+	save := conf.savesDir + "/Jeu/drive_c/users/u/slot.sav"
 	_ = os.MkdirAll(filepath.Dir(save), 0o755)
 	_ = os.WriteFile(save, []byte("PARTIE"), 0o644)
 	eraseSaves("Jeu", newUIGames([]string{"Jeu"}))
@@ -339,27 +346,28 @@ func TestEraseSavesKeepsSavesWhenArchiveFails(t *testing.T) {
 }
 
 func TestCopyUsersStashAndRestore(t *testing.T) {
+	isolateState(t)
 	dir := t.TempDir()
-	cacheDir = filepath.Join(dir, "cache")
-	gameName = "Jeu"
-	winePoint = filepath.Join(cacheDir, "wine", "Jeu")
-	save := winePoint + "/drive_c/users/u/Documents/slot.sav"
+	conf.cacheDir = filepath.Join(dir, "cache")
+	launch.gameName = "Jeu"
+	launch.winePoint = filepath.Join(conf.cacheDir, "wine", "Jeu")
+	save := launch.winePoint + "/drive_c/users/u/Documents/slot.sav"
 	_ = os.MkdirAll(filepath.Dir(save), 0o755)
 	_ = os.WriteFile(save, []byte("PARTIE"), 0o644)
 
 	// Copie incomplète (pas de marqueur) : rien à sauver, rien mis de côté.
-	if !stashCopyUsers(winePoint, "Jeu") || pathExists(copyUsersStash("Jeu")) {
+	if !stashCopyUsers(launch.winePoint, "Jeu") || pathExists(copyUsersStash("Jeu")) {
 		t.Fatal("copie sans marqueur mise de côté")
 	}
-	_ = os.WriteFile(winePoint+"/.wsquashfs_cache", []byte("sig"), 0o644)
-	if !stashCopyUsers(winePoint, "Jeu") {
+	_ = os.WriteFile(launch.winePoint+"/.wsquashfs_cache", []byte("sig"), 0o644)
+	if !stashCopyUsers(launch.winePoint, "Jeu") {
 		t.Fatal("mise de côté en échec")
 	}
-	_ = os.RemoveAll(winePoint)
+	_ = os.RemoveAll(launch.winePoint)
 
 	// Copie refaite depuis l'image : son drive_c/users reçoit les sauvegardes.
-	_ = os.MkdirAll(winePoint+"/drive_c/users/u/Documents", 0o755)
-	_ = os.WriteFile(winePoint+"/drive_c/users/u/Documents/defaut.ini", []byte("image"), 0o644)
+	_ = os.MkdirAll(launch.winePoint+"/drive_c/users/u/Documents", 0o755)
+	_ = os.WriteFile(launch.winePoint+"/drive_c/users/u/Documents/defaut.ini", []byte("image"), 0o644)
 	_ = os.WriteFile(save, []byte("IMAGE"), 0o644)
 	restoreCopyUsers()
 	if data, _ := os.ReadFile(save); string(data) != "PARTIE" {

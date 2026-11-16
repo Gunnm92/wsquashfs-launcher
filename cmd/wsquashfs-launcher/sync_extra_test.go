@@ -240,11 +240,17 @@ func TestSyncTargetErrors(t *testing.T) {
 }
 
 // isolateSaves : savesDir et cacheDir temporaires (l'état de synchro est écrit sous savesDir/.sync).
+// isolateState : conf, launch et layers retrouvent à la fin du test leur valeur d'avant.
+func isolateState(t *testing.T) {
+	t.Helper()
+	oldConf, oldLaunch, oldLayers := conf, launch, layers
+	t.Cleanup(func() { conf, launch, layers = oldConf, oldLaunch, oldLayers })
+}
+
 func isolateSaves(t *testing.T) {
 	t.Helper()
-	oldSaves, oldCache := savesDir, cacheDir
-	t.Cleanup(func() { savesDir, cacheDir = oldSaves, oldCache })
-	savesDir, cacheDir = t.TempDir(), t.TempDir()
+	isolateState(t)
+	conf.savesDir, conf.cacheDir = t.TempDir(), t.TempDir()
 }
 
 // TestAgentSyncDirsRoutes : le manager déclare un dossier par l'agent ; il apparaît dans la liste avec

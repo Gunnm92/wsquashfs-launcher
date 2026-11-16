@@ -268,7 +268,7 @@ func TestAutoSyncAfterGame(t *testing.T) {
 	syncGlobalsSaved(t)
 	out, _ := capteUI(t)
 	const game = "Game"
-	users := filepath.Join(savesDir, game, "drive_c", "users")
+	users := filepath.Join(conf.savesDir, game, "drive_c", "users")
 	syncTestPopulate(t, users, "steamuser")
 	target := gameTarget(game, users)
 	m, peer := newAutoManager(t)
@@ -345,9 +345,8 @@ func TestAutoSyncAfterGame(t *testing.T) {
 
 	// Jeu dont les sauvegardes sont hors du prefix (SAVEFILES, lu au lancement) : jamais envoyé.
 	autoConfig(t, true, peer)
-	oldFiles := savefilesKey
-	t.Cleanup(func() { savefilesKey = oldFiles })
-	savefilesKey = "drive_c/game/save.dat"
+	isolateState(t)
+	launch.savefilesKey = "drive_c/game/save.dat"
 	autoSyncAfterGame(game)
 	if m.puts != 2 {
 		t.Errorf("SAVEFILES : %d envoi(s), attendu 2", m.puts)

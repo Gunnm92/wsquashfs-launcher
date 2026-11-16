@@ -27,6 +27,7 @@ import (
 // faux lanceur (pour les routes qui l'appellent).
 func agentFixture(t *testing.T) (*agentServer, http.Handler, string) {
 	t.Helper()
+	isolateState(t)
 	dir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, "config"))
 	t.Setenv("HOME", dir)
@@ -42,7 +43,7 @@ func agentFixture(t *testing.T) (*agentServer, http.Handler, string) {
 	if err := os.WriteFile(fake, []byte("#!/bin/sh\necho '{\"code\":0,\"sections\":[],\"runners\":[],\"verdict\":\"ok\"}'\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	selfPath = fake
+	conf.selfPath = fake
 	cfg := agentConfig{Port: 8790, Roms: []string{roms}, Session: "emulationstation"}
 	if err := saveAgentConfig(cfg); err != nil {
 		t.Fatal(err)
@@ -204,12 +205,13 @@ func TestMaintenanceOnlyListedActions(t *testing.T) {
 // TestMaintenanceArgs : arguments réellement passés au lanceur pour chaque action de la table. Le
 // faux lanceur affiche chaque argument entre chevrons.
 func TestMaintenanceArgs(t *testing.T) {
+	isolateState(t)
 	_, h, roms := agentFixture(t)
 	fake := filepath.Join(t.TempDir(), "fake-launcher")
 	if err := os.WriteFile(fake, []byte("#!/bin/sh\nfor a in \"$@\"; do printf '<%s>' \"$a\"; done\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	selfPath = fake
+	conf.selfPath = fake
 	image, err := filepath.EvalSymlinks(filepath.Join(roms, "win", "Jeu.wsquashfs"))
 	if err != nil {
 		t.Fatal(err)
@@ -332,12 +334,13 @@ func TestNewTokenIsRandom(t *testing.T) {
 // TestMaintenanceForcesColor : la sortie de maintenance est colorée pour le
 // manager (CLICOLOR_FORCE=1 transmis au lanceur appelé).
 func TestMaintenanceForcesColor(t *testing.T) {
+	isolateState(t)
 	_, h, _ := agentFixture(t)
 	fake := filepath.Join(t.TempDir(), "fake-launcher")
 	if err := os.WriteFile(fake, []byte("#!/bin/sh\necho \"force=$CLICOLOR_FORCE\"\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	selfPath = fake
+	conf.selfPath = fake
 	rec := do(h, "POST", "/v1/maintenance", "secret-token", `{"action":"list"}`)
 	if !strings.Contains(rec.Body.String(), "force=1") {
 		t.Errorf("couleurs non forcées pour la maintenance : %s", rec.Body.String())
@@ -419,6 +422,7 @@ func pathExistsFile(p string) bool {
 // TestMaintenanceReturnsExitCode : la réponse porte le code de sortie du lanceur (0 ou 3), comme le
 // mode local ; wsquashfs-manager s'en sert pour signaler un échec.
 func TestMaintenanceReturnsExitCode(t *testing.T) {
+	isolateState(t)
 	_, h, _ := agentFixture(t)
 	fake := filepath.Join(t.TempDir(), "fake-launcher")
 	for _, c := range []struct {
@@ -428,7 +432,7 @@ func TestMaintenanceReturnsExitCode(t *testing.T) {
 		if err := os.WriteFile(fake, []byte("#!/bin/sh\n"+c.script+"\n"), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		selfPath = fake
+		conf.selfPath = fake
 		rec := do(h, "POST", "/v1/maintenance", "secret-token", `{"action":"list"}`)
 		var got struct {
 			Code   *int   `json:"code"`
@@ -479,9 +483,8 @@ func startServedAgent(t *testing.T) (*syncClient, string, func(), <-chan int) {
 	t.Helper()
 	agentFixture(t)
 	capteUI(t)
-	oldSaves, oldCache := savesDir, cacheDir
-	t.Cleanup(func() { savesDir, cacheDir = oldSaves, oldCache })
-	savesDir, cacheDir = t.TempDir(), t.TempDir()
+	isolateState(t)
+	conf.savesDir, conf.cacheDir = t.TempDir(), t.TempDir()
 	t.Setenv("WSQUASHFS_BACKUP_DIR", t.TempDir())
 	cfg := loadAgentConfig()
 	cfg.Port = freePort(t)
@@ -504,7 +507,7 @@ func startServedAgent(t *testing.T) (*syncClient, string, func(), <-chan int) {
 		t.Fatal(err)
 	}
 	peer := syncPeer{Name: "agent", URL: fmt.Sprintf("https://127.0.0.1:%d", cfg.Port), Token: "secret-token", Fingerprint: fp}
-	users := filepath.Join(savesDir, syncRigGame, "drive_c", "users")
+	users := filepath.Join(conf.savesDir, syncRigGame, "drive_c", "users")
 	syncTestPopulate(t, users, "steamuser")
 	return newSyncClient(peer, "client-machine-01"), users, *hook, done
 }

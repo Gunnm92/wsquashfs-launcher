@@ -411,14 +411,14 @@ const syncTempMaxAge = 24 * time.Hour
 
 // syncTempDir : dossier des archives temporaires de synchro, dans le cache du lanceur (sur disque).
 func syncTempDir() string {
-	return filepath.Join(cacheDir, "tmp")
+	return filepath.Join(conf.cacheDir, "tmp")
 }
 
 // syncTempFile : fichier temporaire d'une archive de synchro (envoyée par l'agent, reçue par --sync).
 // Dans le cache du lanceur et non dans /tmp, souvent en mémoire : une grosse sauvegarde y prendrait
 // la RAM. Cache inconnu ou non inscriptible : dossier temporaire du système.
 func syncTempFile(pattern string) (*os.File, error) {
-	if cacheDir != "" {
+	if conf.cacheDir != "" {
 		if err := os.MkdirAll(syncTempDir(), 0o700); err == nil {
 			if f, err := os.CreateTemp(syncTempDir(), pattern); err == nil {
 				return f, nil
@@ -733,11 +733,11 @@ func (a syncAction) String() string {
 // sauvegardes, car il n'existe que lorsque le mode copy est le repli d'un overlay en échec.
 // Le jeu doit être arrêté (la couche et la copie sont alors à jour).
 func syncUsersDir(name string) string {
-	overlay := filepath.Join(savesDir, name, "drive_c", "users")
+	overlay := filepath.Join(conf.savesDir, name, "drive_c", "users")
 	if isDirPath(overlay) {
 		return overlay
 	}
-	copyDir := filepath.Join(cacheDir, "wine", name)
+	copyDir := filepath.Join(conf.cacheDir, "wine", name)
 	if isFile(copyDir + "/.wsquashfs_cache") {
 		return copyDir + "/drive_c/users"
 	}
@@ -753,7 +753,7 @@ func syncUsersDir(name string) string {
 // l'agent : les deux côtés voient les mêmes jeux.
 func syncGames() []string {
 	candidates := savedGames()
-	candidates = append(candidates, visibleDirs(filepath.Join(cacheDir, "wine"))...)
+	candidates = append(candidates, visibleDirs(filepath.Join(conf.cacheDir, "wine"))...)
 	candidates = append(candidates, visibleDirs(filepath.Dir(copyUsersStash("x")))...)
 	seen := map[string]bool{}
 	var out []string

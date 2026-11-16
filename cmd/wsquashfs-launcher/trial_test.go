@@ -64,9 +64,8 @@ func TestTrialInterruptedStopsLauncher(t *testing.T) {
 	if err := os.WriteFile(fake, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	old := selfPath
-	selfPath = fake
-	defer func() { selfPath = old }()
+	isolateState(t)
+	conf.selfPath = fake
 
 	r, w, _ := os.Pipe()
 	stdout := os.Stdout
@@ -102,6 +101,7 @@ func TestTrialInterruptedStopsLauncher(t *testing.T) {
 // L'agent interrompt --trial par SIGTERM (et non SIGKILL) : le faux --trial
 // note le signal reçu.
 func TestTrialRouteCancelSendsSIGTERM(t *testing.T) {
+	isolateState(t)
 	dir := t.TempDir()
 	marker := filepath.Join(dir, "sig")
 	fake := filepath.Join(dir, "fake")
@@ -110,7 +110,7 @@ func TestTrialRouteCancelSendsSIGTERM(t *testing.T) {
 		t.Fatal(err)
 	}
 	s, _, _ := agentFixture(t)
-	selfPath = fake
+	conf.selfPath = fake
 	ctx, cancel := context.WithCancel(context.Background())
 	req := httptest.NewRequest("POST", "/v1/trial", strings.NewReader(`{"rel":"win/Jeu.wsquashfs","duration":10}`)).WithContext(ctx)
 	rec := httptest.NewRecorder()

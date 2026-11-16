@@ -29,11 +29,11 @@ func TestListFindsImagesNotRecorded(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, g := range []string{"Dispatch", "Moved", "Chase H.Q. 2"} {
-		writeTree(t, filepath.Join(savesDir, g, "drive_c", "users", "steamuser", "Documents"), map[string]string{"s.sav": g})
+		writeTree(t, filepath.Join(conf.savesDir, g, "drive_c", "users", "steamuser", "Documents"), map[string]string{"s.sav": g})
 	}
 	shellOnly(t, "After Dark") // sauvegardes supprimées : marqueurs d'overlay seulement
 	record := func(game, path string) {
-		writeTree(t, filepath.Join(savesDir, ".images"), map[string]string{game: path + "\n"})
+		writeTree(t, filepath.Join(conf.savesDir, ".images"), map[string]string{game: path + "\n"})
 	}
 	record("Moved", filepath.Join(roms, "segare", "Moved.wsquashfs"))
 	record("After Dark", filepath.Join(roms, "unis", "After Dark.wsquashfs"))
@@ -70,7 +70,7 @@ func TestListFindsImagesNotRecorded(t *testing.T) {
 // shellOnly : sauvegardes réduites à des marqueurs d'overlay (comme après « Supprimer… » du manager).
 func shellOnly(t *testing.T, game string) {
 	t.Helper()
-	users := filepath.Join(savesDir, game, "drive_c", "users", "arcade")
+	users := filepath.Join(conf.savesDir, game, "drive_c", "users", "arcade")
 	writeTree(t, users, map[string]string{
 		".wh..wh..opq":           "",
 		"AppData/.wh..wh..opq":   "",
@@ -95,19 +95,19 @@ func TestCleanPrunesOrphanSaves(t *testing.T) {
 	roms := filepath.Join(home, "roms")
 	writeTree(t, roms, map[string]string{"win/Present.wsquashfs": "hsqs"})
 	record := func(game, path string) {
-		writeTree(t, filepath.Join(savesDir, ".images"), map[string]string{game: path + "\n"})
+		writeTree(t, filepath.Join(conf.savesDir, ".images"), map[string]string{game: path + "\n"})
 	}
 	shellOnly(t, "After Dark")
 	record("After Dark", filepath.Join(roms, "unis", "After Dark.wsquashfs"))
 	shellOnly(t, "Present")
 	record("Present", filepath.Join(roms, "win", "Present.wsquashfs"))
-	writeTree(t, filepath.Join(savesDir, "Gardé", "drive_c", "users", "arcade", "Documents"), map[string]string{"slot.sav": "x"})
+	writeTree(t, filepath.Join(conf.savesDir, "Gardé", "drive_c", "users", "arcade", "Documents"), map[string]string{"slot.sav": "x"})
 	record("Gardé", filepath.Join(roms, "win", "Gardé.wsquashfs"))
 	// Fichiers dans le profil Public : hors du périmètre des sauvegardes (comme --save et --sync)
-	writeTree(t, filepath.Join(savesDir, "Public", "drive_c", "users", "Public", "Documents", "EMPRESS"), map[string]string{"dbdata.bin": "x"})
+	writeTree(t, filepath.Join(conf.savesDir, "Public", "drive_c", "users", "Public", "Documents", "EMPRESS"), map[string]string{"dbdata.bin": "x"})
 	record("Public", filepath.Join(roms, "win", "Public.wsquashfs"))
 	// Prefix seul (pas de sauvegarde) et fichier temporaire du profil : retiré
-	writeTree(t, filepath.Join(savesDir, "Prefix seul"), map[string]string{
+	writeTree(t, filepath.Join(conf.savesDir, "Prefix seul"), map[string]string{
 		"config_info": "proton", "drive_c/windows/system32/x.dll": "dll", "drive_c/users/root/Temp/t.tmp": "tmp",
 		"drive_c/users/steamuser/AppData/Local/NVIDIA/DXCache/c.bin": "cache"})
 	record("Prefix seul", filepath.Join(roms, "win", "Prefix seul.wsquashfs"))
@@ -117,7 +117,7 @@ func TestCleanPrunesOrphanSaves(t *testing.T) {
 		t.Errorf("retirés : %q", got)
 	}
 	for _, g := range []string{"After Dark", "Chemin seul", "Prefix seul", "Public"} {
-		if pathExists(filepath.Join(savesDir, g)) || pathExists(filepath.Join(savesDir, ".images", g)) {
+		if pathExists(filepath.Join(conf.savesDir, g)) || pathExists(filepath.Join(conf.savesDir, ".images", g)) {
 			t.Errorf("%s : restes encore là", g)
 		}
 	}
@@ -132,11 +132,11 @@ func TestEraseForgetsTheGame(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	isolateSaves(t)
-	writeTree(t, filepath.Join(savesDir, "After Dark", "drive_c", "users", "arcade"), map[string]string{".wh..wh..opq": ""})
-	writeTree(t, filepath.Join(savesDir, ".images"), map[string]string{"After Dark": "/roms/unis/After Dark.wsquashfs\n"})
+	writeTree(t, filepath.Join(conf.savesDir, "After Dark", "drive_c", "users", "arcade"), map[string]string{".wh..wh..opq": ""})
+	writeTree(t, filepath.Join(conf.savesDir, ".images"), map[string]string{"After Dark": "/roms/unis/After Dark.wsquashfs\n"})
 	capteUI(t)
 	eraseSaves("After Dark", newUIGames([]string{"After Dark"}))
-	if pathExists(filepath.Join(savesDir, "After Dark")) || pathExists(filepath.Join(savesDir, ".images", "After Dark")) {
+	if pathExists(filepath.Join(conf.savesDir, "After Dark")) || pathExists(filepath.Join(conf.savesDir, ".images", "After Dark")) {
 		t.Error("overlay ou chemin mémorisé encore là")
 	}
 	if len(knownGames()) != 0 {

@@ -55,8 +55,8 @@ func TestSyncTempFileInCache(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.Close()
-	if filepath.Dir(f.Name()) != filepath.Join(cacheDir, "tmp") {
-		t.Fatalf("archive temporaire dans %s, attendue dans %s", filepath.Dir(f.Name()), filepath.Join(cacheDir, "tmp"))
+	if filepath.Dir(f.Name()) != filepath.Join(conf.cacheDir, "tmp") {
+		t.Fatalf("archive temporaire dans %s, attendue dans %s", filepath.Dir(f.Name()), filepath.Join(conf.cacheDir, "tmp"))
 	}
 	old := filepath.Join(syncTempDir(), "wsq-recu-reste.tar.gz")
 	if err := os.WriteFile(old, []byte("12345"), 0o600); err != nil {
@@ -118,14 +118,13 @@ func TestArchiveUsersDashMember(t *testing.T) {
 func TestSavedirOutsidePrefixIgnored(t *testing.T) {
 	capteUI(t)
 	root := t.TempDir()
-	oldWine, oldGame := winePoint, gameName
-	t.Cleanup(func() { winePoint, gameName = oldWine, oldGame })
-	winePoint, gameName = filepath.Join(root, "prefix"), "Jeu"
+	isolateState(t)
+	launch.winePoint, launch.gameName = filepath.Join(root, "prefix"), "Jeu"
 	ludo := filepath.Join(root, "ludo")
 	t.Setenv("WSQUASHFS_BATOCERA_SAVES", ludo)
 	outside := filepath.Join(root, "dehors")
 	writeTree(t, outside, map[string]string{"cle": "PRIVEE"})
-	if err := os.MkdirAll(winePoint, 0o755); err != nil {
+	if err := os.MkdirAll(launch.winePoint, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	check := func(what string) {
@@ -147,7 +146,7 @@ func TestSavedirOutsidePrefixIgnored(t *testing.T) {
 	applySavedir("", `../dehors/cle;drive_c/ok.dat`)
 	check("SAVEFILES")
 	// L'entrée valide de la même liste est traitée.
-	if link, err := os.Readlink(filepath.Join(winePoint, "drive_c", "ok.dat")); err != nil || link != filepath.Join(ludo, "Jeu", "drive_c", "ok.dat") {
+	if link, err := os.Readlink(filepath.Join(launch.winePoint, "drive_c", "ok.dat")); err != nil || link != filepath.Join(ludo, "Jeu", "drive_c", "ok.dat") {
 		t.Errorf("SAVEFILES valide non relié : %q, %v", link, err)
 	}
 }

@@ -205,6 +205,15 @@ func envValue(env []string, key string) string {
 	return val
 }
 
+// xWinIDRe : identifiant d'une fenêtre dans la liste _NET_CLIENT_LIST de xprop.
+var xWinIDRe = regexp.MustCompile(`0x[0-9a-f]+`)
+
+// xPIDRe : PID en fin de ligne _NET_WM_PID de xprop.
+var xPIDRe = regexp.MustCompile(`\d+$`)
+
+// xWMNameRe : titre d'une fenêtre (ligne WM_NAME de xprop).
+var xWMNameRe = regexp.MustCompile(`^WM_NAME\([^)]*\) = "(.*)"$`)
+
 // trialWindows : fenêtres des processus du jeu (xprop, si disponible), dans
 // l'environnement de la session graphique (env).
 func trialWindows(pids map[int]bool, env []string) []trialWin {
@@ -218,13 +227,13 @@ func trialWindows(pids map[int]bool, env []string) []trialWin {
 		return strings.TrimSpace(string(out))
 	}
 	var out []trialWin
-	for _, id := range regexp.MustCompile(`0x[0-9a-f]+`).FindAllString(xprop("-root", "_NET_CLIENT_LIST"), -1) {
-		m := regexp.MustCompile(`\d+$`).FindString(xprop("-id", id, "_NET_WM_PID"))
+	for _, id := range xWinIDRe.FindAllString(xprop("-root", "_NET_CLIENT_LIST"), -1) {
+		m := xPIDRe.FindString(xprop("-id", id, "_NET_WM_PID"))
 		pid, _ := strconv.Atoi(m)
 		if !pids[pid] {
 			continue
 		}
-		name := regexp.MustCompile(`^WM_NAME\([^)]*\) = "(.*)"$`).FindStringSubmatch(xprop("-id", id, "WM_NAME"))
+		name := xWMNameRe.FindStringSubmatch(xprop("-id", id, "WM_NAME"))
 		w := trialWin{ID: id, State: strings.TrimPrefix(xprop("-id", id, "_NET_WM_STATE"), "_NET_WM_STATE: ")}
 		if name != nil {
 			w.Name = name[1]
@@ -285,7 +294,7 @@ func runTrial(image string, seconds int, session, shot string) int {
 	defer signal.Stop(stop)
 
 	env := importSessionEnv(session)
-	cmd := exec.Command(selfPath, image)
+	cmd := exec.Command(conf.selfPath, image)
 	cmd.Env = env
 	cmd.Stdin = nil
 	cmd.Stdout = out

@@ -18,16 +18,16 @@ import (
 
 // initGamePaths : nom du jeu et chemins de ses montages et sauvegardes.
 func initGamePaths() {
-	gameName = gameNameOf(wsquashfsFile)
-	autorunOverride = strings.TrimSuffix(wsquashfsFile, "/") + ".autorun"
-	if !isFile(autorunOverride) {
-		autorunOverride = ""
+	launch.gameName = gameNameOf(launch.wsquashfsFile)
+	launch.autorunOverride = strings.TrimSuffix(launch.wsquashfsFile, "/") + ".autorun"
+	if !isFile(launch.autorunOverride) {
+		launch.autorunOverride = ""
 	}
-	squashfsPoint = filepath.Join(cacheDir, "mnt", gameName)
-	winePoint = filepath.Join(cacheDir, "wine", gameName)
-	savePoint = filepath.Join(savesDir, gameName)
+	launch.squashfsPoint = filepath.Join(conf.cacheDir, "mnt", launch.gameName)
+	launch.winePoint = filepath.Join(conf.cacheDir, "wine", launch.gameName)
+	launch.savePoint = filepath.Join(conf.savesDir, launch.gameName)
 	// workdir sur le même système de fichiers que l'upperdir (13/10)
-	workPoint = filepath.Join(savesDir, ".work", gameName)
+	launch.workPoint = filepath.Join(conf.savesDir, ".work", launch.gameName)
 }
 
 // gameNameOf : nom du jeu d'après une image, un dossier ou un nom.
@@ -46,18 +46,18 @@ func gameNameOf(p string) string {
 // resolveGamePath : GAME_ARG en wsquashfsFile (image ou dossier) ; sortie avec
 // message si le chemin est invalide.
 func resolveGamePath() {
-	if gameArg == "" {
+	if launch.gameArg == "" {
 		uiError("fichier .wsquashfs ou dossier de jeu requis")
 		usageError(os.Args[0] + " <fichier.wsquashfs | dossier du jeu>  |  " + os.Args[0] + " --help")
 	}
-	abs, err := filepath.Abs(gameArg)
+	abs, err := filepath.Abs(launch.gameArg)
 	if err != nil {
-		die("chemin introuvable : " + gameArg)
+		die("chemin introuvable : " + launch.gameArg)
 	}
 	if real, err := filepath.EvalSymlinks(abs); err == nil {
 		abs = real
 	}
-	wsquashfsFile = abs
+	launch.wsquashfsFile = abs
 	// « .wsquashfs » ou « ..wsquashfs » : le dossier des sauvegardes du jeu
 	// serait celui de tous les jeux.
 	if n := gameNameOf(abs); n == "" || n == "." || n == ".." {
@@ -66,19 +66,19 @@ func resolveGamePath() {
 	st, err := os.Stat(abs)
 	switch {
 	case err == nil && st.IsDir():
-		if !isFile(abs+"/autorun.cmd") && action != "exec" {
+		if !isFile(abs+"/autorun.cmd") && launch.action != "exec" {
 			die("pas d'autorun.cmd dans " + abs)
 		}
 		if strings.HasSuffix(strings.ToLower(abs), ".pc") {
 			if strings.ContainsAny(abs, ",:") {
 				die("virgule ou deux-points dans " + abs + " : impossible en overlay")
 			}
-			folderOverlay = true
+			launch.folderOverlay = true
 		} else {
-			if action == "mount" {
+			if launch.action == "mount" {
 				die("--mount sert aux .wsquashfs et aux dossiers .pc ; un dossier installé se modifie directement")
 			}
-			dirMode = true
+			launch.dirMode = true
 		}
 	case filepath.Ext(abs) != ".wsquashfs":
 		die("extension .wsquashfs attendue (ou dossier de jeu installé)")
@@ -93,17 +93,17 @@ func checkLauncherDeps() {
 	if wineErr != nil && findWineBinary() == "" && !(findUmuRun() != "" && findProtonRunner("") != "") {
 		die("aucun binaire Wine ni Proton (avec umu-run) trouvé")
 	}
-	if headless {
+	if launch.headless {
 		if _, err := exec.LookPath("gamescope"); err != nil {
 			die("--headless demande gamescope (absent)")
 		}
 	}
-	if folderOverlay {
+	if launch.folderOverlay {
 		if _, err := exec.LookPath("fuse-overlayfs"); err != nil {
 			die("fuse-overlayfs requis pour essayer un dossier .pc sans le modifier",
 				"  → renommer le dossier en .wine pour le lancer sur place (il sera modifié)")
 		}
-	} else if !dirMode {
+	} else if !launch.dirMode {
 		_, e1 := exec.LookPath("squashfuse")
 		_, e2 := exec.LookPath("unsquashfs")
 		if e1 != nil && e2 != nil {
@@ -117,43 +117,43 @@ func checkLauncherDeps() {
 
 // useInstalledDir : jeu installé, le dossier est lui-même le prefix.
 func useInstalledDir() {
-	winePoint = wsquashfsFile
-	squashfsPoint, savePoint, workPoint = "", "", ""
-	if prefixInUse(regexEscape(winePoint)) {
-		die(gameName + " est déjà lancé")
+	launch.winePoint = launch.wsquashfsFile
+	launch.squashfsPoint, launch.savePoint, launch.workPoint = "", "", ""
+	if prefixInUse(regexEscape(launch.winePoint)) {
+		die(launch.gameName + " est déjà lancé")
 	}
 	unmountAllStale()
-	if isFile(winePoint + "/system.reg") {
-		packagedPrefix = true
+	if isFile(launch.winePoint + "/system.reg") {
+		launch.packagedPrefix = true
 	}
-	if isFile(winePoint + "/config_info") {
-		protonPrefix = true
+	if isFile(launch.winePoint + "/config_info") {
+		launch.protonPrefix = true
 	}
-	_ = os.Remove(winePoint + "/.wineserver-lock")
-	matches, _ := filepath.Glob(winePoint + "/reg*.tmp")
+	_ = os.Remove(launch.winePoint + "/.wineserver-lock")
+	matches, _ := filepath.Glob(launch.winePoint + "/reg*.tmp")
 	for _, m := range matches {
 		_ = os.Remove(m)
 	}
-	mountMode = "dir"
+	launch.mountMode = "dir"
 	uiKVLine("Mode", "dossier (jeu installé, sans FUSE)")
 }
 
 // prepareMountDirs : dossiers de montage vides et au bon propriétaire.
 func prepareMountDirs() {
-	for _, d := range []string{squashfsPoint, savePoint, winePoint, filepath.Join(savesDir, ".images")} {
+	for _, d := range []string{launch.squashfsPoint, launch.savePoint, launch.winePoint, filepath.Join(conf.savesDir, ".images")} {
 		_ = os.MkdirAll(d, 0o755)
 	}
 	// Image d'origine des sauvegardes, pour --clean (fichiers identiques).
-	imgDir := filepath.Join(savesDir, ".images")
-	_ = os.WriteFile(filepath.Join(imgDir, gameName), []byte(wsquashfsFile+"\n"), 0o644)
+	imgDir := filepath.Join(conf.savesDir, ".images")
+	_ = os.WriteFile(filepath.Join(imgDir, launch.gameName), []byte(launch.wsquashfsFile+"\n"), 0o644)
 	chownToTarget(imgDir)
-	resetWorkdir(workPoint)
-	for _, p := range []string{squashfsPoint, savePoint, winePoint, workPoint} {
+	resetWorkdir(launch.workPoint)
+	for _, p := range []string{launch.squashfsPoint, launch.savePoint, launch.winePoint, launch.workPoint} {
 		chownToTarget(p)
 	}
-	_ = os.Remove(savePoint + "/wineserver")
-	_ = os.Remove(savePoint + "/.wineserver-lock")
-	matches, _ := filepath.Glob(savePoint + "/reg*.tmp")
+	_ = os.Remove(launch.savePoint + "/wineserver")
+	_ = os.Remove(launch.savePoint + "/.wineserver-lock")
+	matches, _ := filepath.Glob(launch.savePoint + "/reg*.tmp")
 	for _, m := range matches {
 		_ = os.Remove(m)
 	}
@@ -162,32 +162,32 @@ func prepareMountDirs() {
 // detectImagePrefix : l'image est un prefix packagé (system.reg) ou un prefix
 // créé par Proton (config_info), lu directement dans l'image.
 func detectImagePrefix() {
-	if folderOverlay {
-		if isFile(wsquashfsFile + "/system.reg") {
-			packagedPrefix = true
+	if launch.folderOverlay {
+		if isFile(launch.wsquashfsFile + "/system.reg") {
+			launch.packagedPrefix = true
 		}
-		if isFile(wsquashfsFile + "/config_info") {
-			protonPrefix = true
+		if isFile(launch.wsquashfsFile + "/config_info") {
+			launch.protonPrefix = true
 		}
 		return
 	}
-	if execQuiet("unsquashfs", "-cat", wsquashfsFile, "system.reg") == nil {
-		packagedPrefix = true
+	if execQuiet("unsquashfs", "-cat", launch.wsquashfsFile, "system.reg") == nil {
+		launch.packagedPrefix = true
 	}
-	if execQuiet("unsquashfs", "-cat", wsquashfsFile, "config_info") == nil {
-		protonPrefix = true
+	if execQuiet("unsquashfs", "-cat", launch.wsquashfsFile, "config_info") == nil {
+		launch.protonPrefix = true
 	}
 }
 
 // clearGeneratedSystemDlls : le system32 d'un prefix packagé ne contient que
 // des liens régénérés à chaque lancement (jamais pour un jeu seul).
 func clearGeneratedSystemDlls() {
-	if !packagedPrefix {
+	if !launch.packagedPrefix {
 		return
 	}
-	dirs := []string{savePoint + "/drive_c/windows/system32", savePoint + "/drive_c/windows/syswow64"}
+	dirs := []string{launch.savePoint + "/drive_c/windows/system32", launch.savePoint + "/drive_c/windows/syswow64"}
 	for _, d := range dirs {
-		if protonPrefix {
+		if launch.protonPrefix {
 			entries, _ := os.ReadDir(d)
 			for _, e := range entries {
 				if e.Type()&os.ModeSymlink != 0 {
@@ -202,12 +202,12 @@ func clearGeneratedSystemDlls() {
 
 // tryOverlayMount : overlay (noyau ou fuse-overlayfs). Faux si l'un manque.
 func tryOverlayMount() bool {
-	if folderOverlay {
-		if !mountOverlay(wsquashfsFile) {
+	if launch.folderOverlay {
+		if !mountOverlay(launch.wsquashfsFile) {
 			return false
 		}
-		mountMode = "overlay"
-		overlayKind = "fuse"
+		launch.mountMode = "overlay"
+		launch.overlayKind = "fuse"
 		mounted.Store(true)
 		uiKVLine("Mode", "overlay (dossier .pc + fuse-overlayfs, dossier non modifié)")
 		return true
@@ -215,46 +215,46 @@ func tryOverlayMount() bool {
 	if _, err := exec.LookPath("squashfuse"); err != nil {
 		return false
 	}
-	if !mountSquashfs(wsquashfsFile, squashfsPoint) {
+	if !mountSquashfs(launch.wsquashfsFile, launch.squashfsPoint) {
 		return false
 	}
 	if _, err := exec.LookPath("fuse-overlayfs"); err == nil && mountOverlay("") {
-		mountMode = "overlay"
-		overlayKind = "fuse"
+		launch.mountMode = "overlay"
+		launch.overlayKind = "fuse"
 		mounted.Store(true)
 		uiKVLine("Mode", "overlay (squashfuse + fuse-overlayfs)")
 		return true
 	}
-	fuseUmount(squashfsPoint)
+	fuseUmount(launch.squashfsPoint)
 	return false
 }
 
 // imageSignature : identité de l'image (chemin, taille, date) : valide le
 // cache de la copie.
 func imageSignature() string {
-	st, err := os.Stat(wsquashfsFile)
+	st, err := os.Stat(launch.wsquashfsFile)
 	if err != nil {
-		return wsquashfsFile + ":"
+		return launch.wsquashfsFile + ":"
 	}
-	return fmt.Sprintf("%s:%d:%d", wsquashfsFile, st.Size(), st.ModTime().Unix())
+	return fmt.Sprintf("%s:%d:%d", launch.wsquashfsFile, st.Size(), st.ModTime().Unix())
 }
 
 // extractImage : mode copy, extraction dans winePoint (squashfuse, puis
 // unsquashfs).
 func extractImage() {
 	_, sqErr := exec.LookPath("squashfuse")
-	if sqErr == nil && mountSquashfs(wsquashfsFile, squashfsPoint) {
+	if sqErr == nil && mountSquashfs(launch.wsquashfsFile, launch.squashfsPoint) {
 		uiKVLine("Mode", "copy (squashfuse)")
 		removeCopy()
-		_ = os.MkdirAll(winePoint, 0o755)
-		if err := runCmd("cp", "-a", squashfsPoint+"/.", winePoint+"/"); err != nil {
+		_ = os.MkdirAll(launch.winePoint, 0o755)
+		if err := runCmd("cp", "-a", launch.squashfsPoint+"/.", launch.winePoint+"/"); err != nil {
 			die("échec de la copie depuis squashfuse")
 		}
-		fuseUmount(squashfsPoint)
+		fuseUmount(launch.squashfsPoint)
 	} else if _, err := exec.LookPath("unsquashfs"); err == nil {
 		uiKVLine("Mode", "copy (unsquashfs)")
 		removeCopy()
-		if err := runCmd("unsquashfs", "-d", winePoint, wsquashfsFile); err != nil {
+		if err := runCmd("unsquashfs", "-d", launch.winePoint, launch.wsquashfsFile); err != nil {
 			die("échec de l'extraction unsquashfs")
 		}
 	} else {
@@ -263,15 +263,15 @@ func extractImage() {
 			"  → Ou installer squashfs-tools : apt-get install squashfs-tools")
 	}
 	restoreCopyUsers()
-	_ = os.WriteFile(winePoint+"/.wsquashfs_cache", []byte(imageSignature()), 0o644)
-	chownToTarget(winePoint)
+	_ = os.WriteFile(launch.winePoint+"/.wsquashfs_cache", []byte(imageSignature()), 0o644)
+	chownToTarget(launch.winePoint)
 }
 
 // copyUsersStash : drive_c/users d'une copie de travail (mode copy), mis de
 // côté pendant que la copie est supprimée ou refaite. Hors de wine/ : ce
 // dossier-là est lu comme une liste de jeux.
 func copyUsersStash(name string) string {
-	return filepath.Join(cacheDir, "copy-users", name)
+	return filepath.Join(conf.cacheDir, "copy-users", name)
 }
 
 // stashCopyUsers : met de côté drive_c/users d'une copie de travail complète
@@ -299,11 +299,11 @@ func stashCopyUsers(copyDir, name string) bool {
 // l'image ; une fusion buterait sur les liens /userdata de l'image, devenus
 // des dossiers). En cas d'échec, la mise de côté est gardée.
 func restoreCopyUsers() {
-	stash := copyUsersStash(gameName)
+	stash := copyUsersStash(launch.gameName)
 	if !isDirPath(stash) {
 		return
 	}
-	users := winePoint + "/drive_c/users"
+	users := launch.winePoint + "/drive_c/users"
 	if os.MkdirAll(filepath.Dir(users), 0o755) != nil || os.RemoveAll(users) != nil || os.Rename(stash, users) != nil {
 		warn("sauvegardes de la copie non remises en place, gardées dans " + stash)
 		return
@@ -316,50 +316,50 @@ func restoreCopyUsers() {
 // montage resté en place (démontage raté) : la suppression atteindrait
 // l'image ou, en overlay, les sauvegardes.
 func removeCopy() {
-	if isMountPoint(winePoint) {
-		fuseUmount(winePoint)
-		if isMountPoint(winePoint) {
-			die(winePoint+" est encore monté (démontage impossible) : copie annulée",
-				"  → "+os.Args[0]+" --umount \""+wsquashfsFile+"\"")
+	if isMountPoint(launch.winePoint) {
+		fuseUmount(launch.winePoint)
+		if isMountPoint(launch.winePoint) {
+			die(launch.winePoint+" est encore monté (démontage impossible) : copie annulée",
+				"  → "+os.Args[0]+" --umount \""+launch.wsquashfsFile+"\"")
 		}
 	}
-	if !stashCopyUsers(winePoint, gameName) {
+	if !stashCopyUsers(launch.winePoint, launch.gameName) {
 		die("sauvegardes de la copie de travail impossibles à mettre de côté : copie gardée",
-			"  ("+winePoint+"/drive_c/users → "+copyUsersStash(gameName)+")")
+			"  ("+launch.winePoint+"/drive_c/users → "+copyUsersStash(launch.gameName)+")")
 	}
-	_ = os.RemoveAll(winePoint)
+	_ = os.RemoveAll(launch.winePoint)
 }
 
 // useCopyMode : copie de travail en cache, réextraite si l'image a changé.
 func useCopyMode() {
-	cacheInfo := winePoint + "/.wsquashfs_cache"
+	cacheInfo := launch.winePoint + "/.wsquashfs_cache"
 	if data, err := os.ReadFile(cacheInfo); err == nil && string(data) == imageSignature() {
-		if st, err := os.Stat(winePoint); err == nil && st.IsDir() {
+		if st, err := os.Stat(launch.winePoint); err == nil && st.IsDir() {
 			uiKVLine("Mode", "copy (cache valide, extraction ignorée)")
-			mountMode = "copy"
+			launch.mountMode = "copy"
 			mounted.Store(true)
 			return
 		}
 	}
 	extractImage()
-	mountMode = "copy"
+	launch.mountMode = "copy"
 	mounted.Store(true)
 }
 
 // mountImage : préparation et montage du jeu (overlay, sinon copie).
 func mountImage() {
-	if gameInUse(gameName) {
-		die(gameName + " est déjà lancé")
+	if gameInUse(launch.gameName) {
+		die(launch.gameName + " est déjà lancé")
 	}
 	unmountAllStale()
 	prepareMountDirs()
 	detectImagePrefix()
 	clearGeneratedSystemDlls()
 	runInKernelOverlay()
-	if folderOverlay {
+	if launch.folderOverlay {
 		// Jamais de copie : le dossier entier serait recopié.
 		if !tryOverlayMountGated() {
-			die("montage fuse-overlayfs impossible pour "+wsquashfsFile,
+			die("montage fuse-overlayfs impossible pour "+launch.wsquashfsFile,
 				"  → renommer le dossier en .wine pour le lancer sur place (il sera modifié)")
 		}
 		return
@@ -382,17 +382,17 @@ func tryOverlayMountGated() bool {
 func reportMountAndExit() {
 	mounted.Store(false)
 	uiSection("Montage")
-	pairs := []kv{{"Monté dans", winePoint}}
-	if mountMode == "overlay" {
+	pairs := []kv{{"Monté dans", launch.winePoint}}
+	if launch.mountMode == "overlay" {
 		kind := "le .wsquashfs"
-		if folderOverlay {
+		if launch.folderOverlay {
 			kind = "le dossier"
 		}
-		pairs = append(pairs, kv{"Modifications", "enregistrées dans " + savePoint + " (" + kind + " n'est jamais modifié)"})
+		pairs = append(pairs, kv{"Modifications", "enregistrées dans " + launch.savePoint + " (" + kind + " n'est jamais modifié)"})
 	}
 	pairs = append(pairs, kv{"Démontage", ""})
 	uiKV(2, pairs...)
-	uiCode(os.Args[0] + " --umount \"" + wsquashfsFile + "\"")
+	uiCode(os.Args[0] + " --umount \"" + launch.wsquashfsFile + "\"")
 	uiNote("(tout lancement d'un autre jeu démonte aussi les montages inutilisés)")
 	exitNow(0)
 }
@@ -424,9 +424,9 @@ func prefixInUse(pattern string) bool {
 // gamesPrefixRegex : dossier des prefixes de jeux (CACHE_DIR, liens résolus,
 // et …/wsquashfs par défaut pour un jeu lancé avec un autre CACHE_DIR).
 func gamesPrefixRegex() string {
-	raw := regexEscape(cacheDir)
-	real := cacheDir
-	if r, err := filepath.EvalSymlinks(cacheDir); err == nil {
+	raw := regexEscape(conf.cacheDir)
+	real := conf.cacheDir
+	if r, err := filepath.EvalSymlinks(conf.cacheDir); err == nil {
 		real = r
 	}
 	return "(" + raw + "|" + regexEscape(real) + "|.*/wsquashfs)/wine"
@@ -445,18 +445,18 @@ func gameRunning(name string) bool {
 // savesBusy : le jeu est monté ou en cours : ses sauvegardes ne sont pas
 // touchées.
 func savesBusy(name string) bool {
-	return gameRunning(name) || isMountPoint(filepath.Join(cacheDir, "wine", name))
+	return gameRunning(name) || isMountPoint(filepath.Join(conf.cacheDir, "wine", name))
 }
 
 func lockPath(name string) string {
-	return filepath.Join(cacheDir, "locks", name+".lock")
+	return filepath.Join(conf.cacheDir, "locks", name+".lock")
 }
 
 // acquireGameLock : verrou du jeu (flock). Faux si déjà tenu.
 func acquireGameLock() bool {
-	file := lockPath(gameName)
-	_ = os.MkdirAll(filepath.Join(cacheDir, "locks"), 0o755)
-	chownToTarget(filepath.Join(cacheDir, "locks"))
+	file := lockPath(launch.gameName)
+	_ = os.MkdirAll(filepath.Join(conf.cacheDir, "locks"), 0o755)
+	chownToTarget(filepath.Join(conf.cacheDir, "locks"))
 	if f, err := os.OpenFile(file, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644); err == nil {
 		f.Close()
 	}
@@ -468,8 +468,8 @@ func acquireGameLock() bool {
 		f.Close()
 		return false
 	}
-	lockFile = f
-	lockedGame = gameName
+	launch.lockFile = f
+	launch.lockedGame = launch.gameName
 	return true
 }
 
@@ -482,8 +482,8 @@ func lockIdleGame(name string) (*os.File, bool) {
 	if savesBusy(name) {
 		return nil, false
 	}
-	_ = os.MkdirAll(filepath.Join(cacheDir, "locks"), 0o755)
-	chownToTarget(filepath.Join(cacheDir, "locks"))
+	_ = os.MkdirAll(filepath.Join(conf.cacheDir, "locks"), 0o755)
+	chownToTarget(filepath.Join(conf.cacheDir, "locks"))
 	f, err := os.OpenFile(lockPath(name), os.O_CREATE|os.O_RDONLY, 0o644)
 	if err != nil {
 		return nil, true
@@ -493,7 +493,7 @@ func lockIdleGame(name string) (*os.File, bool) {
 		return nil, false
 	}
 	// Lancé entre le contrôle et la prise du verrou.
-	if gameInUse(name) || isMountPoint(filepath.Join(cacheDir, "wine", name)) {
+	if gameInUse(name) || isMountPoint(filepath.Join(conf.cacheDir, "wine", name)) {
 		f.Close()
 		return nil, false
 	}
@@ -502,7 +502,7 @@ func lockIdleGame(name string) (*os.File, bool) {
 
 // gameLocked : un AUTRE lancement tient le verrou de ce jeu.
 func gameLocked(name string) bool {
-	if name == lockedGame {
+	if name == launch.lockedGame {
 		return false
 	}
 	f, err := os.Open(lockPath(name))
@@ -520,8 +520,8 @@ func gameLocked(name string) bool {
 // unmountAllStale : démonte les montages abandonnés sous cacheDir, sauf les
 // jeux en cours (27/09).
 func unmountAllStale() {
-	realCache := cacheDir
-	if r, err := filepath.EvalSymlinks(cacheDir); err == nil {
+	realCache := conf.cacheDir
+	if r, err := filepath.EvalSymlinks(conf.cacheDir); err == nil {
 		realCache = r
 	}
 	for _, sub := range []string{"wine", "mnt"} {
@@ -548,12 +548,12 @@ func umountGame(name string) {
 		warn(fmt.Sprintf("%s toujours en cours après 15 s (lanceur %d), non démonté", name, pid))
 		exitNow(1)
 	}
-	prefix := filepath.Join(cacheDir, "wine", name)
+	prefix := filepath.Join(conf.cacheDir, "wine", name)
 	if st, err := os.Stat(prefix); err != nil || !st.IsDir() {
 		return
 	}
 	runWineserver(prefix, "-k")
 	umountRetry(prefix)
-	umountRetry(filepath.Join(cacheDir, "mnt", name))
+	umountRetry(filepath.Join(conf.cacheDir, "mnt", name))
 	uiStatusLine(stOK, "Démonté : "+name)
 }

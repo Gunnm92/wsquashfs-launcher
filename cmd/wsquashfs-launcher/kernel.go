@@ -26,7 +26,7 @@ func nsCommand(args ...string) *exec.Cmd {
 // kernelOverlayProbe : monte un overlay de test à côté des sauvegardes (le
 // système de fichiers de l'upperdir compte). "" si réussi, sinon la cause.
 func kernelOverlayProbe() string {
-	d := savesDir
+	d := conf.savesDir
 	for {
 		if _, err := os.Stat(d); err == nil {
 			break
@@ -129,14 +129,14 @@ func bashPrintfB(s string) string {
 // runInKernelOverlay : hôte, relance le lanceur dans un namespace. Ne revient
 // pas si le jeu y a été lancé ; revient pour le repli sur fuse-overlayfs.
 func runInKernelOverlay() {
-	if action == "mount" || folderOverlay {
+	if launch.action == "mount" || launch.folderOverlay {
 		return
 	}
 	if reason := kernelOverlayUnavailable(); reason != "" {
-		if overlayPref == "kernel" {
+		if conf.overlayPref == "kernel" {
 			die("overlay noyau impossible : " + reason)
 		}
-		if overlayPref != "fuse" {
+		if conf.overlayPref != "fuse" {
 			uiKVLine("Overlay noyau", "indisponible, "+reason)
 		}
 		return
@@ -145,7 +145,7 @@ func runInKernelOverlay() {
 	var reason string
 	if out, err := nsCommand("true").CombinedOutput(); err != nil {
 		reason = "namespace utilisateur refusé (" + lastField(string(out)) + ")"
-	} else if !savesToKernelFormat(savePoint) {
+	} else if !savesToKernelFormat(launch.savePoint) {
 		reason = "conversion des sauvegardes impossible"
 	} else {
 		rc, failReason, ok := stageInNamespace()
@@ -154,7 +154,7 @@ func runInKernelOverlay() {
 		}
 		reason = failReason
 	}
-	if overlayPref == "kernel" {
+	if conf.overlayPref == "kernel" {
 		die("overlay noyau impossible : " + reason)
 	}
 	uiKVLine("Overlay noyau", "échec, "+reason)
@@ -175,25 +175,25 @@ func lastField(s string) string {
 // stageInNamespace : prépare le dossier d'échange, lance le lanceur dans le
 // namespace (fd du verrou transmis), attend. ok vrai si le jeu y a tourné.
 func stageInNamespace() (int, string, bool) {
-	nsDir = filepath.Join(cacheDir, "ns", strconv.Itoa(os.Getpid()))
-	resetWorkdir(nsDir)
-	_ = os.WriteFile(filepath.Join(nsDir, "game"), []byte(gameName+"\n"), 0o644)
-	_ = os.Symlink(squashfsPoint, filepath.Join(nsDir, "lower"))
-	_ = os.Symlink(savePoint, filepath.Join(nsDir, "upper"))
-	_ = os.Symlink(workPoint, filepath.Join(nsDir, "work"))
+	launch.nsDir = filepath.Join(conf.cacheDir, "ns", strconv.Itoa(os.Getpid()))
+	resetWorkdir(launch.nsDir)
+	_ = os.WriteFile(filepath.Join(launch.nsDir, "game"), []byte(launch.gameName+"\n"), 0o644)
+	_ = os.Symlink(launch.squashfsPoint, filepath.Join(launch.nsDir, "lower"))
+	_ = os.Symlink(launch.savePoint, filepath.Join(launch.nsDir, "upper"))
+	_ = os.Symlink(launch.workPoint, filepath.Join(launch.nsDir, "work"))
 
-	cmd := exec.Command("unshare", "--user", "--map-current-user", "--mount", "--keep-caps", "--", selfPath)
-	cmd.Args = append(cmd.Args, origArgs...)
+	cmd := exec.Command("unshare", "--user", "--map-current-user", "--mount", "--keep-caps", "--", conf.selfPath)
+	cmd.Args = append(cmd.Args, launch.origArgs...)
 	cmd.Env = append(os.Environ(),
 		"WSQUASHFS_NS_STAGE=1",
-		"WSQUASHFS_NS_DIR="+nsDir,
+		"WSQUASHFS_NS_DIR="+launch.nsDir,
 		"WSQUASHFS_NS_LOCK_FD=3",
 	)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	if lockFile != nil {
-		cmd.ExtraFiles = []*os.File{lockFile}
+	if launch.lockFile != nil {
+		cmd.ExtraFiles = []*os.File{launch.lockFile}
 	}
 	if err := cmd.Start(); err != nil {
 		return 0, "lancement impossible", false
@@ -205,9 +205,9 @@ func stageInNamespace() (int, string, bool) {
 	if ee, ok := err.(*exec.ExitError); ok {
 		rc = ee.ExitCode()
 	}
-	status := strings.TrimSpace(readTrim(filepath.Join(nsDir, "status")))
-	_ = os.RemoveAll(nsDir)
-	nsDir = ""
+	status := strings.TrimSpace(readTrim(filepath.Join(launch.nsDir, "status")))
+	_ = os.RemoveAll(launch.nsDir)
+	launch.nsDir = ""
 	if status == "ready" {
 		return rc, "", true
 	}
@@ -215,8 +215,8 @@ func stageInNamespace() (int, string, bool) {
 		status = "namespace utilisateur refusé"
 	}
 	// Montage noyau interrompu : work/ (mode 000) resté dans le workdir.
-	resetWorkdir(workPoint)
-	chownToTarget(workPoint)
+	resetWorkdir(launch.workPoint)
+	chownToTarget(launch.workPoint)
 	return rc, status, false
 }
 
@@ -224,8 +224,8 @@ func stageInNamespace() (int, string, bool) {
 // dossier d'échange.
 func mountKernelOverlayLayer() string {
 	cmd := exec.Command("mount", "-t", "overlay", "overlay",
-		"-o", "lowerdir=lower,upperdir=upper,workdir=work,"+kernelOverlayOpts, winePoint)
-	cmd.Dir = nsDir
+		"-o", "lowerdir=lower,upperdir=upper,workdir=work,"+kernelOverlayOpts, launch.winePoint)
+	cmd.Dir = launch.nsDir
 	out, err := cmd.CombinedOutput()
 	if err == nil {
 		return ""
@@ -240,19 +240,19 @@ func mountKernelOverlayLayer() string {
 // (ready ou la cause) va dans NS_DIR/status pour l'hôte.
 func useKernelOverlay() {
 	writeStatus := func(s string) {
-		_ = os.WriteFile(filepath.Join(nsDir, "status"), []byte(s+"\n"), 0o644)
+		_ = os.WriteFile(filepath.Join(launch.nsDir, "status"), []byte(s+"\n"), 0o644)
 	}
-	_ = os.WriteFile(filepath.Join(nsDir, "pid"), []byte(strconv.Itoa(os.Getpid())+"\n"), 0o644)
-	sq := exec.Command("squashfuse_ll", "-f", "-o", fmt.Sprintf("uid=%d,gid=%d", wineUID, wineGID), wsquashfsFile, squashfsPoint)
+	_ = os.WriteFile(filepath.Join(launch.nsDir, "pid"), []byte(strconv.Itoa(os.Getpid())+"\n"), 0o644)
+	sq := exec.Command("squashfuse_ll", "-f", "-o", fmt.Sprintf("uid=%d,gid=%d", conf.wineUID, conf.wineGID), launch.wsquashfsFile, launch.squashfsPoint)
 	sq.SysProcAttr = &syscall.SysProcAttr{Pdeathsig: syscall.SIGKILL}
 	_ = sq.Start()
 	for i := 0; i < 100; i++ {
-		if isMountPoint(squashfsPoint) {
+		if isMountPoint(launch.squashfsPoint) {
 			break
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	if !isMountPoint(squashfsPoint) {
+	if !isMountPoint(launch.squashfsPoint) {
 		writeStatus("squashfuse_ll impossible dans le namespace")
 		exitNow(1)
 	}
@@ -261,8 +261,8 @@ func useKernelOverlay() {
 		exitNow(1)
 	}
 	writeStatus("ready")
-	mountMode = "overlay"
-	overlayKind = "kernel"
+	launch.mountMode = "overlay"
+	launch.overlayKind = "kernel"
 	mounted.Store(true)
 	detectImagePrefix()
 	uiKVLine("Mode", "overlay noyau (squashfuse + overlayfs, namespace utilisateur)")
@@ -270,7 +270,7 @@ func useKernelOverlay() {
 
 // nsLauncherPID : PID du lanceur d'un jeu dans son namespace, pour --umount.
 func nsLauncherPID(game string) (int, bool) {
-	files, _ := filepath.Glob(filepath.Join(cacheDir, "ns", "*", "game"))
+	files, _ := filepath.Glob(filepath.Join(conf.cacheDir, "ns", "*", "game"))
 	for _, f := range files {
 		if strings.TrimSpace(readTrim(f)) != game {
 			continue

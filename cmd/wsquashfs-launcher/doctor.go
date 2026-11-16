@@ -155,16 +155,16 @@ func runDoctorChecks() bool {
 	}
 	detectGpus()
 	switch {
-	case hasNvidia == "1" && hasAMD == "1":
+	case launch.hasNvidia == "1" && launch.hasAMD == "1":
 		doctorOK("GPU : NVIDIA et AMD détectés (réglages NVIDIA et AMD actifs)")
-	case hasNvidia == "1":
+	case launch.hasNvidia == "1":
 		doctorOK("GPU : NVIDIA détecté")
-	case hasAMD == "1":
+	case launch.hasAMD == "1":
 		doctorOK("GPU : AMD détecté (aucun réglage NVIDIA)")
 	default:
 		doctorNote("GPU : aucun fournisseur reconnu dans " + envOr("WSQUASHFS_DRM_SYSFS", "/sys/class/drm"))
 	}
-	if hasNvidia == "1" {
+	if launch.hasNvidia == "1" {
 		if d := findNvapiDir(); d != "" {
 			doctorOK("dxvk-nvapi (" + d + ") : NVAPI active en auto")
 			if isFile(d + "/layer/VkLayer_DXVK_NVAPI_reflex.json") {
@@ -177,7 +177,7 @@ func runDoctorChecks() bool {
 			doctorNote("couche Reflex absente : VKREFLEX sans effet")
 		}
 	}
-	if hasAMD == "1" {
+	if launch.hasAMD == "1" {
 		icds, _ := filepath.Glob(envOr("WSQUASHFS_VK_ICD_DIR", "/usr/share/vulkan/icd.d") + "/radeon_icd*.json")
 		if len(icds) > 0 {
 			doctorOK("RADV (pilote Vulkan Mesa) présent")
@@ -195,7 +195,7 @@ func runDoctorChecks() bool {
 	if hidrawUsable() {
 		doctorOK("manette Sony lisible par hidraw (HIDRAW=1 possible)")
 	} else {
-		doctorNote("hidraw : " + hidrawReason + " (HIDRAW=1 retombe en XInput)")
+		doctorNote("hidraw : " + launch.hidrawReason + " (HIDRAW=1 retombe en XInput)")
 	}
 	if b := findDualsenseBridge(); b != "" {
 		doctorOK("dualsense-usb-bridge (" + b + ")")
@@ -204,7 +204,7 @@ func runDoctorChecks() bool {
 	}
 
 	docSection("Dossiers")
-	for _, d := range []string{savesDir, cacheDir} {
+	for _, d := range []string{conf.savesDir, conf.cacheDir} {
 		if !pathExists(d) {
 			doctorNote(d + " : pas encore créé")
 		} else if writable(d) {

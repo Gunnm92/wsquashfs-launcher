@@ -15,8 +15,9 @@ import (
 	"syscall"
 )
 
-// ── Configuration (figée par init_config) ──────────────────────────────
-var (
+// launcherConf : configuration du lanceur, figée par initConfig.
+type launcherConf struct {
+	// ── Configuration (figée par init_config) ──────────────────────────────
 	savesDir        string // couches de sauvegardes (upperdir), une par jeu
 	cacheDir        string // montages et copies de travail
 	runAsRoot       bool   // lancé en root (sudo)
@@ -28,46 +29,44 @@ var (
 	overlayPref     string // auto | kernel | fuse (WSQUASHFS_OVERLAY)
 	selfPath        string // chemin de ce binaire ou script, relancé dans le namespace
 	sysroot         string // racine des dossiers système fouillés (tests)
-)
+}
 
-// ── Ligne de commande (parse_args) ─────────────────────────────────────
-var (
-	action       = "run" // run | mount | exec | prepare | help | commande de maintenance
-	gameArg      string  // jeu demandé (.wsquashfs ou dossier installé)
-	wineOverride string  // --wine <version|chemin>
+var conf launcherConf
+
+// launchState : état du lancement en cours (ligne de commande, jeu et montage, réglages de
+// l'autorun.cmd, exécutable, runner, contrôleurs). Une seule valeur, launch ; les tests la
+// sauvegardent et la remettent d'un coup (isolateState).
+type launchState struct {
+	// ── Ligne de commande (parse_args) ─────────────────────────────────────
+	action       string // run | mount | exec | prepare | help | commande de maintenance
+	gameArg      string // jeu demandé (.wsquashfs ou dossier installé)
+	wineOverride string // --wine <version|chemin>
 	setArgs      []string
 	headless     bool
 	execCmd      []string // --exec : programme et ses arguments
 	cmdArgs      []string // arguments d'une commande de maintenance
 	origArgs     []string // ligne de commande d'origine (relance dans le namespace)
-)
 
-// ── Jeu et montage ─────────────────────────────────────────────────────
-var (
+	// ── Jeu et montage ─────────────────────────────────────────────────────
 	wsquashfsFile   string // chemin absolu du .wsquashfs (ou du dossier installé)
 	dirMode         bool   // jeu installé, lancé sur place
 	folderOverlay   bool   // dossier .pc essayé en overlay (lecture seule, comme son image)
 	gameName        string
-	autorunOverride string                 // <jeu>.wsquashfs.autorun s'il existe
-	mountMode       string                 // overlay | copy | dir
-	overlayKind     string                 // kernel | fuse
-	mounted         atomic.Bool            // cleanup() doit arrêter Wine et démonter (lu par le gestionnaire de signaux)
-	squashfsPoint   string                 // image montée (lowerdir)
-	winePoint       string                 // prefix vu par Wine
-	savePoint       string                 // couche de sauvegardes du jeu (upperdir)
-	workPoint       string                 // workdir de l'overlay
-	nsStage         string                 // "1" : relancé dans le namespace de l'overlay noyau
-	nsDir           string                 // dossier d'échange hôte/namespace
-	nsPID           atomic.Int64           // lanceur en namespace démarré par ce processus (hôte)
-	packagedPrefix  bool                   // l'image contient un prefix (system.reg)
-	protonPrefix    bool                   // prefix créé par Proton (config_info)
-	purgeMount      atomic.Pointer[string] // image montée par --clean (doublons), démontée par cleanup sur signal
+	autorunOverride string // <jeu>.wsquashfs.autorun s'il existe
+	mountMode       string // overlay | copy | dir
+	overlayKind     string // kernel | fuse
+	squashfsPoint   string // image montée (lowerdir)
+	winePoint       string // prefix vu par Wine
+	savePoint       string // couche de sauvegardes du jeu (upperdir)
+	workPoint       string // workdir de l'overlay
+	nsStage         string // "1" : relancé dans le namespace de l'overlay noyau
+	nsDir           string // dossier d'échange hôte/namespace
+	packagedPrefix  bool   // l'image contient un prefix (system.reg)
+	protonPrefix    bool   // prefix créé par Proton (config_info)
 	lockFile        *os.File
 	lockedGame      string
-)
 
-// ── autorun.cmd ────────────────────────────────────────────────────────
-var (
+	// ── autorun.cmd ────────────────────────────────────────────────────────
 	dir, cmd, wineVersion, protonVersion, runnerKey, wineArch string
 	imageRunner                                               string
 	dxvk, dxvkWanted, vkd3d, d7vk, savedirKey, savefilesKey   string
@@ -77,10 +76,8 @@ var (
 	fsr, fsr4, fsr4On                                         string
 	preCmd, attachCmd, attachProcess                          string
 	machineLayer, folderLayer                                 string
-)
 
-// ── Exécutable, runner, contrôleurs ────────────────────────────────────
-var (
+	// ── Exécutable, runner, contrôleurs ────────────────────────────────────
 	execPath       string
 	execArgs       string
 	execArgsArr    []string
@@ -98,7 +95,22 @@ var (
 	hidrawMsg      string
 	hidrawReason   string
 	dsBridgePID    int
-	opaqueCache    = map[string]string{}
+	opaqueCache    map[string]string
+}
+
+// newLaunchState : état de départ (action « run », cache des dossiers opaques vide).
+func newLaunchState() launchState {
+	return launchState{action: "run", opaqueCache: map[string]string{}}
+}
+
+var launch = newLaunchState()
+
+// Variables de paquet restées hors des structures : types atomic, non copiables (une
+// structure qui les contiendrait ne pourrait pas être sauvegardée ni remise par copie).
+var (
+	mounted    atomic.Bool            // cleanup() doit arrêter Wine et démonter (lu par le gestionnaire de signaux)
+	nsPID      atomic.Int64           // lanceur en namespace démarré par ce processus (hôte)
+	purgeMount atomic.Pointer[string] // image montée par --clean (doublons), démontée par cleanup sur signal
 )
 
 // Lancé par un simple "sudo" : sudo remet HOME=/root et efface
@@ -159,35 +171,35 @@ func raiseNofileLimit() {
 
 // initConfig : dossiers, option FUSE et propriétaire de Wine.
 func initConfig() {
-	savesDir = envOr("WSQUASHFS_SAVES_DIR", filepath.Join(os.Getenv("HOME"), ".local/share/wsquashfs/saves"))
-	cacheDir = envOr("WSQUASHFS_CACHE", filepath.Join(os.Getenv("HOME"), ".cache/wsquashfs"))
+	conf.savesDir = envOr("WSQUASHFS_SAVES_DIR", filepath.Join(os.Getenv("HOME"), ".local/share/wsquashfs/saves"))
+	conf.cacheDir = envOr("WSQUASHFS_CACHE", filepath.Join(os.Getenv("HOME"), ".cache/wsquashfs"))
 
-	runAsRoot = os.Geteuid() == 0
-	if runAsRoot {
-		allowOtherOpt = "allow_other"
+	conf.runAsRoot = os.Geteuid() == 0
+	if conf.runAsRoot {
+		conf.allowOtherOpt = "allow_other"
 	}
-	targetUser = os.Getenv("SUDO_USER")
+	conf.targetUser = os.Getenv("SUDO_USER")
 
-	wineUID = os.Geteuid()
-	wineGID = os.Getegid()
+	conf.wineUID = os.Geteuid()
+	conf.wineGID = os.Getegid()
 	if dropsToTargetUser() {
-		if u, err := user.Lookup(targetUser); err == nil {
-			wineUID, _ = strconv.Atoi(u.Uid)
-			wineGID, _ = strconv.Atoi(u.Gid)
+		if u, err := user.Lookup(conf.targetUser); err == nil {
+			conf.wineUID, _ = strconv.Atoi(u.Uid)
+			conf.wineGID, _ = strconv.Atoi(u.Gid)
 		}
 	}
-	overlaySquashOp = fmt.Sprintf("squash_to_uid=%d,squash_to_gid=%d", wineUID, wineGID)
+	conf.overlaySquashOp = fmt.Sprintf("squash_to_uid=%d,squash_to_gid=%d", conf.wineUID, conf.wineGID)
 
-	overlayPref = envOr("WSQUASHFS_OVERLAY", "auto")
-	switch overlayPref {
+	conf.overlayPref = envOr("WSQUASHFS_OVERLAY", "auto")
+	switch conf.overlayPref {
 	case "auto", "kernel", "fuse":
 	default:
-		die("WSQUASHFS_OVERLAY=" + overlayPref + " : valeurs possibles auto, kernel, fuse")
+		die("WSQUASHFS_OVERLAY=" + conf.overlayPref + " : valeurs possibles auto, kernel, fuse")
 	}
 	if p, err := os.Executable(); err == nil {
-		selfPath = p
+		conf.selfPath = p
 	}
-	sysroot = os.Getenv("WSQUASHFS_SYSROOT")
+	conf.sysroot = os.Getenv("WSQUASHFS_SYSROOT")
 }
 
 // envOr : variable d'environnement, ou sa valeur par défaut si elle est vide.
@@ -198,10 +210,19 @@ func envOr(name, def string) string {
 	return def
 }
 
+// configHome : dossier de configuration de l'utilisateur ($XDG_CONFIG_HOME, sinon ~/.config).
+func configHome() string {
+	base := os.Getenv("XDG_CONFIG_HOME")
+	if base == "" {
+		base = filepath.Join(os.Getenv("HOME"), ".config")
+	}
+	return base
+}
+
 // dropsToTargetUser : root pour le compte d'un utilisateur (sudo), Wine doit
 // alors être lancé en targetUser.
 func dropsToTargetUser() bool {
-	return runAsRoot && targetUser != ""
+	return conf.runAsRoot && conf.targetUser != ""
 }
 
 // detectEnv : Docker ou Physical (d'après /.dockerenv et le cgroup).
@@ -226,10 +247,10 @@ func fixOwnership(path string) {
 	if err != nil {
 		return
 	}
-	if int(st.Sys().(*syscall.Stat_t).Uid) == wineUID {
+	if int(st.Sys().(*syscall.Stat_t).Uid) == conf.wineUID {
 		return
 	}
-	chownTree(path, wineUID, wineGID)
+	chownTree(path, conf.wineUID, conf.wineGID)
 }
 
 // chownTree : chown -h récursif, limité au système de fichiers de root (-xdev)
@@ -265,7 +286,7 @@ func chownToTarget(path string) {
 	if isMountPoint(path) {
 		return
 	}
-	u, err := user.Lookup(targetUser)
+	u, err := user.Lookup(conf.targetUser)
 	if err != nil {
 		return
 	}

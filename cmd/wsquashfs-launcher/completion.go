@@ -248,9 +248,9 @@ func cmdComplete(args []string) int {
 	if len(args) != 2 {
 		return 1
 	}
-	if savesDir == "" { // dossiers de initConfig, sans le reste (rien ne doit bouger pendant un Tab)
-		savesDir = envOr("WSQUASHFS_SAVES_DIR", filepath.Join(os.Getenv("HOME"), ".local/share/wsquashfs/saves"))
-		cacheDir = envOr("WSQUASHFS_CACHE", filepath.Join(os.Getenv("HOME"), ".cache/wsquashfs"))
+	if conf.savesDir == "" { // dossiers de initConfig, sans le reste (rien ne doit bouger pendant un Tab)
+		conf.savesDir = envOr("WSQUASHFS_SAVES_DIR", filepath.Join(os.Getenv("HOME"), ".local/share/wsquashfs/saves"))
+		conf.cacheDir = envOr("WSQUASHFS_CACHE", filepath.Join(os.Getenv("HOME"), ".cache/wsquashfs"))
 	}
 	line := args[1]
 	if pos, err := strconv.Atoi(args[0]); err == nil && pos >= 0 && pos < utf8.RuneCountInString(line) {

@@ -26,29 +26,34 @@ var keyEnvVar = map[string]string{
 	"HIDRAW": "WSQUASHFS_HIDRAW", "FSR": "WSQUASHFS_FSR", "FSR4": "WSQUASHFS_FSR4",
 }
 
-// État des couches lues.
-var (
-	machineVal = map[string]string{}
-	layerVal   = map[string]string{}
-	layerSrc   = map[string]string{}
-	envVal     = map[string]string{}
-	envSrc     = map[string]string{}
+// layerState : couches de réglages lues (loadLayers) et dernier résultat de layerLookup.
+type layerState struct {
+	// État des couches lues.
+	machineVal map[string]string
+	layerVal   map[string]string
+	layerSrc   map[string]string
+	envVal     map[string]string
+	envSrc     map[string]string
 	envOrder   []string
 	envLayers  int
 	envRaw     string
-)
 
-// Valeur finale et couche qui l'a fournie (LOOKUP_VAL, LOOKUP_SRC).
-var lookupVal, lookupSrc string
+	// Valeur finale et couche qui l'a fournie (LOOKUP_VAL, LOOKUP_SRC).
+	lookupVal, lookupSrc string
+}
+
+// newLayerState : aucune couche lue.
+func newLayerState() layerState {
+	return layerState{machineVal: map[string]string{}, layerVal: map[string]string{}, layerSrc: map[string]string{}, envVal: map[string]string{}, envSrc: map[string]string{}}
+}
+
+var layers = newLayerState()
 
 var keyLineRe = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*)=(.*)$`)
 
 // machineLayerFile : ~/.config/wsquashfs/defaults.autorun.
 func machineLayerFile() string {
-	base := os.Getenv("XDG_CONFIG_HOME")
-	if base == "" {
-		base = filepath.Join(os.Getenv("HOME"), ".config")
-	}
+	base := configHome()
 	return filepath.Join(base, "wsquashfs/defaults.autorun")
 }
 
@@ -88,12 +93,12 @@ func overrideKeys(file string) string {
 // mergeEnvLayer : fusionne une valeur ENV= dans envVal. -NOM retire une
 // variable d'une couche plus faible, ENV= vide les retire toutes.
 func mergeEnvLayer(src, raw string) {
-	envLayers++
-	envRaw = raw
+	layers.envLayers++
+	layers.envRaw = raw
 	if raw == "" {
-		envVal = map[string]string{}
-		envSrc = map[string]string{}
-		envOrder = nil
+		layers.envVal = map[string]string{}
+		layers.envSrc = map[string]string{}
+		layers.envOrder = nil
 		return
 	}
 	for _, tok := range strings.Fields(raw) {
@@ -102,8 +107,8 @@ func mergeEnvLayer(src, raw string) {
 			if name == "" {
 				continue
 			}
-			delete(envVal, name)
-			delete(envSrc, name)
+			delete(layers.envVal, name)
+			delete(layers.envSrc, name)
 			continue
 		}
 		name := tok
@@ -113,24 +118,24 @@ func mergeEnvLayer(src, raw string) {
 		if name == "" {
 			continue
 		}
-		if _, seen := envVal[name]; !seen {
-			envOrder = append(envOrder, name)
+		if _, seen := layers.envVal[name]; !seen {
+			layers.envOrder = append(layers.envOrder, name)
 		}
-		envVal[name] = tok
-		envSrc[name] = src
+		layers.envVal[name] = tok
+		layers.envSrc[name] = src
 	}
 }
 
 // mergedEnv : ENV= final. Une seule couche avec un ENV= : la ligne telle
 // qu'écrite.
 func mergedEnv() string {
-	if envLayers <= 1 {
-		return envRaw
+	if layers.envLayers <= 1 {
+		return layers.envRaw
 	}
 	seen := map[string]bool{}
 	var out []string
-	for _, n := range envOrder {
-		v, ok := envVal[n]
+	for _, n := range layers.envOrder {
+		v, ok := layers.envVal[n]
 		if !ok || seen[n] {
 			continue
 		}
@@ -159,10 +164,10 @@ func readLayer(src, content string) {
 		case key == "ENV":
 			mergeEnvLayer(src, val)
 		case src == "machine":
-			machineVal[key] = val
+			layers.machineVal[key] = val
 		default:
-			layerVal[key] = val
-			layerSrc[key] = src
+			layers.layerVal[key] = val
+			layers.layerSrc[key] = src
 		}
 	}
 }
@@ -170,36 +175,36 @@ func readLayer(src, content string) {
 // loadLayers : lit toutes les couches. image = contenu de l'autorun.cmd de
 // l'image ; wsquashfsFile et autorunOverride doivent être posés.
 func loadLayers(image string) {
-	machineVal = map[string]string{}
-	layerVal = map[string]string{}
-	layerSrc = map[string]string{}
-	envVal = map[string]string{}
-	envSrc = map[string]string{}
-	envOrder = nil
-	envLayers = 0
-	envRaw = ""
-	machineLayer, folderLayer = "", ""
+	layers.machineVal = map[string]string{}
+	layers.layerVal = map[string]string{}
+	layers.layerSrc = map[string]string{}
+	layers.envVal = map[string]string{}
+	layers.envSrc = map[string]string{}
+	layers.envOrder = nil
+	layers.envLayers = 0
+	layers.envRaw = ""
+	launch.machineLayer, launch.folderLayer = "", ""
 
 	if f := machineLayerFile(); isFile(f) {
-		machineLayer = f
+		launch.machineLayer = f
 		data, _ := os.ReadFile(f)
 		readLayer("machine", string(data))
 	}
-	if wsquashfsFile != "" {
-		f := filepath.Join(filepath.Dir(strings.TrimSuffix(wsquashfsFile, "/")), "_defaults.autorun")
+	if launch.wsquashfsFile != "" {
+		f := filepath.Join(filepath.Dir(strings.TrimSuffix(launch.wsquashfsFile, "/")), "_defaults.autorun")
 		if isFile(f) {
-			folderLayer = f
+			launch.folderLayer = f
 			data, _ := os.ReadFile(f)
 			readLayer("dossier", string(data))
 		}
 	}
 	readLayer("image", image)
-	if autorunOverride != "" && isFile(autorunOverride) {
-		data, _ := os.ReadFile(autorunOverride)
+	if launch.autorunOverride != "" && isFile(launch.autorunOverride) {
+		data, _ := os.ReadFile(launch.autorunOverride)
 		readLayer("surcharge", string(data))
 	}
-	if len(setArgs) > 0 {
-		readLayer("--set", strings.Join(setArgs, "\n"))
+	if len(launch.setArgs) > 0 {
+		readLayer("--set", strings.Join(launch.setArgs, "\n"))
 	}
 }
 
@@ -207,34 +212,34 @@ func loadLayers(image string) {
 func layerLookup(key, def string) {
 	envvar := keyEnvVar[key]
 	if v, ok := keyDefault[key]; ok {
-		lookupVal = v
+		layers.lookupVal = v
 	} else {
-		lookupVal = def
+		layers.lookupVal = def
 	}
-	lookupSrc = "défaut"
-	if v := machineVal[key]; v != "" {
-		lookupVal = v
-		lookupSrc = "machine"
+	layers.lookupSrc = "défaut"
+	if v := layers.machineVal[key]; v != "" {
+		layers.lookupVal = v
+		layers.lookupSrc = "machine"
 	}
 	if envvar != "" {
 		if v := os.Getenv(envvar); v != "" {
-			lookupVal = v
-			lookupSrc = "machine (" + envvar + ")"
+			layers.lookupVal = v
+			layers.lookupSrc = "machine (" + envvar + ")"
 		}
 	}
-	if src, ok := layerSrc[key]; ok {
-		if v := layerVal[key]; v != "" {
-			lookupVal = v
-			lookupSrc = src
+	if src, ok := layers.layerSrc[key]; ok {
+		if v := layers.layerVal[key]; v != "" {
+			layers.lookupVal = v
+			layers.lookupSrc = src
 		} else {
-			lookupSrc += " (" + src + " : vide)"
+			layers.lookupSrc += " (" + src + " : vide)"
 		}
 	}
 	// WSQUASHFS_HIDRAW passe avant tout (choose_hidraw_mode)
 	if key == "HIDRAW" {
 		if v := os.Getenv("WSQUASHFS_HIDRAW"); v != "" {
-			lookupVal = v
-			lookupSrc = "machine (WSQUASHFS_HIDRAW, prioritaire)"
+			layers.lookupVal = v
+			layers.lookupSrc = "machine (WSQUASHFS_HIDRAW, prioritaire)"
 		}
 	}
 }
@@ -245,7 +250,7 @@ func autorunVar(key, def string) string {
 		return mergedEnv()
 	}
 	layerLookup(key, def)
-	return lookupVal
+	return layers.lookupVal
 }
 
 var gameVersionRe = regexp.MustCompile(`(?m)^GAME_VERSION=(.*)$`)

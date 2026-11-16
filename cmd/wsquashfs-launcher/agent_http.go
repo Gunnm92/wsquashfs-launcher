@@ -302,7 +302,7 @@ func writeDetail(w http.ResponseWriter, code int, detail string) {
 
 // launcherExe : ce binaire, pour lancer ses propres actions.
 func launcherExe() string {
-	return selfPath
+	return conf.selfPath
 }
 
 func (s *agentServer) info(w http.ResponseWriter, r *http.Request) {
@@ -687,7 +687,7 @@ var syncMaxBody int64 = 2 << 30
 
 // syncStateRoot : état des synchros, par machine cliente (dossier caché de savesDir).
 func syncStateRoot() string {
-	return filepath.Join(savesDir, ".sync")
+	return filepath.Join(conf.savesDir, ".sync")
 }
 
 // syncMachine : authentification, puis identifiant de la machine cliente obligatoire

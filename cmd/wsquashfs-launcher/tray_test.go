@@ -31,9 +31,8 @@ func trayRig(t *testing.T) string {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
-	old := selfPath
-	t.Cleanup(func() { selfPath = old })
-	selfPath = "/usr/local/bin/wsquashfs-launcher"
+	isolateState(t)
+	conf.selfPath = "/usr/local/bin/wsquashfs-launcher"
 	return home
 }
 
@@ -226,8 +225,9 @@ func TestTrayAutostart(t *testing.T) {
 
 // TestTrayAutostartSansLanceur : pas de chemin du lanceur, pas de fichier.
 func TestTrayAutostartSansLanceur(t *testing.T) {
+	isolateState(t)
 	trayRig(t)
-	selfPath = ""
+	conf.selfPath = ""
 	if code := cmdTray([]string{"on"}); code != 1 {
 		t.Fatalf("--tray on sans chemin : code %d ; voulu 1", code)
 	}

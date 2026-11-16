@@ -29,8 +29,7 @@ func agentEnv(t *testing.T) string {
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, "config"))
 	t.Setenv("XDG_STATE_HOME", filepath.Join(dir, "state"))
 	t.Setenv("HOME", dir)
-	old := selfPath
-	t.Cleanup(func() { selfPath = old })
+	isolateState(t)
 	return dir
 }
 
@@ -59,11 +58,12 @@ func listenLocal(t *testing.T) net.Listener {
 // fakeLauncher : script qui remplace le lanceur (selfPath) pendant le test.
 func fakeLauncher(t *testing.T, body string) string {
 	t.Helper()
+	isolateState(t)
 	p := filepath.Join(t.TempDir(), "fake-launcher")
 	if err := os.WriteFile(p, []byte("#!/bin/sh\n"+body+"\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	selfPath = p
+	conf.selfPath = p
 	return p
 }
 

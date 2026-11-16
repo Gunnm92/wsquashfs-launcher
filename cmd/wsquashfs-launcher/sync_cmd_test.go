@@ -30,8 +30,7 @@ func syncNoLocalLock(t *testing.T) {
 // syncGlobalsSaved : restaure les globales que gameUsesSaveDir et copyGameSaves modifient.
 func syncGlobalsSaved(t *testing.T) {
 	t.Helper()
-	ow, og, oa := wsquashfsFile, gameName, autorunOverride
-	t.Cleanup(func() { wsquashfsFile, gameName, autorunOverride = ow, og, oa })
+	isolateState(t)
 }
 
 // rigPeerID : identifiant local du serveur de test (état de synchro côté client).
@@ -238,7 +237,7 @@ func TestSyncGameLockedOnServer(t *testing.T) {
 	}
 	syncTestPut(t, filepath.Join(local, "steamuser", "Documents", "Game", "nouvelle.sav"), "nouveau", syncTestTime.Add(time.Hour))
 
-	if err := os.MkdirAll(filepath.Join(cacheDir, "locks"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(conf.cacheDir, "locks"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	f, err := os.OpenFile(lockPath(syncRigGame), os.O_CREATE|os.O_RDONLY, 0o644)
@@ -291,9 +290,8 @@ func TestSyncGameSaveDirIgnored(t *testing.T) {
 
 // TestGameUsesSaveDirNeedsImageRecord : image inconnue ou sans SAVEDIR/SAVEFILES : faux.
 func TestGameUsesSaveDirNeedsImageRecord(t *testing.T) {
-	oldSaves := savesDir
-	savesDir = t.TempDir()
-	t.Cleanup(func() { savesDir = oldSaves })
+	isolateState(t)
+	conf.savesDir = t.TempDir()
 	syncGlobalsSaved(t)
 	if gameUsesSaveDir("Inconnu") {
 		t.Error("jeu sans image connue : vrai")
@@ -312,10 +310,10 @@ func TestGameUsesSaveDirNeedsImageRecord(t *testing.T) {
 // writeGameImage : enregistrement de l'image d'un jeu (savesDir/.images) et son autorun de surcharge.
 func writeGameImage(t *testing.T, name, img, autorun string) {
 	t.Helper()
-	if err := os.MkdirAll(savesDir+"/.images", 0o755); err != nil {
+	if err := os.MkdirAll(conf.savesDir+"/.images", 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(savesDir+"/.images/"+name, []byte(img+"\n"), 0o644); err != nil {
+	if err := os.WriteFile(conf.savesDir+"/.images/"+name, []byte(img+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if autorun != "" {
@@ -331,7 +329,7 @@ func TestSyncTwoMachinesSequence(t *testing.T) {
 	r := newSyncRig(t)
 	syncNoLocalLock(t)
 	// B part sans sauvegarde de ce jeu.
-	if err := os.RemoveAll(filepath.Join(savesDir, syncRigGame)); err != nil {
+	if err := os.RemoveAll(filepath.Join(conf.savesDir, syncRigGame)); err != nil {
 		t.Fatal(err)
 	}
 	a := clientUsers(t)
@@ -365,7 +363,7 @@ func TestSyncTwoMachinesSequence(t *testing.T) {
 // version à mettre de côté s'appelle comme le dossier réel, pas « users ».
 func TestSyncArchiveNamesStash(t *testing.T) {
 	r := newSyncRig(t)
-	if err := os.RemoveAll(filepath.Join(savesDir, syncRigGame)); err != nil {
+	if err := os.RemoveAll(filepath.Join(conf.savesDir, syncRigGame)); err != nil {
 		t.Fatal(err)
 	}
 	stash := copyUsersStash(syncRigGame)
@@ -392,9 +390,8 @@ func TestSyncArchiveNamesStash(t *testing.T) {
 // TestCopyGameSavesNewerSource : copyGameSaves (refactor sur collectSaveFiles) copie ce qui est absent
 // ou plus récent à la nanoseconde près, et se tait sinon.
 func TestCopyGameSavesNewerSource(t *testing.T) {
-	oldSaves := savesDir
-	savesDir = t.TempDir()
-	t.Cleanup(func() { savesDir = oldSaves })
+	isolateState(t)
+	conf.savesDir = t.TempDir()
 	syncGlobalsSaved(t)
 	dest := t.TempDir()
 	t.Setenv("WSQUASHFS_BATOCERA_SAVES", dest)
@@ -402,10 +399,10 @@ func TestCopyGameSavesNewerSource(t *testing.T) {
 	img := filepath.Join(t.TempDir(), game+".wsquashfs")
 	writeGameImage(t, game, img, "")
 
-	src := filepath.Join(savesDir, game, "drive_c", "users", "steamuser", "Documents", "Game", "a.sav")
+	src := filepath.Join(conf.savesDir, game, "drive_c", "users", "steamuser", "Documents", "Game", "a.sav")
 	base := syncTestTime
 	syncTestPut(t, src, "partie", base)
-	syncTestPut(t, filepath.Join(savesDir, game, "drive_c", "users", "steamuser", "Temp", "x"), "temp", base)
+	syncTestPut(t, filepath.Join(conf.savesDir, game, "drive_c", "users", "steamuser", "Temp", "x"), "temp", base)
 	target := filepath.Join(dest, game, "drive_c", "users", "steamuser", "Documents", "Game", "a.sav")
 
 	out, _ := capteUI(t)
@@ -517,9 +514,8 @@ func TestSyncPairAssociates(t *testing.T) {
 func TestSyncRunNoPeersAndUnreachable(t *testing.T) {
 	out, _ := capteUI(t)
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	oldSaves, oldCache := savesDir, cacheDir
-	savesDir, cacheDir = t.TempDir(), t.TempDir()
-	t.Cleanup(func() { savesDir, cacheDir = oldSaves, oldCache })
+	isolateState(t)
+	conf.savesDir, conf.cacheDir = t.TempDir(), t.TempDir()
 
 	if rc := syncRun(syncConfig{}, "", false); rc != 0 {
 		t.Errorf("sans machine : code %d", rc)
@@ -565,7 +561,7 @@ func TestSyncCommandAction(t *testing.T) {
 func TestSyncGameNothingAnywhere(t *testing.T) {
 	r := newSyncRig(t)
 	syncNoLocalLock(t)
-	if err := os.RemoveAll(filepath.Join(savesDir, syncRigGame)); err != nil {
+	if err := os.RemoveAll(filepath.Join(conf.savesDir, syncRigGame)); err != nil {
 		t.Fatal(err)
 	}
 	st, msg := syncOne(t, r, clientUsers(t), t.TempDir(), false)

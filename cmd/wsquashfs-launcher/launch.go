@@ -39,14 +39,14 @@ func hidrawUsable() bool {
 		found = true
 		n := filepath.Base(filepath.Dir(filepath.Dir(u)))
 		if f, err := os.Open("/dev/" + n); err != nil {
-			hidrawReason = "/dev/" + n + " illisible"
+			launch.hidrawReason = "/dev/" + n + " illisible"
 			return false
 		} else {
 			f.Close()
 		}
 	}
 	if !found {
-		hidrawReason = "aucune manette Sony"
+		launch.hidrawReason = "aucune manette Sony"
 		return false
 	}
 	return true
@@ -58,7 +58,7 @@ func findDualsenseBridge() string {
 	if p, err := exec.LookPath("dualsense-usb-bridge"); err == nil {
 		return p
 	}
-	p := filepath.Dir(selfPath) + "/tools/dualsense-usb-bridge/dualsense-usb-bridge"
+	p := filepath.Dir(conf.selfPath) + "/tools/dualsense-usb-bridge/dualsense-usb-bridge"
 	if isExecutable(p) {
 		return p
 	}
@@ -88,7 +88,7 @@ func startDualsenseBridge() bool {
 	if err := cmd.Start(); err != nil {
 		return false
 	}
-	dsBridgePID = cmd.Process.Pid
+	launch.dsBridgePID = cmd.Process.Pid
 	exited := make(chan struct{})
 	go func() { _ = cmd.Wait(); close(exited) }()
 	for i := 0; i < 30; i++ {
@@ -110,30 +110,30 @@ func startDualsenseBridge() bool {
 
 // stopDualsenseBridge : arrête le pont DualSense.
 func stopDualsenseBridge() {
-	if dsBridgePID == 0 {
+	if launch.dsBridgePID == 0 {
 		return
 	}
-	_ = syscall.Kill(dsBridgePID, syscall.SIGTERM)
-	dsBridgePID = 0
+	_ = syscall.Kill(launch.dsBridgePID, syscall.SIGTERM)
+	launch.dsBridgePID = 0
 }
 
 // chooseHidrawMode : HIDRAW=1 (pont USB si DualSense Bluetooth), HIDRAW=bt
 // (DualSense Bluetooth en direct), sinon XInput.
 func chooseHidrawMode() {
-	hidrawDisable = "1"
-	hidrawMsg = "XInput, manette Xbox"
+	launch.hidrawDisable = "1"
+	launch.hidrawMsg = "XInput, manette Xbox"
 	mode := autorunVar("HIDRAW", "0")
 	if mode != "1" && mode != "bt" {
 		return
 	}
 	if !hidrawUsable() {
-		hidrawMsg = "XInput, manette Xbox (hidraw demandé : " + hidrawReason + ")"
+		launch.hidrawMsg = "XInput, manette Xbox (hidraw demandé : " + launch.hidrawReason + ")"
 		return
 	}
-	hidrawDisable = "0"
-	hidrawMsg = "DualSense/DualShock en direct (hidraw)"
+	launch.hidrawDisable = "0"
+	launch.hidrawMsg = "DualSense/DualShock en direct (hidraw)"
 	if mode == "1" && startDualsenseBridge() {
-		hidrawMsg = "DualSense USB (dualsense-usb-bridge, depuis la DualSense Bluetooth)"
+		launch.hidrawMsg = "DualSense USB (dualsense-usb-bridge, depuis la DualSense Bluetooth)"
 	}
 }
 
@@ -141,33 +141,33 @@ func chooseHidrawMode() {
 // coupé, sa conversion XInput les présente en XInput (PROTON_SONY_HIDRAW_XINPUT).
 func applyGeProtonSonyFix() {
 	protonRoot := ""
-	if strings.HasSuffix(wineBinary, "/files/bin/wine") {
-		protonRoot = strings.TrimSuffix(wineBinary, "/files/bin/wine")
+	if strings.HasSuffix(launch.wineBinary, "/files/bin/wine") {
+		protonRoot = strings.TrimSuffix(launch.wineBinary, "/files/bin/wine")
 	}
-	if hidrawDisable != "1" || protonRoot == "" {
+	if launch.hidrawDisable != "1" || protonRoot == "" {
 		return
 	}
 	lib, err := os.ReadFile(protonRoot + "/files/lib/wine/x86_64-unix/winebus.so")
 	if err != nil || !strings.Contains(string(lib), "hidraw handles native reports") || !hidrawUsable() {
 		return
 	}
-	hidrawDisable = "0"
+	launch.hidrawDisable = "0"
 	os.Setenv("PROTON_SONY_HIDRAW_XINPUT", "1")
-	hidrawMsg = "XInput, manette Xbox (manette Sony par hidraw, convertie par GE-Proton)"
+	launch.hidrawMsg = "XInput, manette Xbox (manette Sony par hidraw, convertie par GE-Proton)"
 }
 
 // writeHidrawSetting : DisableHidraw inscrit dans le registre s'il diffère.
 func writeHidrawSetting() {
-	want := `"DisableHidraw"=dword:0000000` + hidrawDisable
-	for _, f := range []string{winePoint + "/system.reg", winePoint + "/pfx/system.reg"} {
+	want := `"DisableHidraw"=dword:0000000` + launch.hidrawDisable
+	for _, f := range []string{launch.winePoint + "/system.reg", launch.winePoint + "/pfx/system.reg"} {
 		if data, err := os.ReadFile(f); err == nil && strings.Contains(string(data), want) {
 			return
 		}
 	}
 	_ = runWineTool("reg", "add", `HKLM\System\CurrentControlSet\Services\winebus`,
-		"/v", "DisableHidraw", "/t", "REG_DWORD", "/d", hidrawDisable, "/f")
-	_ = runWineserver(winePoint, "-k")
-	_ = runWineserver(winePoint, "-w")
+		"/v", "DisableHidraw", "/t", "REG_DWORD", "/d", launch.hidrawDisable, "/f")
+	_ = runWineserver(launch.winePoint, "-k")
+	_ = runWineserver(launch.winePoint, "-w")
 }
 
 // configureControllers : mode des manettes, correctif GE-Proton, registre.
@@ -181,51 +181,51 @@ func configureControllers() {
 
 // readAutorun : lit l'autorun.cmd du prefix et fixe les réglages du jeu.
 func readAutorun() {
-	data, err := os.ReadFile(winePoint + "/autorun.cmd")
-	if err != nil && action != "exec" {
+	data, err := os.ReadFile(launch.winePoint + "/autorun.cmd")
+	if err != nil && launch.action != "exec" {
 		die("autorun.cmd introuvable dans le wsquashfs")
 	}
 	loadLayers(string(data))
 
-	dir = unquote(autorunVar("DIR", ""))
-	cmd = autorunVar("CMD", "")
-	wineVersion = autorunVar("WINE", "")
-	protonVersion = autorunVar("PROTON", "")
-	runnerKey = autorunVar("RUNNER", "")
-	wineArch = autorunVar("ARCH", "")
+	launch.dir = unquote(autorunVar("DIR", ""))
+	launch.cmd = autorunVar("CMD", "")
+	launch.wineVersion = autorunVar("WINE", "")
+	launch.protonVersion = autorunVar("PROTON", "")
+	launch.runnerKey = autorunVar("RUNNER", "")
+	launch.wineArch = autorunVar("ARCH", "")
 
-	dxvk = autorunVar("DXVK", "")
-	dxvkWanted = dxvk
-	if dxvk == "1" && findDxvkDir() == "" {
+	launch.dxvk = autorunVar("DXVK", "")
+	launch.dxvkWanted = launch.dxvk
+	if launch.dxvk == "1" && findDxvkDir() == "" {
 		warn("DXVK introuvable (/usr/share/dxvk), rendu via wined3d")
-		dxvk = "0"
+		launch.dxvk = "0"
 	}
-	vkd3d = autorunVar("VKD3D", "")
-	if vkd3d == "1" && findVkd3dDir() == "" {
+	launch.vkd3d = autorunVar("VKD3D", "")
+	if launch.vkd3d == "1" && findVkd3dDir() == "" {
 		warn("VKD3D-Proton introuvable (/usr/share/vkd3d-proton), Direct3D 12 indisponible")
-		vkd3d = "0"
+		launch.vkd3d = "0"
 	}
-	d7vk = autorunVar("D7VK", "")
-	if d7vk == "1" && findD7vk() == "" {
-		d7vk = "0"
+	launch.d7vk = autorunVar("D7VK", "")
+	if launch.d7vk == "1" && findD7vk() == "" {
+		launch.d7vk = "0"
 	}
 
-	savedirKey = unquote(autorunVar("SAVEDIR", ""))
-	savefilesKey = unquote(autorunVar("SAVEFILES", ""))
-	esync = autorunVar("ESYNC", "")
-	fsync = autorunVar("FSYNC", "")
-	nvapi = autorunVar("NVAPI", "")
-	vkreflex = autorunVar("VKREFLEX", "")
-	fsr = autorunVar("FSR", "")
-	fsr4 = autorunVar("FSR4", "")
-	wineLang = autorunVar("LANG", "")
-	wineEnv = autorunVar("ENV", "")
-	preCmd = autorunVar("PRE", "")
-	attachCmd = autorunVar("ATTACH", "")
-	attachProcess = unquote(autorunVar("ATTACH_PROCESS", ""))
-	virtualDesktop = autorunVar("VIRTUAL_DESKTOP", "")
+	launch.savedirKey = unquote(autorunVar("SAVEDIR", ""))
+	launch.savefilesKey = unquote(autorunVar("SAVEFILES", ""))
+	launch.esync = autorunVar("ESYNC", "")
+	launch.fsync = autorunVar("FSYNC", "")
+	launch.nvapi = autorunVar("NVAPI", "")
+	launch.vkreflex = autorunVar("VKREFLEX", "")
+	launch.fsr = autorunVar("FSR", "")
+	launch.fsr4 = autorunVar("FSR4", "")
+	launch.wineLang = autorunVar("LANG", "")
+	launch.wineEnv = autorunVar("ENV", "")
+	launch.preCmd = autorunVar("PRE", "")
+	launch.attachCmd = autorunVar("ATTACH", "")
+	launch.attachProcess = unquote(autorunVar("ATTACH_PROCESS", ""))
+	launch.virtualDesktop = autorunVar("VIRTUAL_DESKTOP", "")
 
-	if cmd == "" && action != "exec" {
+	if launch.cmd == "" && launch.action != "exec" {
 		die("CMD non défini dans autorun.cmd")
 	}
 }
@@ -237,58 +237,58 @@ var cmdQuotedRe = regexp.MustCompile(`^"([^"]+)"(.*)$`)
 // resolveExecutable : exécutable du jeu (CMD) ou programme de --exec, résolus
 // sans tenir compte de la casse.
 func resolveExecutable() {
-	dir = strings.ReplaceAll(dir, `\`, "/")
-	if dir != "" {
-		if resolved, ok := resolveCI(winePoint, dir); ok {
-			dir = strings.TrimPrefix(resolved, winePoint+"/")
+	launch.dir = strings.ReplaceAll(launch.dir, `\`, "/")
+	if launch.dir != "" {
+		if resolved, ok := resolveCI(launch.winePoint, launch.dir); ok {
+			launch.dir = strings.TrimPrefix(resolved, launch.winePoint+"/")
 		}
 	}
-	if action == "exec" {
-		prog := strings.ReplaceAll(execCmd[0], `\`, "/")
-		execArgsArr = execCmd[1:]
-		execArgs = strings.Join(execArgsArr, " ")
-		if p, ok := resolveCI(winePoint, prog); ok && isFile(p) {
-			execPath = p
-			dir = filepath.Dir(strings.TrimPrefix(p, winePoint+"/"))
-			if dir == "." {
-				dir = ""
+	if launch.action == "exec" {
+		prog := strings.ReplaceAll(launch.execCmd[0], `\`, "/")
+		launch.execArgsArr = launch.execCmd[1:]
+		launch.execArgs = strings.Join(launch.execArgsArr, " ")
+		if p, ok := resolveCI(launch.winePoint, prog); ok && isFile(p) {
+			launch.execPath = p
+			launch.dir = filepath.Dir(strings.TrimPrefix(p, launch.winePoint+"/"))
+			if launch.dir == "." {
+				launch.dir = ""
 			}
-		} else if p, ok := resolveCI(winePoint, dir+"/"+prog); dir != "" && ok && isFile(p) {
-			execPath = p
-			dir = filepath.Dir(strings.TrimPrefix(p, winePoint+"/"))
+		} else if p, ok := resolveCI(launch.winePoint, launch.dir+"/"+prog); launch.dir != "" && ok && isFile(p) {
+			launch.execPath = p
+			launch.dir = filepath.Dir(strings.TrimPrefix(p, launch.winePoint+"/"))
 		} else {
-			execPath = execCmd[0]
-			dir = ""
+			launch.execPath = launch.execCmd[0]
+			launch.dir = ""
 		}
 	} else {
 		var execName string
-		if m := cmdQuotedRe.FindStringSubmatch(cmd); m != nil {
+		if m := cmdQuotedRe.FindStringSubmatch(launch.cmd); m != nil {
 			execName = m[1]
-			execArgs = strings.TrimPrefix(m[2], " ")
+			launch.execArgs = strings.TrimPrefix(m[2], " ")
 		} else {
-			fields := strings.SplitN(cmd, " ", 2)
+			fields := strings.SplitN(launch.cmd, " ", 2)
 			execName = fields[0]
-			execArgs = ""
+			launch.execArgs = ""
 			if len(fields) == 2 {
-				execArgs = fields[1]
+				launch.execArgs = fields[1]
 			}
 		}
-		execArgsArr = splitCommandLine(execArgs)
+		launch.execArgsArr = splitCommandLine(launch.execArgs)
 		rel := execName
-		if dir != "" {
-			rel = dir + "/" + execName
+		if launch.dir != "" {
+			rel = launch.dir + "/" + execName
 		}
-		if p, ok := resolveCI(winePoint, rel); ok {
-			execPath = p
+		if p, ok := resolveCI(launch.winePoint, rel); ok {
+			launch.execPath = p
 		} else {
-			execPath = winePoint + "/" + rel
+			launch.execPath = launch.winePoint + "/" + rel
 		}
-		if !isFile(execPath) {
-			die("exécutable introuvable : "+execPath,
-				"  CMD : "+cmd+"  |  DIR : "+orEmpty(dir, "<vide>"))
+		if !isFile(launch.execPath) {
+			die("exécutable introuvable : "+launch.execPath,
+				"  CMD : "+launch.cmd+"  |  DIR : "+orEmpty(launch.dir, "<vide>"))
 		}
 	}
-	ext = strings.ToLower(strings.TrimPrefix(filepath.Ext(execPath), "."))
+	launch.ext = strings.ToLower(strings.TrimPrefix(filepath.Ext(launch.execPath), "."))
 }
 
 // orEmpty : v, ou repli si vide.
@@ -303,45 +303,45 @@ func orEmpty(v, fallback string) string {
 
 // ensureWin32Runner : un prefix win32 demande un Wine « classique » (i386-unix).
 func ensureWin32Runner() {
-	if wineArch != "win32" || wineSupportsWin32(wineBinary) {
+	if launch.wineArch != "win32" || wineSupportsWin32(launch.wineBinary) {
 		return
 	}
-	if wineOverride != "" {
-		die("prefix win32, mais le runner choisi (--wine " + wineOverride + ") est WoW64 seul")
+	if launch.wineOverride != "" {
+		die("prefix win32, mais le runner choisi (--wine " + launch.wineOverride + ") est WoW64 seul")
 	}
 	alt := findWin32Wine()
 	if alt == "" {
-		die("prefix win32, mais "+runnerName(wineBinary)+" est un Wine WoW64 seul",
+		die("prefix win32, mais "+runnerName(launch.wineBinary)+" est un Wine WoW64 seul",
 			"  (pas de lib/wine/i386-unix) qui ne peut pas lancer de prefix 32 bits.",
 			"  → Installer un Wine classique (ex. Kron4ek wine-*-amd64, non wow64)",
 			"    dans /opt ou ~/.local/share/wsquashfs/wine")
 	}
-	wineBinary = alt
+	launch.wineBinary = alt
 }
 
 // configureDllOverrides : overrides DLL de Wine direct, ou équivalents Proton.
 func configureDllOverrides() {
-	if umuRun != "" {
+	if launch.umuRun != "" {
 		// Proton pose lui-même DXVK/VKD3D/NVAPI dans le prefix.
-		if dxvkWanted == "0" {
+		if launch.dxvkWanted == "0" {
 			os.Setenv("PROTON_USE_WINED3D", "1")
 		}
-		dxvk, vkd3d, d7vk = "0", "0", "0"
+		launch.dxvk, launch.vkd3d, launch.d7vk = "0", "0", "0"
 		// Proton COPIE ~560 DLL par prefix sinon : liens (PROTON_DLL_COPY vide).
 		os.Setenv("PROTON_DLL_COPY", os.Getenv("PROTON_DLL_COPY"))
 	} else {
-		if d7vk == "1" {
+		if launch.d7vk == "1" {
 			addDllOverride("ddraw=n,b")
 		}
-		if dxvk == "1" {
+		if launch.dxvk == "1" {
 			addDllOverride("d3d8,d3d9,d3d10core,d3d11,dxgi=n,b")
 		} else {
 			addDllOverride("d3d8,d3d9,d3d10core,d3d11,dxgi=b")
 		}
-		if vkd3d == "1" {
+		if launch.vkd3d == "1" {
 			addDllOverride("d3d12,d3d12core=n,b")
 		}
-		if nvapiOn == "1" {
+		if launch.nvapiOn == "1" {
 			os.Setenv("DXVK_ENABLE_NVAPI", "1")
 			addDllOverride("nvapi,nvapi64=n")
 		} else {
@@ -353,10 +353,13 @@ func configureDllOverrides() {
 	addDllOverride("winemenubuilder.exe=d;winebrowser.exe=d")
 }
 
+// wineEnvKeyRe : début d'un couple NOM=valeur de l'environnement Wine.
+var wineEnvKeyRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*=`)
+
 // applyWineEnv : ENV= de l'autorun, NOM=valeur séparés par des espaces.
 func applyWineEnv(env string) {
 	for _, pair := range strings.Fields(env) {
-		if regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*=`).MatchString(pair) {
+		if wineEnvKeyRe.MatchString(pair) {
 			k, v, _ := strings.Cut(pair, "=")
 			os.Setenv(k, v)
 		}
@@ -365,8 +368,8 @@ func applyWineEnv(env string) {
 
 // configureWine : architecture, GPU, environnement Wine du jeu.
 func configureWine() {
-	if wineArch == "" {
-		wineArch = detectPrefixArch()
+	if launch.wineArch == "" {
+		launch.wineArch = detectPrefixArch()
 	}
 	ensureWin32Runner()
 	detectGpus()
@@ -376,28 +379,28 @@ func configureWine() {
 	configureGpuEnv()
 
 	// Outils Wine (regedit, reg) : par umu pour un prefix Proton.
-	wineTool = []string{wineBinary}
-	if umuRun != "" {
-		wineTool = []string{umuRun}
+	launch.wineTool = []string{launch.wineBinary}
+	if launch.umuRun != "" {
+		launch.wineTool = []string{launch.umuRun}
 	}
 
-	os.Setenv("WINEPREFIX", winePoint)
-	os.Setenv("WINEARCH", wineArch)
+	os.Setenv("WINEPREFIX", launch.winePoint)
+	os.Setenv("WINEARCH", launch.wineArch)
 
 	// Nom d'utilisateur Wine adapté au prefix (steamuser, Batocera).
 	prefixUser := detectWineUsername()
 	effective := os.Getenv("USER")
 	if dropsToTargetUser() {
-		effective = targetUser
+		effective = conf.targetUser
 	}
 	if prefixUser != "" && prefixUser != effective {
 		os.Setenv("WINEUSERNAME", prefixUser)
 	}
 
-	if esync == "1" {
+	if launch.esync == "1" {
 		os.Setenv("WINEESYNC", "1")
 	}
-	if fsync == "1" {
+	if launch.fsync == "1" {
 		os.Setenv("WINEFSYNC", "1")
 	}
 	configureDllOverrides()
@@ -406,11 +409,11 @@ func configureWine() {
 	if os.Getenv("WINEDEBUG") == "" {
 		os.Setenv("WINEDEBUG", "fixme-all")
 	}
-	if wineLang != "" {
-		os.Setenv("LC_ALL", wineLang)
+	if launch.wineLang != "" {
+		os.Setenv("LC_ALL", launch.wineLang)
 	}
-	if wineEnv != "" {
-		applyWineEnv(wineEnv)
+	if launch.wineEnv != "" {
+		applyWineEnv(launch.wineEnv)
 	}
 }
 
@@ -419,50 +422,50 @@ func configureWine() {
 // initPrefixIfNeeded : crée le prefix d'un jeu seul, ou répare un prefix sans
 // system32.
 func initPrefixIfNeeded() {
-	if umuRun != "" {
-		if !isFile(winePoint + "/system.reg") {
+	if launch.umuRun != "" {
+		if !isFile(launch.winePoint + "/system.reg") {
 			uiStatusLine(stInfo, "Initialisation du préfixe par Proton au premier lancement...")
 		}
 		return
 	}
-	if isFile(winePoint + "/system.reg") {
-		if st, err := os.Stat(winePoint + "/drive_c"); err == nil && st.IsDir() &&
-			(packagedPrefix || isFile(winePoint+"/drive_c/windows/system32/explorer.exe")) {
+	if isFile(launch.winePoint + "/system.reg") {
+		if st, err := os.Stat(launch.winePoint + "/drive_c"); err == nil && st.IsDir() &&
+			(launch.packagedPrefix || isFile(launch.winePoint+"/drive_c/windows/system32/explorer.exe")) {
 			uiStatusLine(stOK, "Préfixe Wine détecté (structure Batocera)")
 			return
 		}
 	}
-	uiStatusLine(stInfo, "Initialisation du préfixe Wine ("+wineArch+")...")
+	uiStatusLine(stInfo, "Initialisation du préfixe Wine ("+launch.wineArch+")...")
 	// wineboot -u ne réinstalle rien tant que .update-timestamp correspond.
-	_ = os.Remove(winePoint + "/.update-timestamp")
+	_ = os.Remove(launch.winePoint + "/.update-timestamp")
 	_ = runWineboot(os.Getenv("WINEDEBUG"))
-	_ = runWineserver(winePoint, "-w")
+	_ = runWineserver(launch.winePoint, "-w")
 	// Overlay : jamais de chown sur WINEPOINT (le montage), l'upperdir suffit.
-	if mountMode == "overlay" {
-		chownToTarget(savePoint)
+	if launch.mountMode == "overlay" {
+		chownToTarget(launch.savePoint)
 	} else {
-		chownToTarget(winePoint)
+		chownToTarget(launch.winePoint)
 	}
 }
 
 // installPrefixDlls : DLL du runner, DXVK, VKD3D, d7vk et NVAPI (sans umu).
 func installPrefixDlls() {
-	if umuRun != "" {
+	if launch.umuRun != "" {
 		return
 	}
-	if mountMode == "overlay" && overlayKind == "fuse" {
-		linkRuntimeDlls(savePoint)
-		chownToTarget(savePoint)
+	if launch.mountMode == "overlay" && launch.overlayKind == "fuse" {
+		linkRuntimeDlls(launch.savePoint)
+		chownToTarget(launch.savePoint)
 		reloadOverlay("après sync DLLs")
 		return
 	}
-	linkRuntimeDlls(winePoint)
-	chownToTarget(winePoint)
+	linkRuntimeDlls(launch.winePoint)
+	chownToTarget(launch.winePoint)
 }
 
 // importRegistryFiles : regs/*.reg importés à chaque lancement.
 func importRegistryFiles() {
-	regs := winePoint + "/regs"
+	regs := launch.winePoint + "/regs"
 	if st, err := os.Stat(regs); err != nil || !st.IsDir() {
 		return
 	}
@@ -480,12 +483,12 @@ func importRegistryFiles() {
 // preparePrefix : prefix prêt à lancer.
 func preparePrefix() {
 	initPrefixIfNeeded()
-	if umuRun == "" {
+	if launch.umuRun == "" {
 		updatePrefixIfNeeded()
 	}
 	fixUserdataLinks()
 	installPrefixDlls()
-	if umuRun == "" {
+	if launch.umuRun == "" {
 		writeNvidiaRegistry()
 	}
 	importRegistryFiles()
@@ -495,23 +498,23 @@ func preparePrefix() {
 
 // printSummary : récapitulatif du lancement.
 func printSummary() {
-	pairs := []kv{{"Exécutable", execPath}, {"Arguments", orEmpty(execArgs, "<aucun>")}}
-	if umuRun != "" {
-		if protonDir+"/files/bin/wine" == imageRunner {
-			pairs = append(pairs, kv{"Proton", filepath.Base(protonDir) + " via umu (" + protonDir + ") — joint à l'image"})
+	pairs := []kv{{"Exécutable", launch.execPath}, {"Arguments", orEmpty(launch.execArgs, "<aucun>")}}
+	if launch.umuRun != "" {
+		if launch.protonDir+"/files/bin/wine" == launch.imageRunner {
+			pairs = append(pairs, kv{"Proton", filepath.Base(launch.protonDir) + " via umu (" + launch.protonDir + ") — joint à l'image"})
 		} else {
-			pairs = append(pairs, kv{"Proton", filepath.Base(protonDir) + " via umu (" + protonDir + ")"})
+			pairs = append(pairs, kv{"Proton", filepath.Base(launch.protonDir) + " via umu (" + launch.protonDir + ")"})
 		}
-		if v := runnerVersion(protonDir + "/files/bin/wine"); v != "" {
+		if v := runnerVersion(launch.protonDir + "/files/bin/wine"); v != "" {
 			pairs = append(pairs, kv{"Version Proton", v})
 		}
 	} else {
-		if imageRunner != "" && wineBinary == imageRunner {
-			pairs = append(pairs, kv{"Wine", wineBinary + " (" + wineArch + ") — joint à l'image"})
+		if launch.imageRunner != "" && launch.wineBinary == launch.imageRunner {
+			pairs = append(pairs, kv{"Wine", launch.wineBinary + " (" + launch.wineArch + ") — joint à l'image"})
 		} else {
-			pairs = append(pairs, kv{"Wine", wineBinary + " (" + wineArch + ")"})
+			pairs = append(pairs, kv{"Wine", launch.wineBinary + " (" + launch.wineArch + ")"})
 		}
-		if v := runnerVersion(wineBinary); v != "" {
+		if v := runnerVersion(launch.wineBinary); v != "" {
 			pairs = append(pairs, kv{"Version Wine", v})
 		}
 	}
@@ -519,64 +522,70 @@ func printSummary() {
 	if u := os.Getenv("WINEUSERNAME"); u != "" {
 		pairs = append(pairs, kv{"Utilisateur", u + " (adapté au prefix)"})
 	}
-	if runAsRoot {
-		if targetUser != "" {
-			pairs = append(pairs, kv{"Privilège", "montage en root, Wine relancé en " + targetUser})
+	if conf.runAsRoot {
+		if conf.targetUser != "" {
+			pairs = append(pairs, kv{"Privilège", "montage en root, Wine relancé en " + conf.targetUser})
 		} else {
 			warn("lancé en root sans SUDO_USER — l'affichage risque d'échouer (pas de cookie X11)")
 		}
 	}
-	if mountMode == "overlay" {
-		pairs = append(pairs, kv{"Sauvegardes", savePoint})
+	if launch.mountMode == "overlay" {
+		pairs = append(pairs, kv{"Sauvegardes", launch.savePoint})
 	}
-	pairs = append(pairs, kv{"Manettes", hidrawMsg})
-	if dxvk == "1" {
+	pairs = append(pairs, kv{"Manettes", launch.hidrawMsg})
+	if launch.dxvk == "1" {
 		pairs = append(pairs, kv{"DXVK", "activé"})
 	}
-	if vkd3d == "1" {
+	if launch.vkd3d == "1" {
 		pairs = append(pairs, kv{"VKD3D", "activé"})
 	}
-	if d7vk == "1" {
+	if launch.d7vk == "1" {
 		pairs = append(pairs, kv{"D7VK", "activé (DirectDraw → Vulkan)"})
 	}
-	if esync == "1" {
+	if launch.esync == "1" {
 		pairs = append(pairs, kv{"ESYNC", "activé"})
 	}
-	if fsync == "1" {
+	if launch.fsync == "1" {
 		pairs = append(pairs, kv{"FSYNC", "activé"})
 	}
-	if wineLang != "" {
-		pairs = append(pairs, kv{"Langue", wineLang})
+	if launch.wineLang != "" {
+		pairs = append(pairs, kv{"Langue", launch.wineLang})
 	}
-	if virtualDesktop != "" {
-		pairs = append(pairs, kv{"Bureau virtuel", virtualDesktop})
+	if launch.virtualDesktop != "" {
+		pairs = append(pairs, kv{"Bureau virtuel", launch.virtualDesktop})
 	}
 	uiSection("Lancement")
 	uiKV(2, pairs...)
 }
 
+// desktopNameRe : caractères retirés du nom de bureau créé pour le jeu.
+var desktopNameRe = regexp.MustCompile(`[^a-zA-Z0-9_]`)
+
+// virtualDesktopRe : taille WxH d'un bureau virtuel.
+var virtualDesktopRe = regexp.MustCompile(`^([0-9]+)x([0-9]+)$`)
+
 // buildRunCommand : ligne de commande du jeu (wine [explorer /desktop] [cmd /c]
 // exe args), umu-run à la place de wine, gamescope pour --headless.
 func buildRunCommand() {
-	runCmdArgs = []string{wineBinary}
-	if virtualDesktop != "" {
-		desktop := regexp.MustCompile(`[^a-zA-Z0-9_]`).ReplaceAllString(strings.ReplaceAll(gameName, " ", "_"), "")
-		runCmdArgs = append(runCmdArgs, "explorer", "/desktop="+desktop+","+virtualDesktop)
+	launch.runCmdArgs = []string{launch.wineBinary}
+	if launch.virtualDesktop != "" {
+		desktop := desktopNameRe.ReplaceAllString(strings.ReplaceAll(launch.gameName, " ", "_"), "")
+		launch.runCmdArgs = append(launch.runCmdArgs, "explorer", "/desktop="+desktop+","+launch.virtualDesktop)
 	}
-	if ext == "bat" {
-		runCmdArgs = append(runCmdArgs, "cmd", "/c")
+	if launch.ext == "bat" {
+		launch.runCmdArgs = append(launch.runCmdArgs, "cmd", "/c")
 	}
-	runCmdArgs = append(runCmdArgs, execPath)
-	runCmdArgs = append(runCmdArgs, execArgsArr...)
-	if umuRun != "" {
-		runCmdArgs[0] = umuRun
+	launch.runCmdArgs = append(launch.runCmdArgs, launch.execPath)
+	launch.runCmdArgs = append(launch.runCmdArgs, launch.execArgsArr...)
+	if launch.umuRun != "" {
+		launch.runCmdArgs[0] = launch.umuRun
 	}
-	if headless {
+	if launch.headless {
 		w, h := "1920", "1080"
-		if m := regexp.MustCompile(`^([0-9]+)x([0-9]+)$`).FindStringSubmatch(virtualDesktop); m != nil {
+		if m := virtualDesktopRe.FindStringSubmatch(launch.virtualDesktop); m != nil {
 			w, h = m[1], m[2]
 		}
-		runCmdArgs = append([]string{"gamescope", "--backend", "headless", "-w", w, "-h", h, "-W", w, "-H", h, "--"}, runCmdArgs...)
+		launch.runCmdArgs = append([]string{"gamescope", "--backend", "headless", "-w", w, "-h", h, "-W", w, "-H", h, "--"}, launch.runCmdArgs...)
 	}
 }
 
@@ -609,22 +618,22 @@ func runAsTargetUser(args ...string) *exec.Cmd {
 			env = append(env, n+"="+v)
 		}
 	}
-	return exec.Command("sudo", append([]string{"-u", targetUser, "env"}, append(env, args...)...)...)
+	return exec.Command("sudo", append([]string{"-u", conf.targetUser, "env"}, append(env, args...)...)...)
 }
 
 // playGame : le jeu lui-même, avec l'utilisateur de la partie.
 func playGame() int {
 	var cmd *exec.Cmd
 	if dropsToTargetUser() {
-		cmd = runAsTargetUser(runCmdArgs...)
+		cmd = runAsTargetUser(launch.runCmdArgs...)
 	} else {
-		cmd = asWineUser(runCmdArgs[0], runCmdArgs[1:]...)
+		cmd = asWineUser(launch.runCmdArgs[0], launch.runCmdArgs[1:]...)
 	}
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	if lockFile != nil {
-		cmd.ExtraFiles = []*os.File{lockFile}
+	if launch.lockFile != nil {
+		cmd.ExtraFiles = []*os.File{launch.lockFile}
 	}
 	err := cmd.Run()
 	if ee, ok := err.(*exec.ExitError); ok {
@@ -647,24 +656,24 @@ func asGameUser(args ...string) *exec.Cmd {
 // runPreCommand : PRE= (autorun.cmd), dans le dossier du jeu. Un échec arrête
 // le lancement.
 func runPreCommand() {
-	if preCmd == "" {
+	if launch.preCmd == "" {
 		return
 	}
 	// Dossier courant : celui du jeu (runGame vient de s'y placer).
-	cmd := asGameUser("bash", "-c", preCmd)
+	cmd := asGameUser("bash", "-c", launch.preCmd)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if cmd.Run() != nil {
-		die("PRE a échoué : " + preCmd)
+		die("PRE a échoué : " + launch.preCmd)
 	}
 }
 
 // gameProcessPID : PID du processus du jeu (nom du noyau, 15 caractères) dont
 // l'environnement a WINEPREFIX de ce jeu.
 func gameProcessPID(name string) int {
-	prefixes := []string{regexp.QuoteMeta(winePoint)}
-	if real, err := filepath.EvalSymlinks(winePoint); err == nil && real != winePoint {
+	prefixes := []string{regexp.QuoteMeta(launch.winePoint)}
+	if real, err := filepath.EvalSymlinks(launch.winePoint); err == nil && real != launch.winePoint {
 		prefixes = append(prefixes, regexp.QuoteMeta(real))
 	}
 	re := regexp.MustCompile("^WINEPREFIX=(" + strings.Join(prefixes, "|") + ")(/.*)?$")
@@ -695,11 +704,11 @@ func gameProcessPID(name string) int {
 // startAttachCommand : ATTACH= en tâche de fond, pendant toute la partie. Attend
 // le processus du jeu, puis lance la commande avec GAME_PID.
 func startAttachCommand() {
-	if attachCmd == "" {
+	if launch.attachCmd == "" {
 		return
 	}
-	if attachProcess == "" {
-		attachProcess = filepath.Base(execPath)
+	if launch.attachProcess == "" {
+		launch.attachProcess = filepath.Base(launch.execPath)
 	}
 	attachMarker = fmt.Sprintf("WSQUASHFS_ATTACH=%d", os.Getpid())
 	attachMu.Lock()
@@ -716,17 +725,17 @@ func startAttachCommand() {
 			case <-stop:
 				// Partie finie avant le processus du jeu (trap USR1 du script).
 				if pid == 0 {
-					warn("ATTACH : processus " + attachProcess + " introuvable, commande non lancée")
+					warn("ATTACH : processus " + launch.attachProcess + " introuvable, commande non lancée")
 				}
 				return
 			default:
 			}
-			if pid = gameProcessPID(attachProcess); pid != 0 {
+			if pid = gameProcessPID(launch.attachProcess); pid != 0 {
 				break
 			}
 			time.Sleep(200 * time.Millisecond)
 		}
-		cmd := asGameUser("env", attachMarker, "GAME_PID="+strconv.Itoa(pid), "bash", "-c", attachCmd)
+		cmd := asGameUser("env", attachMarker, "GAME_PID="+strconv.Itoa(pid), "bash", "-c", launch.attachCmd)
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		_ = cmd.Run()
@@ -767,9 +776,9 @@ func stopAttachCommand() {
 
 // runGame : le jeu, puis attente de tous les processus du prefix.
 func runGame() {
-	os.Chdir(winePoint + ifNotEmpty(dir))
+	os.Chdir(launch.winePoint + ifNotEmpty(launch.dir))
 	buildRunCommand()
-	if action != "exec" {
+	if launch.action != "exec" {
 		runPreCommand()
 		startAttachCommand()
 	}
@@ -778,10 +787,10 @@ func runGame() {
 	if signalExiting.Load() {
 		select {} // sortie sur signal en cours : cleanup puis os.Exit
 	}
-	_ = runWineserver(winePoint, "-w")
+	_ = runWineserver(launch.winePoint, "-w")
 	stopAttachCommand()
-	if action == "run" { // lancement normal seulement (pas --exec)
-		autoSyncAfterGame(gameName)
+	if launch.action == "run" { // lancement normal seulement (pas --exec)
+		autoSyncAfterGame(launch.gameName)
 	}
 	uiRule("")
 	uiVerdict(code == 0, fmt.Sprintf("Jeu terminé (code : %d)", code))
@@ -801,22 +810,22 @@ func launchGame() {
 	resolveGamePath()
 	checkLauncherDeps()
 	initGamePaths()
-	if nsStage != "" {
+	if launch.nsStage != "" {
 		// Relancé dans le namespace : verrou hérité, dossiers préparés par l'hôte.
-		lockedGame = gameName
+		launch.lockedGame = launch.gameName
 		useKernelOverlay()
 	} else {
 		printLauncherHeader()
 		if !acquireGameLock() {
-			die(gameName + " est déjà lancé")
+			die(launch.gameName + " est déjà lancé")
 		}
-		if dirMode {
+		if launch.dirMode {
 			useInstalledDir()
 		} else {
 			mountImage()
 		}
 	}
-	if action == "mount" {
+	if launch.action == "mount" {
 		reportMountAndExit()
 	}
 	readAutorun()
@@ -824,43 +833,43 @@ func launchGame() {
 	selectRunner()
 	configureWine()
 	preparePrefix()
-	if action == "prepare" {
-		applySavedir(savedirKey, savefilesKey)
-		uiVerdict(true, "Prefix préparé : "+gameName+" (jeu non lancé)")
+	if launch.action == "prepare" {
+		applySavedir(launch.savedirKey, launch.savefilesKey)
+		uiVerdict(true, "Prefix préparé : "+launch.gameName+" (jeu non lancé)")
 		exitNow(0)
 	}
 	configureControllers()
-	applySavedir(savedirKey, savefilesKey)
+	applySavedir(launch.savedirKey, launch.savefilesKey)
 	printSummary()
 	runGame()
 }
 
 // printLauncherHeader : en-tête du lancement.
 func printLauncherHeader() {
-	sub := gameName
-	if v := gameVersion(wsquashfsFile); v != "" {
+	sub := launch.gameName
+	if v := gameVersion(launch.wsquashfsFile); v != "" {
 		sub += " · version " + v
 	}
 	uiTitle("WSquashFS Launcher", sub)
 	uiKVLine("Environnement", detectEnv())
-	uiKVLine("Fichier", wsquashfsFile)
+	uiKVLine("Fichier", launch.wsquashfsFile)
 	if f := machineLayerFile(); isFile(f) {
 		uiKVLine("Réglages machine", f+" ("+overrideKeys(f)+")")
 	}
-	if f := filepath.Dir(strings.TrimSuffix(wsquashfsFile, "/")) + "/_defaults.autorun"; isFile(f) {
+	if f := filepath.Dir(strings.TrimSuffix(launch.wsquashfsFile, "/")) + "/_defaults.autorun"; isFile(f) {
 		uiKVLine("Réglages dossier", f+" ("+overrideKeys(f)+")")
 	}
-	if autorunOverride != "" {
-		uiKVLine("Surcharge", filepath.Base(autorunOverride)+" ("+overrideKeys(autorunOverride)+")")
+	if launch.autorunOverride != "" {
+		uiKVLine("Surcharge", filepath.Base(launch.autorunOverride)+" ("+overrideKeys(launch.autorunOverride)+")")
 	}
-	if len(setArgs) > 0 {
-		uiKVLine("Options --set", strings.Join(setArgs, " "))
+	if len(launch.setArgs) > 0 {
+		uiKVLine("Options --set", strings.Join(launch.setArgs, " "))
 	}
-	if action != "run" {
+	if launch.action != "run" {
 		name := ""
-		if len(execCmd) > 0 {
-			name = " (" + execCmd[0] + ")"
+		if len(launch.execCmd) > 0 {
+			name = " (" + launch.execCmd[0] + ")"
 		}
-		uiKVLine("Action", action+name)
+		uiKVLine("Action", launch.action+name)
 	}
 }

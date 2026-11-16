@@ -18,7 +18,7 @@ func completionRig(t *testing.T) {
 	t.Setenv("WSQUASHFS_EDEN_DIR", "")
 	isolateSaves(t)
 	for _, g := range []string{"Hollow Knight", "Castlevania - Belmont's Curse", "Tekken 8"} {
-		writeTree(t, filepath.Join(savesDir, g, "drive_c", "users", "steamuser", "Documents"), map[string]string{"s.sav": g})
+		writeTree(t, filepath.Join(conf.savesDir, g, "drive_c", "users", "steamuser", "Documents"), map[string]string{"s.sav": g})
 	}
 	writeTree(t, filepath.Join(home, ".local", "share", "hookshot", "save"), map[string]string{"slot": "x"})
 	cfg := syncConfig{ID: "0123456789abcdef0123456789abcdef", Peers: []syncPeer{{Name: "aibox"}, {Name: "steamdeck"}}}

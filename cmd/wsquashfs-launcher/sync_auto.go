@@ -22,7 +22,7 @@ func autoSyncAfterGame(name string) {
 	// Sauvegardes hors du prefix (SAVEDIR/SAVEFILES, lus au lancement) : ni copiées ni synchronisées.
 	// Pas de gameUsesSaveDir ici : il réécrit l'état du jeu en cours (image, couches) avant le
 	// démontage.
-	if savedirKey != "" || savefilesKey != "" {
+	if launch.savedirKey != "" || launch.savefilesKey != "" {
 		return
 	}
 	t := gameTarget(name, syncUsersDir(name))

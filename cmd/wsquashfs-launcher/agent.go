@@ -76,10 +76,7 @@ type agentMachine struct {
 
 // agentDir : dossier de configuration de l'agent.
 func agentDir() string {
-	base := os.Getenv("XDG_CONFIG_HOME")
-	if base == "" {
-		base = filepath.Join(os.Getenv("HOME"), ".config")
-	}
+	base := configHome()
 	return filepath.Join(base, "wsquashfs", "agent")
 }
 
@@ -642,7 +639,7 @@ func startAgentDetached() (int, error) {
 		return 0, err
 	}
 	defer log.Close()
-	cmd := exec.Command(selfPath, "--agent", "run", "log")
+	cmd := exec.Command(conf.selfPath, "--agent", "run", "log")
 	cmd.Stdin = nil
 	cmd.Stdout = log
 	cmd.Stderr = log
@@ -822,10 +819,7 @@ var agentSystemctl = func(action string, units ...string) error {
 
 // agentSocketUnit : fichier du socket systemd installé par les anciennes versions (« --setup --agent », supprimé).
 func agentSocketUnit() string {
-	base := os.Getenv("XDG_CONFIG_HOME")
-	if base == "" {
-		base = filepath.Join(os.Getenv("HOME"), ".config")
-	}
+	base := configHome()
 	return filepath.Join(base, "systemd", "user", "wsquashfs-agent.socket")
 }
 

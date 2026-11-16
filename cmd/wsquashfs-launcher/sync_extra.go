@@ -304,12 +304,9 @@ var romIDRe = regexp.MustCompile(`\[([0-9A-Fa-f]{16})\]`)
 // puis switch/ et switch2/ de chaque dossier roms/ de l'agent.
 func switchRomDirs() []string {
 	var dirs []string
-	conf := os.Getenv("XDG_CONFIG_HOME")
-	if conf == "" {
-		conf = filepath.Join(os.Getenv("HOME"), ".config")
-	}
+	base := configHome()
 	for _, ini := range []string{
-		filepath.Join(conf, "eden", "qt-config.ini"),
+		filepath.Join(base, "eden", "qt-config.ini"),
 		filepath.Join(os.Getenv("HOME"), ".var", "app", "dev.eden_emu.eden", "config", "eden", "qt-config.ini"),
 	} {
 		data, err := os.ReadFile(ini)
