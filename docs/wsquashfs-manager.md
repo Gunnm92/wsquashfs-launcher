@@ -215,7 +215,7 @@ Une image squashfs ne se modifie pas en place : il faut la reconstruire.
 Pour éviter d'extraire 10 Go sur disque à chaque fois :
 
 1. décrire l'image, données comprises, sans la monter ni l'extraire
-   (`unsquashfs -no-xattrs -pf -`, squashfs-tools 4.6) ;
+   (`unsquashfs -pf -`, squashfs-tools 4.7 ; attributs user.* gardés) ;
 2. filtrer cette description : chemins supprimés ou remplacés retirés,
    changements ajoutés en définitions « pseudo » (nouvel autorun, fichiers du
    patch par lien vers le disque, liens symboliques, dossiers) ;
@@ -283,7 +283,7 @@ délai configurable ; bouton « revenir à l'ancienne ».
 - **Application web** servie depuis SteamBox (ou un petit conteneur à côté
   qui monte les mêmes dossiers) : utilisable depuis n'importe quel PC du
   réseau, sans passer par la session Moonlight ; les outils nécessaires
-  (`squashfs-tools` 4.6) sont déjà dans l'image ; ni FUSE ni privilège (16/11).
+  (`squashfs-tools` 4.7) sont déjà dans l'image ; ni FUSE ni privilège (16/11).
 - **Backend** Python (FastAPI) : scan, lecture/écriture d'autorun,
   planification des tâches ; exécution des outils en sous-processus, sous
   l'utilisateur `arcade` (propriétaire des images et sauvegardes).
