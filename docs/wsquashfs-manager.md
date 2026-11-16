@@ -214,11 +214,12 @@ conflit que `--sync` en ligne de commande.
 Une image squashfs ne se modifie pas en place : il faut la reconstruire.
 Pour éviter d'extraire 10 Go sur disque à chaque fois :
 
-1. monter l'image en lecture seule (`squashfuse`) ;
-2. superposer une couche contenant uniquement les changements
-   (`fuse-overlayfs`, `upperdir` = dossier temporaire : nouvel autorun,
-   fichiers du patch, fichiers supprimés en « whiteout ») ;
-3. `mksquashfs` depuis la vue fusionnée vers `<jeu>.wsquashfs.part`
+1. décrire l'image, données comprises, sans la monter ni l'extraire
+   (`unsquashfs -no-xattrs -pf -`, squashfs-tools 4.6) ;
+2. filtrer cette description : chemins supprimés ou remplacés retirés,
+   changements ajoutés en définitions « pseudo » (nouvel autorun, fichiers du
+   patch par lien vers le disque, liens symboliques, dossiers) ;
+3. `mksquashfs - <jeu>.wsquashfs.part -pf -` reconstruit depuis ce flux
    (zstd, mêmes options que `--pack`) ;
 4. vérifier la nouvelle image (§ 3.4) ;
 5. échange atomique : original → `<jeu>.wsquashfs.old`, `.part` →
@@ -282,7 +283,7 @@ délai configurable ; bouton « revenir à l'ancienne ».
 - **Application web** servie depuis SteamBox (ou un petit conteneur à côté
   qui monte les mêmes dossiers) : utilisable depuis n'importe quel PC du
   réseau, sans passer par la session Moonlight ; les outils nécessaires
-  (`squashfs-tools`, `squashfuse`, `fuse-overlayfs`) sont déjà dans l'image.
+  (`squashfs-tools` 4.6) sont déjà dans l'image ; ni FUSE ni privilège (16/11).
 - **Backend** Python (FastAPI) : scan, lecture/écriture d'autorun,
   planification des tâches ; exécution des outils en sous-processus, sous
   l'utilisateur `arcade` (propriétaire des images et sauvegardes).
