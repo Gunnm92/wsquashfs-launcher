@@ -42,7 +42,7 @@ type syncConfig struct {
 	ID    string     `json:"id"`
 	Peers []syncPeer `json:"peers"`
 	Dirs  []syncDir  `json:"dirs,omitempty"` // dossiers déclarés (--sync dir add), synchronisés comme des jeux
-	Auto  bool       `json:"auto,omitempty"` // --sync auto on : envoi au manager à la sortie d'un jeu (sync_auto.go)
+	Auto  bool       `json:"auto,omitempty"` // --sync auto on : synchro avec le manager (envoi à la sortie d'un jeu, réception)
 }
 
 // managerPeer : le pair déclaré par le manager (Manager), s'il y en a un.

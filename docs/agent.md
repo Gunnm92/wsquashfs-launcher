@@ -98,7 +98,7 @@ est retiré. Un code expiré, déjà utilisé ou faux : 401 (« relancer --pair 
 | Route | Rôle |
 |---|---|
 | `POST /v1/pair` | association (hors du contrôle de jeton), voir ci-dessous |
-| `GET /v1/info` | version, machine, utilisateur, dossiers roms/, `os` (ID de `/etc/os-release`, `linux` par défaut), `games_dir` (dossier d'installation effectif), `games_dir_set` (choix manuel en vigueur), `manager` (empreinte du manager déclaré, `""` sinon) et `auto` (synchro automatique à la sortie d'un jeu, `--sync auto on`) |
+| `GET /v1/info` | version, machine, utilisateur, dossiers roms/, `os` (ID de `/etc/os-release`, `linux` par défaut), `games_dir` (dossier d'installation effectif), `games_dir_set` (choix manuel en vigueur), `manager` (empreinte du manager déclaré, `""` sinon) et `auto` (synchro automatique avec le manager, `--sync auto on` : envoi à la sortie d'un jeu, réception de sa version la plus récente) |
 | `GET /v1/doctor[?refresh=1]` | rapport `--doctor json` (mis en cache 5 min) |
 | `POST /v1/trial` `{rel, duration}` | essai : rapport `--trial` et capture (base64) |
 | `POST /v1/maintenance` `{action, rel?}` | voir la table ci-dessous |

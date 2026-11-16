@@ -308,7 +308,7 @@ func launcherExe() string {
 func (s *agentServer) info(w http.ResponseWriter, r *http.Request) {
 	host, _ := os.Hostname()
 	gamesDir, gamesSet, _, _ := s.gamesDir()
-	// manager : empreinte du manager déclaré ("" sans déclaration) ; auto : synchro à la sortie d'un jeu.
+	// manager : empreinte du manager déclaré ("" sans déclaration) ; auto : synchro automatique avec le manager.
 	cfg := loadSyncConfig()
 	manager := ""
 	if p, ok := managerPeer(cfg); ok {

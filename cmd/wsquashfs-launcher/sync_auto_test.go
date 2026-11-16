@@ -165,7 +165,7 @@ func TestSyncAutoRequiresManager(t *testing.T) {
 		t.Fatalf("--sync auto on : code %d, active %v", rc, loadSyncConfig().Auto)
 	}
 	// Agent arrêté (aucun ne tourne pendant les tests) : activé quand même, avec un avertissement
-	if !strings.Contains(out.String(), "wsquashfs-launcher --agent pour la rendre visible") {
+	if !strings.Contains(out.String(), "wsquashfs-launcher --agent pour recevoir les parties du manager") {
 		t.Errorf("sans agent : pas d'avertissement, sortie %q", out.String())
 	}
 	out.Reset()
@@ -184,7 +184,7 @@ func TestSyncAutoRequiresManager(t *testing.T) {
 	if rc := cmdSync([]string{"auto", "off"}); rc != 0 || !strings.Contains(out.String(), "déjà désactivée") {
 		t.Errorf("deuxième off : code %d, sortie %q", rc, out.String())
 	}
-	if strings.Contains(out.String(), "pour la rendre visible") {
+	if strings.Contains(out.String(), "pour recevoir les parties du manager") {
 		t.Errorf("désactivée : avertissement inutile, sortie %q", out.String())
 	}
 }

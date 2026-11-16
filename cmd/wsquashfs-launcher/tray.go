@@ -212,7 +212,7 @@ func (a *trayApp) build() {
 	onClick(a.agent, a.toggleAgent)
 	a.syncItem = systray.AddMenuItem("Synchroniser maintenant", "wsquashfs-launcher --sync")
 	onClick(a.syncItem, func() { a.runAction("Synchronisation", "--sync") })
-	a.auto = systray.AddMenuItemCheckbox("Synchro auto à la sortie d'un jeu", "wsquashfs-launcher --sync auto", false)
+	a.auto = systray.AddMenuItemCheckbox("Synchro auto avec le manager", "Envoi à la sortie d'un jeu, réception de la version la plus récente (wsquashfs-launcher --sync auto)", false)
 	onClick(a.auto, a.toggleAuto)
 	a.manager = systray.AddMenuItem("Ouvrir le manager", "Interface de wsquashfs-manager")
 	a.manager.Hide()
@@ -396,7 +396,7 @@ func (a *trayApp) toggleAgent() {
 	}
 }
 
-// toggleAuto : synchro automatique à la sortie d'un jeu (sync.json).
+// toggleAuto : synchro automatique avec le manager (sync.json).
 func (a *trayApp) toggleAuto() {
 	cfg := loadSyncConfig()
 	next, err := syncAutoSet(cfg, !cfg.Auto)
@@ -407,7 +407,7 @@ func (a *trayApp) toggleAuto() {
 	case err != nil:
 		notify("Synchro auto non modifiée", err.Error())
 	case next.Auto:
-		notify("Synchro auto activée", "La partie part au manager à la sortie d'un jeu, si joignable")
+		notify("Synchro auto activée", "La partie part au manager à la sortie d'un jeu ; le manager envoie ici sa version la plus récente (agent lancé)")
 	default:
 		notify("Synchro auto désactivée", "")
 	}

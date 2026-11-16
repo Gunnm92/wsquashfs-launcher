@@ -12,7 +12,8 @@ package main
 //   --sync forget <machine>   retirer une machine associée
 //   --sync dir                dossiers déclarés et jeux Switch d'Eden
 //   --sync dir add <nom> <chemin> | dir forget <nom>   déclarer ou retirer un dossier
-//   --sync auto [on | off]    envoi au manager à la sortie d'un jeu (sync_auto.go), état sans argument
+//   --sync auto [on | off]    synchro avec le manager : envoi à la sortie d'un jeu (sync_auto.go), réception
+//                             de sa version la plus récente (agent lancé) ; état sans argument
 
 import (
 	"errors"
@@ -137,7 +138,7 @@ func syncAutoSet(cfg syncConfig, on bool) (syncConfig, error) {
 // syncAutoCmd : --sync auto [on | off]. Sans argument, l'état ; on et off sont persistants et
 // idempotents (déjà dans l'état demandé : message, code 0).
 func syncAutoCmd(cfg syncConfig, args []string) int {
-	uiTitle("Synchronisation automatique", "sortie de jeu")
+	uiTitle("Synchronisation automatique", "avec le manager")
 	if len(args) == 0 {
 		state := "inactive"
 		if cfg.Auto {
@@ -176,7 +177,7 @@ func syncAutoCmd(cfg syncConfig, args []string) int {
 	}
 	if on {
 		p, _ := managerPeer(next)
-		uiStatusLine(stOK, "Synchro automatique activée : la partie part vers "+p.Name+" à la sortie d'un jeu, si joignable")
+		uiStatusLine(stOK, "Synchro automatique activée avec "+p.Name+" : envoi à la sortie d'un jeu, réception de sa version la plus récente")
 		syncAutoAgentNote(true)
 		return 0
 	}
@@ -186,7 +187,7 @@ func syncAutoCmd(cfg syncConfig, args []string) int {
 
 // syncAutoAgentNote : synchro automatique active mais agent arrêté : l'envoi à la sortie d'un jeu
 // marche quand même (le lanceur appelle le manager), mais le manager ne joint pas cette machine
-// (pastille « auto », sauvegardes envoyées vers elle) : le dire, sans rien bloquer.
+// (pastille « auto », version la plus récente envoyée vers elle) : le dire, sans rien bloquer.
 func syncAutoAgentNote(auto bool) {
 	if !auto {
 		return
@@ -194,7 +195,7 @@ func syncAutoAgentNote(auto bool) {
 	if _, running := runningAgentPid(); running {
 		return
 	}
-	uiNote("wsquashfs-launcher --agent pour la rendre visible dans le manager")
+	uiNote("wsquashfs-launcher --agent pour recevoir les parties du manager et être visible dans le manager")
 }
 
 // syncDirList : dossiers déclarés, puis les jeux Switch d'Eden.

@@ -28,7 +28,8 @@ Sauvegardes :
         Autres dossiers à synchroniser (chemin depuis le dossier personnel,
         ex. .local/share/jeu/save) ; les jeux Switch d'Eden suivent seuls.
   wsquashfs-launcher --sync auto [on | off]
-        Envoie la partie au manager à la sortie d'un jeu, si joignable.
+        Synchro avec le manager : la partie lui est envoyée à la sortie d'un jeu,
+        et sa version la plus récente arrive ici (agent lancé).
   wsquashfs-launcher --save <jeu>  |  --saves
         Copie les sauvegardes de partie dans la ludothèque.
   wsquashfs-launcher --clean
