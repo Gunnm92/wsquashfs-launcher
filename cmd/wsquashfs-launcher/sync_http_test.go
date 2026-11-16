@@ -1,7 +1,7 @@
 package main
 
 // Tests de la synchro HTTPS (--sync) : client (sync_http.go) contre les routes /v1/saves/* de
-// l'agent (agent_http.go), en TLS réel (httptest). Deux machines sont simulées : le serveur
+// l'agent (saves_http.go), en TLS réel (httptest). Deux machines sont simulées : le serveur
 // utilise les globales savesDir/cacheDir, le client des dossiers users explicites.
 
 import (

@@ -1,6 +1,6 @@
 package main
 
-// Client de la synchro (--sync) : parle aux routes /v1/saves/* d'une autre machine (agent_http.go).
+// Client de la synchro (--sync) : parle aux routes /v1/saves/* d'une autre machine (saves_http.go).
 // La machine qui lance --sync fait tout : elle lit la liste distante, puis reçoit ou envoie.
 // Le certificat distant est épinglé (empreinte du code d'association), pas la chaîne de confiance.
 
@@ -196,7 +196,7 @@ var syncHeaderTimeout = 30 * time.Second
 var syncFetchHeaderTimeout = 10 * time.Minute
 
 // remoteSave : une entrée de /v1/saves/list (côté client).
-// (Le type est partagé avec la route : voir agent_http.go.)
+// (Le type est partagé avec la route : voir saves_http.go.)
 
 // newSyncClient : client pour une machine distante (délai de connexion de 3 s). Voir newSyncClientDial.
 func newSyncClient(peer syncPeer, id string) *syncClient {
