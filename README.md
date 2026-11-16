@@ -672,8 +672,10 @@ nécessaires. C'est ce qui permet le mode overlay sur SteamOS, où
 squashfuse. Le lanceur se relance avec `--serve-image` (commande interne) ;
 ce processus sert l'image jusqu'au démontage. Hors namespace, le montage passe
 par `fusermount3` (paquet `fuse3`) ; dans le namespace, il n'en a pas besoin.
-Lecture seule, sans attributs étendus (les images sont construites avec
-`-no-xattrs`).
+Lecture seule. Les attributs étendus de l'image sont exposés comme le faisait
+squashfuse : 115 images sur 318 en portent (anciennes images Batocera,
+`user.DOSATTRIB` où Wine range les attributs Windows caché/système/archive), et
+Wine les relit à travers l'overlay, noyau ou fuse-overlayfs.
 
 ### Mode overlay noyau (par défaut quand l'environnement le permet)
 

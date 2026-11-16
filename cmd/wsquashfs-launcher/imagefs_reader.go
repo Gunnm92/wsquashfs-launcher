@@ -362,3 +362,129 @@ func (s *squashImage) fileBlock(l *sqFileLayout, i uint32) ([]byte, error) {
 	}
 	return b[l.fragOffset:end], nil
 }
+
+// ── Attributs étendus ──────────────────────────────────────────────────
+//
+// Anciennes images Batocera : user.DOSATTRIB (attributs Windows rangés par
+// Wine : caché, système, archive), parfois user.DosStream.* ; squashfuse les
+// exposait, Wine les relit à travers l'overlay.
+
+const sqNoXattr = 0xFFFFFFFF
+
+// sqXattrPrefixes : préfixe du nom selon le type (bits 0-7) ; bit 8 (0x100) :
+// valeur stockée ailleurs (référence vers une valeur partagée).
+var sqXattrPrefixes = [...]string{"user.", "trusted.", "security."}
+
+type sqXattr struct {
+	name  string
+	value []byte
+}
+
+// xattrIndex : inode → index dans la table des xattrs (sqNoXattr : aucun).
+func sqXattrIndex(in inode.Inode) uint32 {
+	switch d := in.Data.(type) {
+	case inode.EFile:
+		return d.XattrInd
+	case inode.EDirectory:
+		return d.XattrInd
+	case inode.ESymlink:
+		return d.XattrInd
+	case inode.EDevice:
+		return d.XattrInd
+	case inode.EIPC:
+		return d.XattrInd
+	}
+	return sqNoXattr
+}
+
+// xattrTable : début des entrées et positions des blocs de la table des
+// identifiants d'attributs, lus une fois.
+func (s *squashImage) xattrTable() (uint64, []uint64, error) {
+	s.xattrOnce.Do(func() {
+		sb := &s.rdr.Superblock
+		if sb.XattrTableStart == 0xFFFFFFFFFFFFFFFF {
+			s.xattrErr = errors.New("image sans attributs étendus")
+			return
+		}
+		var hdr [16]byte
+		if _, s.xattrErr = s.file.ReadAt(hdr[:], int64(sb.XattrTableStart)); s.xattrErr != nil {
+			return
+		}
+		s.xattrStart = binary.LittleEndian.Uint64(hdr[0:8])
+		ids := binary.LittleEndian.Uint32(hdr[8:12])
+		raw := make([]byte, (int(ids)+511)/512*8)
+		if _, s.xattrErr = s.file.ReadAt(raw, int64(sb.XattrTableStart)+16); s.xattrErr != nil {
+			return
+		}
+		s.xattrPtrs = make([]uint64, len(raw)/8)
+		for i := range s.xattrPtrs {
+			s.xattrPtrs[i] = binary.LittleEndian.Uint64(raw[i*8:])
+		}
+		s.xattrIDs = ids
+	})
+	return s.xattrStart, s.xattrPtrs, s.xattrErr
+}
+
+// xattrs : attributs de l'index ind (nil si aucun).
+func (s *squashImage) xattrs(ind uint32) ([]sqXattr, error) {
+	if ind == sqNoXattr {
+		return nil, nil
+	}
+	start, ptrs, err := s.xattrTable()
+	if err != nil {
+		return nil, err
+	}
+	if ind >= s.xattrIDs {
+		return nil, errors.New("attribut hors table")
+	}
+	var id [16]byte
+	if _, err := io.ReadFull(s.metaReader(int64(ptrs[ind/512]), int(ind%512)*16), id[:]); err != nil {
+		return nil, err
+	}
+	ref := binary.LittleEndian.Uint64(id[0:8])
+	count := binary.LittleEndian.Uint32(id[8:12])
+	r := s.metaReader(int64(start+ref>>16), int(ref&0xFFFF))
+	out := make([]sqXattr, 0, count)
+	for range count {
+		var h [4]byte
+		if _, err := io.ReadFull(r, h[:]); err != nil {
+			return nil, err
+		}
+		typ := binary.LittleEndian.Uint16(h[0:2])
+		name := make([]byte, binary.LittleEndian.Uint16(h[2:4]))
+		if _, err := io.ReadFull(r, name); err != nil {
+			return nil, err
+		}
+		value, err := sqXattrValue(r)
+		if err != nil {
+			return nil, err
+		}
+		if typ&0x100 != 0 { // valeur partagée : la valeur lue est sa référence
+			if len(value) != 8 {
+				return nil, errors.New("référence d'attribut invalide")
+			}
+			vref := binary.LittleEndian.Uint64(value)
+			if value, err = sqXattrValue(s.metaReader(int64(start+vref>>16), int(vref&0xFFFF))); err != nil {
+				return nil, err
+			}
+		}
+		if int(typ&0xFF) < len(sqXattrPrefixes) {
+			out = append(out, sqXattr{sqXattrPrefixes[typ&0xFF] + string(name), value})
+		}
+	}
+	return out, nil
+}
+
+func sqXattrValue(r io.Reader) ([]byte, error) {
+	var sz [4]byte
+	if _, err := io.ReadFull(r, sz[:]); err != nil {
+		return nil, err
+	}
+	n := binary.LittleEndian.Uint32(sz[:])
+	if n > 1<<24 {
+		return nil, errors.New("valeur d'attribut trop grande")
+	}
+	v := make([]byte, n)
+	_, err := io.ReadFull(r, v)
+	return v, err
+}

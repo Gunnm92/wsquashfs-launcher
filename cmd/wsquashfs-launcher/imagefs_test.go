@@ -12,10 +12,11 @@ import (
 
 	squashfslow "github.com/CalebQ42/squashfs/low"
 	"github.com/hanwen/go-fuse/v2/fuse"
+	"golang.org/x/sys/unix"
 )
 
 // sqTestImage : image construite par mksquashfs (ignoré sans lui).
-func sqTestImage(t *testing.T, comp string, fill func(dir string)) *squashImage {
+func sqTestImage(t *testing.T, comp string, fill func(dir string), keepXattrs ...bool) *squashImage {
 	t.Helper()
 	if _, err := exec.LookPath("mksquashfs"); err != nil {
 		t.Skip("mksquashfs absent")
@@ -24,7 +25,11 @@ func sqTestImage(t *testing.T, comp string, fill func(dir string)) *squashImage 
 	_ = os.MkdirAll(src, 0o755)
 	fill(src)
 	img := filepath.Join(t.TempDir(), "t.sqfs")
-	if out, err := exec.Command("mksquashfs", src, img, "-comp", comp, "-noappend", "-no-xattrs", "-quiet", "-no-progress").CombinedOutput(); err != nil {
+	args := []string{src, img, "-comp", comp, "-noappend", "-quiet", "-no-progress"}
+	if len(keepXattrs) == 0 || !keepXattrs[0] {
+		args = append(args, "-no-xattrs")
+	}
+	if out, err := exec.Command("mksquashfs", args...).CombinedOutput(); err != nil {
 		t.Fatalf("mksquashfs : %v %s", err, out)
 	}
 	sq, err := openSquashImage(img, -1, -1)
@@ -168,4 +173,59 @@ func TestThumbnailerExtractsCover(t *testing.T) {
 	if _, err := run(bare); err == nil {
 		t.Error("image sans illustration : succès inattendu")
 	}
+}
+
+// Attributs étendus de l'image (user.DOSATTRIB de Wine, valeur binaire,
+// grande valeur partagée stockée à part) : rendus comme squashfuse ; un
+// fichier sans attribut répond ENODATA.
+func TestImageXattrs(t *testing.T) {
+	big := bytes.Repeat([]byte("partagé "), 40)
+	sq := sqTestImageXattr(t, map[string]map[string][]byte{
+		"a.exe":    {"user.DOSATTRIB": []byte("0x20")},
+		"b.bin":    {"user.bin": {0, 0xff, 0x10}, "user.DOSATTRIB": []byte("0x22")},
+		"c1":       {"user.grand": big},
+		"c2":       {"user.grand": big},
+		"c3":       {"user.grand": big},
+		"rien.txt": nil,
+	})
+	for name, want := range map[string]map[string][]byte{
+		"a.exe": {"user.DOSATTRIB": []byte("0x20")},
+		"b.bin": {"user.bin": {0, 0xff, 0x10}, "user.DOSATTRIB": []byte("0x22")},
+		"c2":    {"user.grand": big},
+	} {
+		n := sqTestNode(t, sq, name)
+		for attr, v := range want {
+			buf := make([]byte, 1024)
+			sz, errno := n.Getxattr(context.Background(), attr, buf)
+			if errno != 0 || !bytes.Equal(buf[:sz], v) {
+				t.Errorf("%s %s : %q (%v)", name, attr, buf[:sz], errno)
+			}
+			if sz, errno := n.Getxattr(context.Background(), attr, nil); errno != syscall.ERANGE || int(sz) != len(v) {
+				t.Errorf("%s %s : taille %d (%v)", name, attr, sz, errno)
+			}
+		}
+		buf := make([]byte, 1024)
+		sz, _ := n.Listxattr(context.Background(), buf)
+		if got := strings.Count(string(buf[:sz]), "\x00"); got != len(want) {
+			t.Errorf("%s : %d noms listés, %d attendus (%q)", name, got, len(want), buf[:sz])
+		}
+	}
+	if _, errno := sqTestNode(t, sq, "rien.txt").Getxattr(context.Background(), "user.DOSATTRIB", make([]byte, 64)); errno != syscall.ENODATA {
+		t.Errorf("sans attribut : %v", errno)
+	}
+}
+
+func sqTestImageXattr(t *testing.T, files map[string]map[string][]byte) *squashImage {
+	t.Helper()
+	return sqTestImage(t, "zstd", func(d string) {
+		for name, attrs := range files {
+			p := filepath.Join(d, name)
+			_ = os.WriteFile(p, []byte(name), 0o644)
+			for k, v := range attrs {
+				if err := unix.Setxattr(p, k, v, 0); err != nil {
+					t.Skip("attributs user.* impossibles ici : " + err.Error())
+				}
+			}
+		}
+	}, true)
 }

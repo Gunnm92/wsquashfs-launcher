@@ -6,8 +6,8 @@ package main
 // --serve-image, processus à part qui sert l'image jusqu'au démontage
 // (fusermount -u, umount) : mêmes démontages qu'avec squashfuse.
 //
-// Lecture seule. Les images sont construites sans attributs étendus
-// (-no-xattrs : --pack, rebuild.py du manager) : getxattr répond ENODATA.
+// Lecture seule. Attributs étendus de l'image exposés (anciennes images
+// Batocera : user.DOSATTRIB de Wine), comme le faisait squashfuse.
 // Performances : blocs décompressés en cache (LRU partagée), requêtes FUSE
 // servies en parallèle, entrées et attributs gardés par le noyau (image
 // immuable pendant le montage).
@@ -112,6 +112,12 @@ type squashImage struct {
 	fragPtrs []uint64
 	fragErr  error
 
+	xattrOnce  sync.Once
+	xattrStart uint64
+	xattrPtrs  []uint64
+	xattrIDs   uint32
+	xattrErr   error
+
 	inflightMu    sync.Mutex
 	inflight      map[uint64]*sqInflight
 	prefetchSlots chan struct{} // lectures anticipées simultanées (un par cœur)
@@ -148,18 +154,22 @@ type sqNode struct {
 	listed  bool
 	file    *sqFileLayout // fichier : blocs, lus au premier accès
 	lastEnd atomic.Int64  // fin de la dernière lecture (lecture séquentielle ?)
+
+	xattrRead bool // attributs étendus lus (xattrList)
+	xattrList []sqXattr
 }
 
 var (
-	_ fs.NodeGetattrer  = (*sqNode)(nil)
-	_ fs.NodeLookuper   = (*sqNode)(nil)
-	_ fs.NodeReaddirer  = (*sqNode)(nil)
-	_ fs.NodeOpener     = (*sqNode)(nil)
-	_ fs.NodeReader     = (*sqNode)(nil)
-	_ fs.NodeReadlinker = (*sqNode)(nil)
-	_ fs.NodeGetxattrer = (*sqNode)(nil)
-	_ fs.NodeStatfser   = (*sqNode)(nil)
-	_ fs.NodeAccesser   = (*sqNode)(nil)
+	_ fs.NodeGetattrer   = (*sqNode)(nil)
+	_ fs.NodeLookuper    = (*sqNode)(nil)
+	_ fs.NodeReaddirer   = (*sqNode)(nil)
+	_ fs.NodeOpener      = (*sqNode)(nil)
+	_ fs.NodeReader      = (*sqNode)(nil)
+	_ fs.NodeReadlinker  = (*sqNode)(nil)
+	_ fs.NodeGetxattrer  = (*sqNode)(nil)
+	_ fs.NodeListxattrer = (*sqNode)(nil)
+	_ fs.NodeStatfser    = (*sqNode)(nil)
+	_ fs.NodeAccesser    = (*sqNode)(nil)
 )
 
 // ino : numéro d'inode FUSE (celui de l'image, + 1 : la racine FUSE est 1).
@@ -250,8 +260,50 @@ func (n *sqNode) Statfs(_ context.Context, out *fuse.StatfsOut) syscall.Errno {
 // l'UID 1000, Psyvariar Delta) devient illisible. Écriture : EROFS (ro).
 func (n *sqNode) Access(context.Context, uint32) syscall.Errno { return 0 }
 
-func (n *sqNode) Getxattr(context.Context, string, []byte) (uint32, syscall.Errno) {
+// nodeXattrs : attributs étendus du nœud (anciennes images Batocera :
+// user.DOSATTRIB de Wine), lus une fois.
+func (n *sqNode) nodeXattrs() ([]sqXattr, syscall.Errno) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if !n.xattrRead {
+		x, err := n.img.xattrs(sqXattrIndex(n.base.Inode))
+		if err != nil {
+			return nil, syscall.EIO
+		}
+		n.xattrList, n.xattrRead = x, true
+	}
+	return n.xattrList, 0
+}
+
+func (n *sqNode) Getxattr(_ context.Context, attr string, dest []byte) (uint32, syscall.Errno) {
+	list, errno := n.nodeXattrs()
+	if errno != 0 {
+		return 0, errno
+	}
+	for _, x := range list {
+		if x.name == attr {
+			if len(dest) < len(x.value) {
+				return uint32(len(x.value)), syscall.ERANGE
+			}
+			return uint32(copy(dest, x.value)), 0
+		}
+	}
 	return 0, syscall.ENODATA
+}
+
+func (n *sqNode) Listxattr(_ context.Context, dest []byte) (uint32, syscall.Errno) {
+	list, errno := n.nodeXattrs()
+	if errno != 0 {
+		return 0, errno
+	}
+	var names []byte
+	for _, x := range list {
+		names = append(append(names, x.name...), 0)
+	}
+	if len(dest) < len(names) {
+		return uint32(len(names)), syscall.ERANGE
+	}
+	return uint32(copy(dest, names)), 0
 }
 
 // dir : entrées du dossier, lues une fois (le nœud reste en mémoire tant que
