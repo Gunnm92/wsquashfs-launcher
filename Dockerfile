@@ -30,7 +30,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     LANG=C.UTF-8
 
 # Paquets système :
-#  - montage des images : squashfuse, fuse3 (fusermount3), fuse-overlayfs,
+#  - montage des images (lecteur intégré au lanceur) : fuse3 (fusermount3), fuse-overlayfs,
 #    squashfs-tools (mode copy, --info, --pack) ;
 #  - outils du lanceur : attr (--clean), zstd (archive de VKD3D-Proton), util-linux (flock),
 #    procps (pgrep), python3 (dualsense-usb-bridge) ;
@@ -41,7 +41,7 @@ RUN dpkg --add-architecture i386 \
     && apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates curl xz-utils zstd unzip \
-        squashfuse fuse3 fuse-overlayfs squashfs-tools \
+        fuse3 fuse-overlayfs squashfs-tools \
         attr util-linux procps python3 \
         wine wine64 wine32:i386 libxkbcommon0:i386 \
         mesa-vulkan-drivers mesa-vulkan-drivers:i386 \

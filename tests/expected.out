@@ -14,8 +14,9 @@ Jeux :
         Réglages finaux du jeu et la couche d'où vient chacun.
   wsquashfs-launcher --mount <jeu>  |  --umount [<jeu>]
         Monte le jeu pour le modifier à la main ; le démonte.
-  wsquashfs-launcher --pack <Jeu.wine | Jeu.pc> [sortie.wsquashfs]
-        Crée une image .wsquashfs.
+  wsquashfs-launcher --pack <Jeu.wine | Jeu.pc> [sortie.wsquashfs] [cover FICHIER]
+        Crée une image .wsquashfs. cover FICHIER : illustration (miniature du
+        gestionnaire de fichiers), gardée telle quelle.
   wsquashfs-launcher --install <jeu> [dossier]
         Extrait le jeu dans un dossier, pour jouer sans FUSE.
   wsquashfs-launcher --list
@@ -68,7 +69,7 @@ Le reste (réglages par couches, variables WSQUASHFS_*, autres commandes) :
 
 ▍Montage des images
   ✓ /dev/fuse accessible
-  ✓ squashfuse (PATH) : montage de l'image
+  ✓ montage de l'image intégré (fusermount3)
   – overlay noyau indisponible : WSQUASHFS_OVERLAY=fuse (fuse-overlayfs à la place)
   ✓ fuse-overlayfs (ROOT/bin/fuse-overlayfs) : mode overlay, sauvegardes séparées (sinon mode copy)
   ✓ unsquashfs (PATH) : mode copy, --info, --install
@@ -111,7 +112,7 @@ WINE wine-tkg-fake cwd=ROOT args: [--version]
 
 ▍Montage des images
   ✓ /dev/fuse accessible
-  ✓ squashfuse (PATH) : montage de l'image
+  ✓ montage de l'image intégré (fusermount3)
   – overlay noyau indisponible : WSQUASHFS_OVERLAY=fuse (fuse-overlayfs à la place)
   ✓ fuse-overlayfs (ROOT/bin/fuse-overlayfs) : mode overlay, sauvegardes séparées (sinon mode copy)
   ✓ unsquashfs (PATH) : mode copy, --info, --install
@@ -156,7 +157,7 @@ WINE wine-tkg-fake cwd=ROOT args: [--version]
 
 ▍Montage des images
   ✓ /dev/fuse accessible
-  ✓ squashfuse (PATH) : montage de l'image
+  ✓ montage de l'image intégré (fusermount3)
   – overlay noyau indisponible : WSQUASHFS_OVERLAY=fuse (fuse-overlayfs à la place)
   ✓ fuse-overlayfs (ROOT/bin/fuse-overlayfs) : mode overlay, sauvegardes séparées (sinon mode copy)
   ✓ unsquashfs (PATH) : mode copy, --info, --install
@@ -201,7 +202,7 @@ WINE wine-tkg-fake cwd=ROOT args: [--version]
 
 ▍Montage des images
   ✓ /dev/fuse accessible
-  ✓ squashfuse (PATH) : montage de l'image
+  ✓ montage de l'image intégré (fusermount3)
   – overlay noyau indisponible : WSQUASHFS_OVERLAY=fuse (fuse-overlayfs à la place)
   ✓ fuse-overlayfs (ROOT/bin/fuse-overlayfs) : mode overlay, sauvegardes séparées (sinon mode copy)
   ✓ unsquashfs (PATH) : mode copy, --info, --install
@@ -301,7 +302,7 @@ Erreur : ROOT/userdata/roms/windows/Arcade Game.wsquashfs existe déjà (jamais 
 == rc=0
 ################ pack-usage
 -- stderr
-Usage : LAUNCHER --pack <dossier.wine | dossier.pc> [sortie.wsquashfs]
+Usage : LAUNCHER --pack <dossier.wine | dossier.pc> [sortie.wsquashfs] [cover FICHIER]
 == rc=1
 ################ info1
 ╭─────────────╮
@@ -344,7 +345,7 @@ Usage : LAUNCHER --info <jeu.wsquashfs | dossier du jeu>
 ╰─────────────────────────────╯
 Environnement    : ENV
 Fichier          : ROOT/userdata/roms/windows/Arcade Game.wsquashfs
-Mode             : overlay (squashfuse + fuse-overlayfs)
+Mode             : overlay (image + fuse-overlayfs)
 ✓ Préfixe Wine détecté (structure Batocera)
 Préfixe          : mise à jour pour wine-9.0 (fake)
 → Import des fichiers de registre...
@@ -687,7 +688,7 @@ l src/Arcade Game.wine/drive_c/windows/system32/dxgi.dll -> /userdata/system/win
 ╰─────────────────────────────╯
 Environnement    : ENV
 Fichier          : ROOT/userdata/roms/windows/Arcade Game.wsquashfs
-Mode             : overlay (squashfuse + fuse-overlayfs)
+Mode             : overlay (image + fuse-overlayfs)
 ✓ Préfixe Wine détecté (structure Batocera)
 Préfixe          : mise à jour pour wine-9.0 (fake)
 → Import des fichiers de registre...
@@ -803,7 +804,7 @@ WINESERVER -w
 Environnement    : ENV
 Fichier          : ROOT/userdata/roms/windows/Arcade Game.wsquashfs
 Surcharge        : Arcade Game.wsquashfs.autorun (CMD DXVK GAME_VERSION)
-Mode             : overlay (squashfuse + fuse-overlayfs)
+Mode             : overlay (image + fuse-overlayfs)
 ✓ Préfixe Wine détecté (structure Batocera)
 Préfixe          : mise à jour pour wine-9.0 (fake)
 → Import des fichiers de registre...
@@ -930,7 +931,7 @@ Taille    : SIZE
 Environnement    : ENV
 Fichier          : ROOT/userdata/roms/windows/Arcade Game.wsquashfs
 Action           : exec (winecfg)
-Mode             : overlay (squashfuse + fuse-overlayfs)
+Mode             : overlay (image + fuse-overlayfs)
 ✓ Préfixe Wine détecté (structure Batocera)
 Préfixe          : mise à jour pour wine-9.0 (fake)
 → Import des fichiers de registre...
@@ -1046,7 +1047,7 @@ WINESERVER -w
 Environnement    : ENV
 Fichier          : ROOT/userdata/roms/windows/Arcade Game.wsquashfs
 Action           : exec (config.exe)
-Mode             : overlay (squashfuse + fuse-overlayfs)
+Mode             : overlay (image + fuse-overlayfs)
 ✓ Préfixe Wine détecté (structure Batocera)
 Préfixe          : mise à jour pour wine-9.0 (fake)
 → Import des fichiers de registre...
@@ -1161,7 +1162,7 @@ WINESERVER -w
 ╰─────────────────────────────╯
 Environnement    : ENV
 Fichier          : ROOT/userdata/roms/windows/Arcade Game.wsquashfs
-Mode             : overlay (squashfuse + fuse-overlayfs)
+Mode             : overlay (image + fuse-overlayfs)
 -- stderr
 Erreur : runner Wine introuvable : nonexistent
   Runners installés :
@@ -1178,7 +1179,7 @@ WINESERVER -w
 ╰─────────────────────────────╯
 Environnement    : ENV
 Fichier          : ROOT/userdata/roms/windows/Arcade Game.wsquashfs
-Mode             : overlay (squashfuse + fuse-overlayfs)
+Mode             : overlay (image + fuse-overlayfs)
 ✓ Préfixe Wine détecté (structure Batocera)
 Préfixe          : mise à jour pour wine-9.0 (fake)
 → Import des fichiers de registre...
@@ -1281,7 +1282,7 @@ WINESERVER -w
 ╰────────────────────╯
 Environnement    : ENV
 Fichier          : ROOT/userdata/roms/windows/Solo Game.wsquashfs
-Mode             : overlay (squashfuse + fuse-overlayfs)
+Mode             : overlay (image + fuse-overlayfs)
 → Initialisation du préfixe Wine (win64)...
 Préfixe          : mise à jour pour wine-9.0 (fake)
 
@@ -1625,7 +1626,7 @@ l src/Arcade Game.wine/drive_c/windows/system32/dxgi.dll -> /userdata/system/win
 ╰────────────────────╯
 Environnement    : ENV
 Fichier          : ROOT/userdata/roms/windows/Solo Game.wsquashfs
-Mode             : overlay (squashfuse + fuse-overlayfs)
+Mode             : overlay (image + fuse-overlayfs)
 ✓ Préfixe Wine détecté (structure Batocera)
 Préfixe          : mise à jour pour wine-9.0 (fake)
 
@@ -1853,7 +1854,7 @@ WINESERVER -k
 ╰────────────────────╯
 Environnement    : ENV
 Fichier          : ROOT/userdata/roms/windows/Proton Game.wsquashfs
-Mode             : overlay (squashfuse + fuse-overlayfs)
+Mode             : overlay (image + fuse-overlayfs)
 
 ▍Lancement
   Exécutable     : ROOT/cache/wine/Proton Game/drive_c/pg/pg.exe
@@ -1884,7 +1885,7 @@ WINESERVER -w
 ╰────────────────────╯
 Environnement    : ENV
 Fichier          : ROOT/userdata/roms/windows/Proton Game.wsquashfs
-Mode             : overlay (squashfuse + fuse-overlayfs)
+Mode             : overlay (image + fuse-overlayfs)
 
 ▍Lancement
   Exécutable     : ROOT/cache/wine/Proton Game/drive_c/pg/pg.exe
@@ -1915,7 +1916,7 @@ WINESERVER -w
 ╰────────────────────╯
 Environnement    : ENV
 Fichier          : ROOT/userdata/roms/windows/Old32.wsquashfs
-Mode             : overlay (squashfuse + fuse-overlayfs)
+Mode             : overlay (image + fuse-overlayfs)
 ✓ Préfixe Wine détecté (structure Batocera)
 Préfixe          : mise à jour pour wine-9.0 (fake)
 
@@ -1989,7 +1990,7 @@ WINESERVER -w
 ╰────────────────────╯
 Environnement    : ENV
 Fichier          : ROOT/userdata/roms/windows/Solo Game.wsquashfs
-Mode             : overlay (squashfuse + fuse-overlayfs)
+Mode             : overlay (image + fuse-overlayfs)
 ✓ Préfixe Wine détecté (structure Batocera)
 Préfixe          : mise à jour pour wine-9.0 (fake)
 
@@ -2067,7 +2068,7 @@ WINESERVER -w
 ╰────────────────────╯
 Environnement    : ENV
 Fichier          : ROOT/userdata/roms/windows/Solo Game.wsquashfs
-Mode             : overlay (squashfuse + fuse-overlayfs)
+Mode             : overlay (image + fuse-overlayfs)
 ✓ Préfixe Wine détecté (structure Batocera)
 Préfixe          : mise à jour pour wine-9.0 (fake)
 
@@ -2145,7 +2146,7 @@ WINESERVER -w
 ╰────────────────────╯
 Environnement    : ENV
 Fichier          : ROOT/userdata/roms/windows/Solo Game.wsquashfs
-Mode             : overlay (squashfuse + fuse-overlayfs)
+Mode             : overlay (image + fuse-overlayfs)
 ✓ Préfixe Wine détecté (structure Batocera)
 Préfixe          : mise à jour pour wine-9.0 (fake)
 
@@ -2228,7 +2229,7 @@ WINESERVER -w
 ╰────────────────────╯
 Environnement    : ENV
 Fichier          : ROOT/userdata/roms/windows/Solo Game.wsquashfs
-Mode             : overlay (squashfuse + fuse-overlayfs)
+Mode             : overlay (image + fuse-overlayfs)
 ✓ Préfixe Wine détecté (structure Batocera)
 Préfixe          : mise à jour pour wine-9.0 (fake)
 
@@ -2586,7 +2587,7 @@ l src/Arcade Game.wine/drive_c/windows/system32/dxgi.dll -> /userdata/system/win
 ╰────────────────────╯
 Environnement    : ENV
 Fichier          : ROOT/userdata/roms/windows/Solo Game.wsquashfs
-Mode             : overlay (squashfuse + fuse-overlayfs)
+Mode             : overlay (image + fuse-overlayfs)
 ✓ Préfixe Wine détecté (structure Batocera)
 Préfixe          : mise à jour pour wine-9.0 (fake)
 
@@ -2944,7 +2945,7 @@ l src/Arcade Game.wine/drive_c/windows/system32/dxgi.dll -> /userdata/system/win
 ╰────────────────────╯
 Environnement    : ENV
 Fichier          : ROOT/userdata/roms/windows/Solo Game.wsquashfs
-Mode             : overlay (squashfuse + fuse-overlayfs)
+Mode             : overlay (image + fuse-overlayfs)
 ✓ Préfixe Wine détecté (structure Batocera)
 Préfixe          : mise à jour pour wine-9.0 (fake)
 
@@ -3028,7 +3029,7 @@ WINESERVER -w
 ╰────────────────────╯
 Environnement    : ENV
 Fichier          : ROOT/userdata/roms/windows/Solo Game.wsquashfs
-Mode             : overlay (squashfuse + fuse-overlayfs)
+Mode             : overlay (image + fuse-overlayfs)
 ✓ Préfixe Wine détecté (structure Batocera)
 Préfixe          : mise à jour pour wine-9.0 (fake)
 
@@ -3117,7 +3118,7 @@ WINESERVER -w
 ╰────────────────────╯
 Environnement    : ENV
 Fichier          : ROOT/userdata/roms/windows/Hook Game.wsquashfs
-Mode             : overlay (squashfuse + fuse-overlayfs)
+Mode             : overlay (image + fuse-overlayfs)
 → Initialisation du préfixe Wine (win64)...
 Préfixe          : mise à jour pour wine-9.0 (fake)
 
@@ -3518,7 +3519,7 @@ l src/Arcade Game.wine/drive_c/windows/system32/dxgi.dll -> /userdata/system/win
 ╰────────────────────╯
 Environnement    : ENV
 Fichier          : ROOT/userdata/roms/windows/Pre Fail Game.wsquashfs
-Mode             : overlay (squashfuse + fuse-overlayfs)
+Mode             : overlay (image + fuse-overlayfs)
 → Initialisation du préfixe Wine (win64)...
 Préfixe          : mise à jour pour wine-9.0 (fake)
 
@@ -3592,7 +3593,7 @@ WINESERVER -w
 ╰────────────────────╯
 Environnement    : ENV
 Fichier          : ROOT/userdata/roms/windows/Hook Game.wsquashfs
-Mode             : overlay (squashfuse + fuse-overlayfs)
+Mode             : overlay (image + fuse-overlayfs)
 ✓ Préfixe Wine détecté (structure Batocera)
 Préfixe          : mise à jour pour wine-9.0 (fake)
 
@@ -3672,7 +3673,7 @@ WINESERVER -w
 Environnement    : ENV
 Fichier          : ROOT/userdata/roms/windows/Hook Game.wsquashfs
 Action           : exec (hook.exe)
-Mode             : overlay (squashfuse + fuse-overlayfs)
+Mode             : overlay (image + fuse-overlayfs)
 ✓ Préfixe Wine détecté (structure Batocera)
 Préfixe          : mise à jour pour wine-9.0 (fake)
 
@@ -3754,7 +3755,7 @@ WINESERVER -w
 ╰────────────────────╯
 Environnement    : ENV
 Fichier          : ROOT/userdata/roms/windows/Loader Game.wsquashfs
-Mode             : overlay (squashfuse + fuse-overlayfs)
+Mode             : overlay (image + fuse-overlayfs)
 → Initialisation du préfixe Wine (win64)...
 Préfixe          : mise à jour pour wine-9.0 (fake)
 
@@ -3903,7 +3904,7 @@ Taille   : SIZE
 ╰────────────────────╯
 Environnement    : ENV
 Fichier          : ROOT/userdata/roms/windows/Joint Game.wsquashfs
-Mode             : overlay (squashfuse + fuse-overlayfs)
+Mode             : overlay (image + fuse-overlayfs)
 → Initialisation du préfixe par Proton au premier lancement...
 
 ▍Lancement
@@ -3935,7 +3936,7 @@ WINESERVER -w
 ╰────────────────────╯
 Environnement    : ENV
 Fichier          : ROOT/userdata/roms/windows/Named Game.wsquashfs
-Mode             : overlay (squashfuse + fuse-overlayfs)
+Mode             : overlay (image + fuse-overlayfs)
 → Initialisation du préfixe par Proton au premier lancement...
 
 ▍Lancement
@@ -3967,7 +3968,7 @@ WINESERVER -w
 ╰────────────────────╯
 Environnement    : ENV
 Fichier          : ROOT/userdata/roms/windows/Named Game.wsquashfs
-Mode             : overlay (squashfuse + fuse-overlayfs)
+Mode             : overlay (image + fuse-overlayfs)
 → Initialisation du préfixe Wine (win64)...
 Préfixe          : mise à jour pour wine-9.0 (fake)
 
@@ -4051,7 +4052,7 @@ WINESERVER -w
 ╰────────────────────╯
 Environnement    : ENV
 Fichier          : ROOT/userdata/roms/windows/Wine Joint Game.wsquashfs
-Mode             : overlay (squashfuse + fuse-overlayfs)
+Mode             : overlay (image + fuse-overlayfs)
 → Initialisation du préfixe Wine (win64)...
 Préfixe          : mise à jour pour wine-9.0 (fake)
 
@@ -4135,7 +4136,7 @@ WINESERVER -w
 ╰─────────────────────╯
 Environnement    : ENV
 Fichier          : ROOT/userdata/roms/windows/Missing Runner Game.wsquashfs
-Mode             : overlay (squashfuse + fuse-overlayfs)
+Mode             : overlay (image + fuse-overlayfs)
 -- stderr
 Erreur : Proton Absent-Proton introuvable
   cherché : runners/ de l'image, Heroic, Steam (compatibilitytools.d)
@@ -4150,7 +4151,7 @@ WINESERVER -w
 ╰──────────────────────╯
 Environnement    : ENV
 Fichier          : ROOT/userdata/roms/windows/Relative Runner Game.wsquashfs
-Mode             : overlay (squashfuse + fuse-overlayfs)
+Mode             : overlay (image + fuse-overlayfs)
 -- stderr
 Erreur : RUNNER=runner/files/bin/wine : chemin absolu de la machine attendu
   → runner joint au jeu : dossier runners/<nom>/ de l'image et PROTON=<nom> (ou WINE=<nom>)
@@ -4164,7 +4165,7 @@ WINESERVER -w
 ╰─────────────────────╯
 Environnement    : ENV
 Fichier          : ROOT/userdata/roms/windows/Missing Runner Game.wsquashfs
-Mode             : overlay (squashfuse + fuse-overlayfs)
+Mode             : overlay (image + fuse-overlayfs)
 → Initialisation du préfixe Wine (win64)...
 Préfixe          : mise à jour pour wine-9.0 (fake)
 
@@ -4248,7 +4249,7 @@ WINESERVER -w
 ╰──────────────────────╯
 Environnement    : ENV
 Fichier          : ROOT/userdata/roms/windows/Relative Runner Game.wsquashfs
-Mode             : overlay (squashfuse + fuse-overlayfs)
+Mode             : overlay (image + fuse-overlayfs)
 → Initialisation du préfixe Wine (win64)...
 Préfixe          : mise à jour pour wine-9.0 (fake)
 
@@ -4332,7 +4333,7 @@ WINESERVER -w
 ╰────────────────────╯
 Environnement    : ENV
 Fichier          : ROOT/userdata/roms/windows/Two Runners Game.wsquashfs
-Mode             : overlay (squashfuse + fuse-overlayfs)
+Mode             : overlay (image + fuse-overlayfs)
 → Initialisation du préfixe Wine (win64)...
 Préfixe          : mise à jour pour wine-9.0 (fake)
 
@@ -4419,7 +4420,7 @@ WINESERVER -w
 ╰────────────────────╯
 Environnement    : ENV
 Fichier          : ROOT/userdata/roms/windows/Joint Game.wsquashfs
-Mode             : copy (squashfuse)
+Mode             : copy (image montée)
 → Initialisation du préfixe par Proton au premier lancement...
 
 ▍Lancement
@@ -4451,7 +4452,7 @@ WINESERVER -w
 Environnement    : ENV
 Fichier          : ROOT/userdata/roms/windows/Solo Game.wsquashfs
 Action           : mount
-Mode             : overlay (squashfuse + fuse-overlayfs)
+Mode             : overlay (image + fuse-overlayfs)
 
 ▍Montage
   Monté dans    : ROOT/cache/wine/Solo Game
@@ -4493,7 +4494,7 @@ Sauvegardes      : ROOT/saves (SIZE au total)
 ╰────────────────────╯
 Environnement    : ENV
 Fichier          : ROOT/userdata/roms/windows/Solo Game.wsquashfs
-Mode             : overlay (squashfuse + fuse-overlayfs)
+Mode             : overlay (image + fuse-overlayfs)
 ✓ Préfixe Wine détecté (structure Batocera)
 Préfixe          : mise à jour pour wine-9.0 (fake)
 
@@ -6171,7 +6172,7 @@ Sauvegardes      : ROOT/saves (SIZE au total)
 ╰─────────────────────────────╯
 Environnement    : ENV
 Fichier          : ROOT/userdata/roms/windows/Arcade Game.wsquashfs
-Mode             : copy (squashfuse)
+Mode             : copy (image montée)
 ✓ Préfixe Wine détecté (structure Batocera)
 Préfixe          : mise à jour pour wine-9.0 (fake)
 → Import des fichiers de registre...
@@ -7063,7 +7064,7 @@ l src/Arcade Game.wine/drive_c/windows/system32/dxgi.dll -> /userdata/system/win
 ╰─────────────────────────────╯
 Environnement    : ENV
 Fichier          : ROOT/userdata/roms/windows/Arcade Game.wsquashfs
-Mode             : copy (squashfuse)
+Mode             : copy (image montée)
 Sauvegardes      : drive_c/users repris de la copie précédente
 ✓ Préfixe Wine détecté (structure Batocera)
 Préfixe          : mise à jour pour wine-9.0 (fake)
@@ -7179,7 +7180,7 @@ WINESERVER -w
 ╰─────────────────────────────╯
 Environnement    : ENV
 Fichier          : ROOT/userdata/roms/windows/Arcade Game.wsquashfs
-Mode             : copy (squashfuse)
+Mode             : copy (image montée)
 Sauvegardes      : drive_c/users repris de la copie précédente
 ✓ Préfixe Wine détecté (structure Batocera)
 Préfixe          : mise à jour pour wine-9.0 (fake)
@@ -7307,7 +7308,7 @@ Erreur : Old32 est déjà lancé
 Environnement    : ENV
 Fichier          : ROOT/userdata/roms/windows/Old32.wsquashfs
 Action           : mount
-Mode             : overlay (squashfuse + fuse-overlayfs)
+Mode             : overlay (image + fuse-overlayfs)
 
 ▍Montage
   Monté dans    : ROOT/cache/wine/Old32
@@ -7358,7 +7359,7 @@ Sauvegardes      : ROOT/saves (SIZE au total)
 ╰────────────────────╯
 Environnement    : ENV
 Fichier          : ROOT/userdata/roms/windows/Solo Game.wsquashfs
-Mode             : overlay (squashfuse + fuse-overlayfs)
+Mode             : overlay (image + fuse-overlayfs)
 → Initialisation du préfixe Wine (win64)...
 Préfixe          : mise à jour pour wine-9.0 (fake)
 
@@ -7502,7 +7503,7 @@ Sauvegardes      : ROOT/saves (SIZE au total)
 ╰────────────────────╯
 Environnement    : ENV
 Fichier          : ROOT/userdata/roms/windows/Solo Game.wsquashfs
-Mode             : overlay (squashfuse + fuse-overlayfs)
+Mode             : overlay (image + fuse-overlayfs)
 ✓ Préfixe Wine détecté (structure Batocera)
 Préfixe          : mise à jour pour wine-9.0 (fake)
 
@@ -7602,7 +7603,7 @@ En cours ou montés, ignorés (SIZE)
 ╰────────────────────╯
 Environnement    : ENV
 Fichier          : ROOT/userdata/roms/windows/Solo Game.wsquashfs
-Mode             : overlay (squashfuse + fuse-overlayfs)
+Mode             : overlay (image + fuse-overlayfs)
 ✓ Préfixe Wine détecté (structure Batocera)
 Préfixe          : mise à jour pour wine-9.0 (fake)
 
@@ -7682,7 +7683,7 @@ WINESERVER -w
 Environnement    : ENV
 Fichier          : ROOT/userdata/roms/windows/Old32.wsquashfs
 Surcharge        : Old32.wsquashfs.autorun (RUNNER)
-Mode             : overlay (squashfuse + fuse-overlayfs)
+Mode             : overlay (image + fuse-overlayfs)
 -- stderr
 Erreur : runner /nope/wine introuvable ou non exécutable
   → --wine <runner> pour en utiliser un autre
@@ -7697,7 +7698,7 @@ WINESERVER -w
 Environnement    : ENV
 Fichier          : ROOT/userdata/roms/windows/Old32.wsquashfs
 Surcharge        : Old32.wsquashfs.autorun (RUNNER)
-Mode             : overlay (squashfuse + fuse-overlayfs)
+Mode             : overlay (image + fuse-overlayfs)
 ✓ Préfixe Wine détecté (structure Batocera)
 Préfixe          : mise à jour pour wine-9.0 (fake)
 
@@ -7772,7 +7773,7 @@ WINESERVER -w
 Environnement    : ENV
 Fichier          : ROOT/userdata/roms/windows/Old32.wsquashfs
 Surcharge        : Old32.wsquashfs.autorun (WINE)
-Mode             : overlay (squashfuse + fuse-overlayfs)
+Mode             : overlay (image + fuse-overlayfs)
 -- stderr
 Erreur : Wine foo introuvable
   cherché : runners/ de l'image, /opt/wine-foo, ~/.local/share/wsquashfs/wine/wine-foo
@@ -7788,7 +7789,7 @@ WINESERVER -w
 Environnement    : ENV
 Fichier          : ROOT/userdata/roms/windows/Old32.wsquashfs
 Surcharge        : Old32.wsquashfs.autorun (WINE)
-Mode             : overlay (squashfuse + fuse-overlayfs)
+Mode             : overlay (image + fuse-overlayfs)
 ✓ Préfixe Wine détecté (structure Batocera)
 Préfixe          : mise à jour pour wine-9.0 (fake)
 
@@ -7863,7 +7864,7 @@ WINESERVER -w
 Environnement    : ENV
 Fichier          : ROOT/userdata/roms/windows/Old32.wsquashfs
 Surcharge        : Old32.wsquashfs.autorun (WINE)
-Mode             : overlay (squashfuse + fuse-overlayfs)
+Mode             : overlay (image + fuse-overlayfs)
 -- stderr
 Erreur : Wine system introuvable
   cherché : runners/ de l'image, /opt/wine-system, ~/.local/share/wsquashfs/wine/wine-system
@@ -7879,7 +7880,7 @@ WINESERVER -w
 Environnement    : ENV
 Fichier          : ROOT/userdata/roms/windows/Old32.wsquashfs
 Surcharge        : Old32.wsquashfs.autorun (PROTON)
-Mode             : overlay (squashfuse + fuse-overlayfs)
+Mode             : overlay (image + fuse-overlayfs)
 ✓ Préfixe Wine détecté (structure Batocera)
 Préfixe          : mise à jour pour wine-9.0 (fake)
 
@@ -7956,7 +7957,7 @@ WINESERVER -w
 Environnement    : ENV
 Fichier          : ROOT/userdata/roms/windows/Old32.wsquashfs
 Surcharge        : Old32.wsquashfs.autorun (CMD)
-Mode             : overlay (squashfuse + fuse-overlayfs)
+Mode             : overlay (image + fuse-overlayfs)
 -- stderr
 Erreur : CMD non défini dans autorun.cmd
 == rc=1
@@ -7970,7 +7971,7 @@ WINESERVER -w
 Environnement    : ENV
 Fichier          : ROOT/userdata/roms/windows/Old32.wsquashfs
 Surcharge        : Old32.wsquashfs.autorun (CMD)
-Mode             : overlay (squashfuse + fuse-overlayfs)
+Mode             : overlay (image + fuse-overlayfs)
 ✓ Préfixe Wine détecté (structure Batocera)
 Préfixe          : mise à jour pour wine-9.0 (fake)
 
@@ -8045,7 +8046,7 @@ WINESERVER -w
 Environnement    : ENV
 Fichier          : ROOT/userdata/roms/windows/Old32.wsquashfs
 Surcharge        : Old32.wsquashfs.autorun (CMD)
-Mode             : overlay (squashfuse + fuse-overlayfs)
+Mode             : overlay (image + fuse-overlayfs)
 -- stderr
 Erreur : exécutable introuvable : ROOT/cache/wine/Old32/drive_c/game/missing.exe
   CMD : missing.exe  |  DIR : drive_c/game
@@ -8060,7 +8061,7 @@ WINESERVER -w
 Environnement    : ENV
 Fichier          : ROOT/userdata/roms/windows/Old32.wsquashfs
 Surcharge        : Old32.wsquashfs.autorun (SAVEDIR SAVEFILES HIDRAW FSYNC VKD3D D7VK)
-Mode             : overlay (squashfuse + fuse-overlayfs)
+Mode             : overlay (image + fuse-overlayfs)
 ✓ Préfixe Wine détecté (structure Batocera)
 Préfixe          : mise à jour pour wine-9.0 (fake)
 Sauvegardes      : ROOT/userdata/saves/windows/Old32 (SAVEDIR/SAVEFILES)
@@ -8483,7 +8484,7 @@ l src/Arcade Game.wine/drive_c/windows/system32/dxgi.dll -> /userdata/system/win
 ╰────────────────────╯
 Environnement    : ENV
 Fichier          : ROOT/userdata/roms/windows/Solo Game.wsquashfs
-Mode             : overlay (squashfuse + fuse-overlayfs)
+Mode             : overlay (image + fuse-overlayfs)
 ✓ Préfixe Wine détecté (structure Batocera)
 Préfixe          : mise à jour pour wine-9.0 (fake)
 
@@ -8551,7 +8552,7 @@ WINESERVER -w
 ╰────────────────────╯
 Environnement    : ENV
 Fichier          : ROOT/userdata/roms/windows/Solo Game.wsquashfs
-Mode             : overlay (squashfuse + fuse-overlayfs)
+Mode             : overlay (image + fuse-overlayfs)
 ✓ Préfixe Wine détecté (structure Batocera)
 Préfixe          : mise à jour pour wine-9.0 (fake)
 
@@ -8629,7 +8630,7 @@ WINESERVER -w
 ╰────────────────────╯
 Environnement    : ENV
 Fichier          : ROOT/userdata/roms/windows/Old32.wsquashfs
-Mode             : overlay (squashfuse + fuse-overlayfs)
+Mode             : overlay (image + fuse-overlayfs)
 -- stderr
 Erreur : prefix win32, mais wine-tkg-fake est un Wine WoW64 seul
   (pas de lib/wine/i386-unix) qui ne peut pas lancer de prefix 32 bits.
@@ -8645,7 +8646,7 @@ WINESERVER -w
 ╰────────────────────╯
 Environnement    : ENV
 Fichier          : ROOT/userdata/roms/windows/Old32.wsquashfs
-Mode             : overlay (squashfuse + fuse-overlayfs)
+Mode             : overlay (image + fuse-overlayfs)
 -- stderr
 Erreur : prefix win32, mais le runner choisi (--wine tkg-fake) est WoW64 seul
 == rc=1
@@ -8658,7 +8659,7 @@ WINESERVER -w
 ╰────────────────────╯
 Environnement    : ENV
 Fichier          : ROOT/userdata/roms/windows/Old32.wsquashfs
-Mode             : overlay (squashfuse + fuse-overlayfs)
+Mode             : overlay (image + fuse-overlayfs)
 ✓ Préfixe Wine détecté (structure Batocera)
 Préfixe          : mise à jour pour wine-9.0 (fake)
 
@@ -9187,7 +9188,7 @@ Environnement    : ENV
 Fichier          : ROOT/userdata/roms/layers/Layer Game.wsquashfs
 Réglages dossier : ROOT/userdata/roms/layers/_defaults.autorun (DXVK NVAPI ENV)
 Surcharge        : Layer Game.wsquashfs.autorun (ENV)
-Mode             : overlay (squashfuse + fuse-overlayfs)
+Mode             : overlay (image + fuse-overlayfs)
 → Initialisation du préfixe Wine (win64)...
 Préfixe          : mise à jour pour wine-9.0 (fake)
 
@@ -9330,7 +9331,7 @@ Réglages machine : ROOT/home/.config/wsquashfs/defaults.autorun (VKD3D D7VK VIR
 Réglages dossier : ROOT/userdata/roms/layers/_defaults.autorun (DXVK NVAPI ENV)
 Surcharge        : Layer Game.wsquashfs.autorun (ENV)
 Options --set    : ENV=FOO=set VIRTUAL_DESKTOP=
-Mode             : overlay (squashfuse + fuse-overlayfs)
+Mode             : overlay (image + fuse-overlayfs)
 ✓ Préfixe Wine détecté (structure Batocera)
 Préfixe          : mise à jour pour wine-9.0 (fake)
 
@@ -9424,7 +9425,7 @@ Fichier          : ROOT/userdata/roms/layers/Layer Game.wsquashfs
 Réglages machine : ROOT/home/.config/wsquashfs/defaults.autorun (VKD3D D7VK VIRTUAL_DESKTOP)
 Réglages dossier : ROOT/userdata/roms/layers/_defaults.autorun (DXVK NVAPI ENV)
 Surcharge        : Layer Game.wsquashfs.autorun (ENV DXVK)
-Mode             : overlay (squashfuse + fuse-overlayfs)
+Mode             : overlay (image + fuse-overlayfs)
 ✓ Préfixe Wine détecté (structure Batocera)
 Préfixe          : mise à jour pour wine-9.0 (fake)
 
@@ -9545,7 +9546,7 @@ Usage : LAUNCHER --show <jeu.wsquashfs | dossier> [--set CLÉ=valeur]...
 Environnement    : ENV
 Fichier          : ROOT/userdata/roms/layers/Layer Game.wsquashfs
 Action           : prepare
-Mode             : overlay (squashfuse + fuse-overlayfs)
+Mode             : overlay (image + fuse-overlayfs)
 ✓ Préfixe Wine détecté (structure Batocera)
 Préfixe          : mise à jour pour wine-9.0 (fake)
 
@@ -9584,7 +9585,7 @@ WINESERVER -w
 ╰────────────────────╯
 Environnement    : ENV
 Fichier          : ROOT/userdata/roms/layers/Layer Game.wsquashfs
-Mode             : overlay (squashfuse + fuse-overlayfs)
+Mode             : overlay (image + fuse-overlayfs)
 ✓ Préfixe Wine détecté (structure Batocera)
 Préfixe          : mise à jour pour wine-9.0 (fake)
 

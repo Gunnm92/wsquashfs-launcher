@@ -137,7 +137,7 @@ func depsDebian() bool {
 	if aptEnsure("Wine 32 bits", "wine32:i386", "libxkbcommon0:i386") != nil {
 		ok = false
 	}
-	if aptEnsure("Images squashfs", "squashfuse", "squashfs-tools", "xz-utils") != nil {
+	if aptEnsure("Images squashfs", "fuse3", "squashfs-tools", "xz-utils") != nil {
 		ok = false
 	}
 	if aptEnsure("Mode overlay", "fuse-overlayfs") != nil {
@@ -253,7 +253,7 @@ func depsArch() bool {
 		return false
 	}
 	ok := true
-	if pacmanEnsure("Images squashfs", "squashfuse", "squashfs-tools", "xz") != nil {
+	if pacmanEnsure("Images squashfs", "fuse3", "squashfs-tools", "xz") != nil {
 		ok = false
 	}
 	if pacmanEnsure("Mode overlay", "fuse-overlayfs") != nil {
@@ -277,7 +277,7 @@ func depsArch() bool {
 
 func depsOther() bool {
 	setupFail("Distribution non prise en charge pour les paquets système (" + distroName + ").")
-	uiNote("Installez à la main : squashfuse, squashfs-tools, fuse-overlayfs, attr,",
+	uiNote("Installez à la main : fuse3, squashfs-tools, fuse-overlayfs, attr,",
 		"zstd, unzip, et les bibliothèques 32 bits de Wine (jeux arcade 32 bits) ;",
 		"pour --tray : wl-clipboard ou xclip.")
 	return askYesNo("Continuer (runners, DXVK, lanceur) ?", false)

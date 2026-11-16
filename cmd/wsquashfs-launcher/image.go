@@ -103,13 +103,6 @@ func checkLauncherDeps() {
 			die("fuse-overlayfs requis pour essayer un dossier .pc sans le modifier",
 				"  → renommer le dossier en .wine pour le lancer sur place (il sera modifié)")
 		}
-	} else if !launch.dirMode {
-		_, e1 := exec.LookPath("squashfuse")
-		_, e2 := exec.LookPath("unsquashfs")
-		if e1 != nil && e2 != nil {
-			die("ni squashfuse ni unsquashfs ne sont disponibles",
-				"  → apt-get install squashfuse squashfs-tools")
-		}
 	}
 }
 
@@ -212,9 +205,6 @@ func tryOverlayMount() bool {
 		uiKVLine("Mode", "overlay (dossier .pc + fuse-overlayfs, dossier non modifié)")
 		return true
 	}
-	if _, err := exec.LookPath("squashfuse"); err != nil {
-		return false
-	}
 	if !mountSquashfs(launch.wsquashfsFile, launch.squashfsPoint) {
 		return false
 	}
@@ -222,7 +212,7 @@ func tryOverlayMount() bool {
 		launch.mountMode = "overlay"
 		launch.overlayKind = "fuse"
 		mounted.Store(true)
-		uiKVLine("Mode", "overlay (squashfuse + fuse-overlayfs)")
+		uiKVLine("Mode", "overlay (image + fuse-overlayfs)")
 		return true
 	}
 	fuseUmount(launch.squashfsPoint)
@@ -239,16 +229,15 @@ func imageSignature() string {
 	return fmt.Sprintf("%s:%d:%d", launch.wsquashfsFile, st.Size(), st.ModTime().Unix())
 }
 
-// extractImage : mode copy, extraction dans winePoint (squashfuse, puis
-// unsquashfs).
+// extractImage : mode copy, extraction dans winePoint (image montée, puis
+// unsquashfs sans FUSE).
 func extractImage() {
-	_, sqErr := exec.LookPath("squashfuse")
-	if sqErr == nil && mountSquashfs(launch.wsquashfsFile, launch.squashfsPoint) {
-		uiKVLine("Mode", "copy (squashfuse)")
+	if mountSquashfs(launch.wsquashfsFile, launch.squashfsPoint) {
+		uiKVLine("Mode", "copy (image montée)")
 		removeCopy()
 		_ = os.MkdirAll(launch.winePoint, 0o755)
 		if err := runCmd("cp", "-a", launch.squashfsPoint+"/.", launch.winePoint+"/"); err != nil {
-			die("échec de la copie depuis squashfuse")
+			die("échec de la copie depuis l'image montée")
 		}
 		fuseUmount(launch.squashfsPoint)
 	} else if _, err := exec.LookPath("unsquashfs"); err == nil {

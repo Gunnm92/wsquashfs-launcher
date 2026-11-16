@@ -13,17 +13,40 @@ import (
 // ── --pack / --install ────────────────────────────────────────────────
 
 // packPrefix : prefix Wine ou jeu seul (dossier) → .wsquashfs (mksquashfs zstd).
+// Sous-option : « cover FICHIER » ajoute une illustration (imageCoverPath) sans
+// rien écrire dans le dossier source.
 func packPrefix(args []string) int {
-	if len(args) == 0 || !isDirPath(args[0]) {
-		usageError(os.Args[0] + " --pack <dossier.wine | dossier.pc> [sortie.wsquashfs]")
+	const syntax = "--pack <dossier.wine | dossier.pc> [sortie.wsquashfs] [cover FICHIER]"
+	var pos []string
+	cover, hasCover := "", false
+	for i := 0; i < len(args); i++ {
+		if i > 0 && args[i] == "cover" {
+			if i+1 >= len(args) {
+				usageError(os.Args[0] + " " + syntax)
+			}
+			cover, hasCover = args[i+1], true
+			i++
+			continue
+		}
+		pos = append(pos, args[i])
 	}
-	src := strings.TrimSuffix(args[0], "/")
+	if len(pos) == 0 || !isDirPath(pos[0]) {
+		usageError(os.Args[0] + " " + syntax)
+	}
+	src := strings.TrimSuffix(pos[0], "/")
 	out := ""
-	if len(args) > 1 {
-		out = args[1]
+	if len(pos) > 1 {
+		out = pos[1]
 	}
 	if _, err := exec.LookPath("mksquashfs"); err != nil {
 		die("mksquashfs absent (squashfs-tools)")
+	}
+	var coverArgs []string
+	if hasCover {
+		if !isFile(cover) {
+			die("illustration introuvable (fichier attendu) : " + cover)
+		}
+		coverArgs = coverPseudoArgs(src, mustAbs(cover))
 	}
 	if out == "" {
 		base := filepath.Base(src)
@@ -56,7 +79,8 @@ func packPrefix(args []string) int {
 	tmp := out + ".part"
 	_ = os.Remove(tmp)
 	uiStatusLine(stInfo, "Création de "+out+" depuis "+src+"...")
-	if err := runCmd("mksquashfs", src, tmp, "-comp", "zstd", "-noappend", "-quiet"); err != nil {
+	mkArgs := append([]string{src, tmp, "-comp", "zstd", "-noappend", "-quiet"}, coverArgs...)
+	if err := runCmd("mksquashfs", mkArgs...); err != nil {
 		_ = os.Remove(tmp)
 		die("échec de mksquashfs, " + out + " inchangé")
 	}
@@ -70,12 +94,39 @@ func packPrefix(args []string) int {
 		}
 	}
 	uiStatusLine(stOK, out+" ("+duHuman(out)+")")
+	if hasCover {
+		uiKV(2, kv{"Illustration", mustAbs(cover)})
+	}
 	if v := gameVersion(src); v != "" {
 		uiKV(2, kv{"Version", v})
 	} else if isFile(src + "/autorun.cmd") {
 		uiKV(2, kv{"Version", "non renseignée (GAME_VERSION=... dans l'autorun.cmd, voir --info)"})
 	}
 	return 0
+}
+
+// coverPseudoArgs : options pseudo de mksquashfs qui ajoutent l'illustration
+// (imageCoverPath) à l'image, sans rien écrire dans le dossier source. Refus si
+// le dossier source contient déjà cette illustration ou un .wsquashfs non dossier.
+func coverPseudoArgs(src, cover string) []string {
+	if pathExists(filepath.Join(src, imageCoverPath)) {
+		die("conflit : " + src + " contient déjà " + imageCoverPath + " (sous-option cover refusée)")
+	}
+	uid, gid := os.Getuid(), os.Getgid()
+	var args []string
+	dir := filepath.Join(src, ".wsquashfs")
+	if !isDirPath(dir) {
+		if pathExists(dir) {
+			die("conflit : " + dir + " existe et n'est pas un dossier")
+		}
+		args = append(args, "-p", fmt.Sprintf(".wsquashfs d 755 %d %d", uid, gid))
+	}
+	return append(args, "-p", fmt.Sprintf("%s f 644 %d %d cat %s", imageCoverPath, uid, gid, shQuote(cover)))
+}
+
+// shQuote : argument quoté pour /bin/sh (apostrophes internes échappées).
+func shQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 // installGame : --install <jeu.wsquashfs> [dossier] : extraction dans

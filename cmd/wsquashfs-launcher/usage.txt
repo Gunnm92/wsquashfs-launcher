@@ -11,8 +11,9 @@ Jeux :
         Réglages finaux du jeu et la couche d'où vient chacun.
   wsquashfs-launcher --mount <jeu>  |  --umount [<jeu>]
         Monte le jeu pour le modifier à la main ; le démonte.
-  wsquashfs-launcher --pack <Jeu.wine | Jeu.pc> [sortie.wsquashfs]
-        Crée une image .wsquashfs.
+  wsquashfs-launcher --pack <Jeu.wine | Jeu.pc> [sortie.wsquashfs] [cover FICHIER]
+        Crée une image .wsquashfs. cover FICHIER : illustration (miniature du
+        gestionnaire de fichiers), gardée telle quelle.
   wsquashfs-launcher --install <jeu> [dossier]
         Extrait le jeu dans un dossier, pour jouer sans FUSE.
   wsquashfs-launcher --list

@@ -12,8 +12,8 @@ Le script détecte automatiquement les capacités de l'environnement et choisit 
 
 | Mode | Conditions | Sauvegardes |
 |---|---|---|
-| **overlay** | overlay du noyau dans un namespace utilisateur si l'environnement le permet, sinon squashfuse + fuse-overlayfs | Isolées dans `SAVES_DIR` (upperdir) |
-| **copy** | squashfuse ou unsquashfs | Intégrées dans le cache de travail |
+| **overlay** | overlay du noyau dans un namespace utilisateur si l'environnement le permet, sinon fuse-overlayfs ; image montée par le lanceur lui-même | Isolées dans `SAVES_DIR` (upperdir) |
+| **copy** | image montée par le lanceur, ou unsquashfs sans FUSE | Intégrées dans le cache de travail |
 
 En mode **copy**, le résultat de l'extraction est mis en cache — les relances suivantes sont instantanées tant que le fichier `.wsquashfs` n'a pas changé.
 
@@ -59,7 +59,7 @@ installe le binaire qui tourne (aucun second téléchargement), vérifie les
 dépendances, configure le PATH et associe les `.wsquashfs` ; `--update` le met
 à jour ensuite. `--setup` détecte la distribution et installe les paquets système :
 
-- **Debian/Ubuntu** (apt) : `wine32:i386`, `libxkbcommon0:i386`, `squashfuse`,
+- **Debian/Ubuntu** (apt) : `wine32:i386`, `libxkbcommon0:i386`, `fuse3`,
   `squashfs-tools`, `xz-utils`, `fuse-overlayfs`, `attr`, `zstd`, `unzip` et,
   si disponibles, `mangohud` / `mangohud:i386` (facultatifs) ;
 - **Arch, CachyOS, Manjaro, EndeavourOS** (pacman) : les mêmes outils, les
@@ -89,13 +89,13 @@ Les questions sont posées au terminal, y compris avec `curl … | bash`.
 
 ```bash
 # Debian/Ubuntu — machine physique (overlay complet)
-sudo apt install squashfuse fuse-overlayfs wine
+sudo apt install fuse3 fuse-overlayfs wine
 
 # Debian/Ubuntu — Docker sans FUSE (fallback unsquashfs)
 sudo apt install squashfs-tools wine
 
 # Arch Linux
-sudo pacman -S squashfuse wine
+sudo pacman -S fuse3 fuse-overlayfs wine
 # jeux PC récents (images sans prefix, prefixes Proton) : umu + un Proton
 sudo pacman -S umu-launcher        # + proton-cachyos-slr (CachyOS), sinon UMU-Proton ou GE-Proton
 # wine-tkg (Kron4ek, non WoW64) : jeux 32 bits
@@ -134,8 +134,7 @@ wsquashfs-launcher --help
 ## Utilisation
 
 Aucun privilège requis : l'image est montée en utilisateur (overlay du
-noyau dans un namespace utilisateur, ou squashfuse + fuse-overlayfs comme une
-AppImage), y compris les paquets
+noyau dans un namespace utilisateur, ou fuse-overlayfs), y compris les paquets
 Batocera dont les fichiers appartiennent à root. Les sauvegardes et le
 prefix appartiennent à l'utilisateur qui lance le jeu. `sudo` reste pris en
 charge (ancien usage de certains frontends), mais n'apporte rien.
@@ -453,6 +452,23 @@ wsquashfs-launcher --tray off       # ne plus la lancer à l'ouverture de sessio
 Quitter l'icône n'arrête ni l'agent ni les jeux. `--setup uninstall` retire le lancement
 à l'ouverture de session.
 
+### Miniatures des .wsquashfs
+
+Une image peut porter son illustration (jaquette ou icône, au format PNG, JPEG, ICO ou
+WebP, gardée telle quelle) à sa racine, sous `.wsquashfs/cover`. Le gestionnaire de
+fichiers l'affiche en miniature :
+
+- `--pack <dossier> [sortie] cover jaquette.png` l'ajoute à la création de l'image ;
+- le manager l'ajoute à chaque reconstruction (jaquette d'EmulationStation, sinon
+  icône de l'exécutable de `CMD=`) ;
+- `--setup` installe `~/.local/share/thumbnailers/wsquashfs.thumbnailer`, qui la lit
+  avec `unsquashfs -cat`, sans monter l'image.
+
+Fonctionne avec Thunar (XFCE, par tumbler ; limite de 2 Gio levée pour tumbler 4.17 et
+plus récent), Nautilus, Nemo et Caja. Dolphin (KDE,
+Steam Deck) ne lit pas les fichiers `.thumbnailer`. Les images sans illustration gardent
+l'icône du type de fichier.
+
 ### Sauvegardes (comme Batocera)
 
 | Variable | Description | Exemples |
@@ -638,7 +654,7 @@ $HOME/
 │       ├── game2/
 │       └── .work/          # Workdir overlay, même disque que les sauvegardes
 └── .cache/wsquashfs/
-    ├── mnt/                # Montage squashfuse temporaire (mode overlay)
+    ├── mnt/                # Image montée (lecture seule, mode overlay)
     ├── wine/               # Overlay ou copie de travail persistante (mode copy)
     │   └── game1/
     │       └── .wsquashfs_cache   # Empreinte source pour détection de changement
@@ -647,12 +663,24 @@ $HOME/
 
 ## Fonctionnement
 
+### Montage de l'image
+
+Le lanceur lit lui-même les images squashfs (lecteur FUSE intégré, en Go,
+comme le runtime des AppImage) : ni `squashfuse` ni `squashfuse_ll` ne sont
+nécessaires. C'est ce qui permet le mode overlay sur SteamOS, où
+`fusermount3`, `fuse-overlayfs` et l'overlay noyau sont présents mais pas
+squashfuse. Le lanceur se relance avec `--serve-image` (commande interne) ;
+ce processus sert l'image jusqu'au démontage. Hors namespace, le montage passe
+par `fusermount3` (paquet `fuse3`) ; dans le namespace, il n'en a pas besoin.
+Lecture seule, sans attributs étendus (les images sont construites avec
+`-no-xattrs`).
+
 ### Mode overlay noyau (par défaut quand l'environnement le permet)
 
 Depuis Linux 5.11, un utilisateur peut monter l'overlay du noyau dans son
 propre namespace utilisateur, sans privilège. Le lanceur se relance dans un
 tel namespace (`unshare --map-current-user --mount --keep-caps`), y monte
-l'image avec `squashfuse_ll -o uid=,gid=` (tous les fichiers de l'image
+l'image (lecteur intégré, options `uid`/`gid` : tous les fichiers de l'image
 appartiennent à l'utilisateur, qu'ils soient à root comme dans les paquets
 Batocera ou à un autre UID), puis l'overlay du noyau par-dessus. Wine est
 lancé sans les capacités du namespace.
@@ -668,7 +696,7 @@ lancé sans les capacités du namespace.
   « en cours ».
 
 Ce mode est essayé à chaque lancement. Tout échec retombe sur fuse-overlayfs :
-namespaces refusés, squashfuse antérieur à 0.5 (Debian 12), sauvegardes sur
+namespaces refusés, sauvegardes sur
 un système de fichiers sans attributs `user.*` ou sur un overlay, etc.
 `--doctor` indique s'il est disponible et pourquoi. `WSQUASHFS_OVERLAY=fuse`
 impose fuse-overlayfs, `WSQUASHFS_OVERLAY=kernel` interdit le repli.
@@ -682,7 +710,7 @@ chaque montage noyau.
 
 ### Mode overlay FUSE (repli)
 
-1. `squashfuse` monte le `.wsquashfs` en lecture seule (`mnt/`)
+1. le lanceur monte le `.wsquashfs` en lecture seule (`mnt/`)
 2. `fuse-overlayfs` crée une vue lecture/écriture (`wine/`) combinant :
    - lowerdir : le squashfs monté (RO)
    - upperdir : `saves/<jeu>/` (RW — seules les modifications)
@@ -694,7 +722,7 @@ chaque montage noyau.
 
 ### Mode copy (Docker / FUSE bloqué)
 
-1. `squashfuse` (si disponible) ou `unsquashfs` extrait le contenu dans `wine/<jeu>/`
+1. le contenu de l'image montée (ou `unsquashfs` sans FUSE) est copié dans `wine/<jeu>/`
 2. Un fichier `.wsquashfs_cache` (taille + mtime de la source) marque le cache comme valide
 3. Wine exécute le jeu depuis `wine/<jeu>/`
 4. Les sauvegardes sont dans `wine/<jeu>/` (persistantes entre sessions)
@@ -744,9 +772,6 @@ Pour activer FUSE dans le conteneur (mode overlay, recommandé) :
 (`Overlay noyau : indisponible, …`) avant de passer à fuse-overlayfs. Le jeu
 fonctionne dans les deux cas. Causes fréquentes :
 
-- **squashfuse trop ancien** : l'option `uid=` de `squashfuse_ll` date de
-  squashfuse 0.5 (Debian 13, Arch). C'est le cas de l'image Docker, basée sur
-  Debian 12.
 - **namespaces refusés** : profil seccomp par défaut de Docker (`privileged:
   true` ou `--security-opt seccomp=unconfined` les autorise), AppArmor
   (Ubuntu 24.04 : `kernel.apparmor_restrict_unprivileged_userns`), ou sysctl

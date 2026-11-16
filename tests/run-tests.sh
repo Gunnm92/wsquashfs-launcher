@@ -3,7 +3,7 @@
 # Tests de non-régression de wsquashfs-launcher.
 #
 # Chaque scénario lance le vrai script dans un HOME isolé, avec de vrais
-# montages FUSE (squashfuse, fuse-overlayfs) mais un faux Wine, un faux
+# montages FUSE (image par le lanceur, fuse-overlayfs) mais un faux Wine, un faux
 # Proton et un faux umu-run qui journalisent leurs appels (arguments et
 # variables d'environnement) au lieu de lancer quoi que ce soit. La trace
 # complète (sorties standard et d'erreur, codes de retour, appels Wine,
@@ -37,7 +37,7 @@ done
 # ── Prérequis ──────────────────────────────────────────────────────────
 
 missing=()
-for tool in squashfuse fuse-overlayfs mksquashfs unsquashfs getfattr setfattr flock fusermount3 tar zstd; do
+for tool in fuse-overlayfs mksquashfs unsquashfs getfattr setfattr flock fusermount3 tar zstd; do
     command -v "$tool" &>/dev/null || missing+=("$tool")
 done
 [[ -w /dev/fuse ]] || missing+=("/dev/fuse (accès en écriture)")
@@ -863,14 +863,13 @@ note "port de B après arrêt : $port"
 # scénarios, sans échec (redirect_dir=off refusé par Linux 6.18).
 
 # Cause pour laquelle la machine ne peut pas monter d'overlay noyau en
-# namespace utilisateur (squashfuse_ll avec uid=, essai réel sur le système
-# de fichiers des sauvegardes), rien si elle le peut.
+# namespace utilisateur (essai réel sur le système de fichiers des
+# sauvegardes), rien si elle le peut.
 kernel_skip_reason() {
     local t tmp
-    for t in unshare setpriv squashfuse_ll; do
+    for t in unshare setpriv; do
         command -v "$t" &>/dev/null || { echo "${t} absent"; return; }
     done
-    squashfuse_ll -h 2>&1 | grep -q 'uid=N' || { echo "squashfuse_ll sans option uid="; return; }
     tmp=$(mktemp -d "${ROOT}/kernel-probe.XXXXXX")
     # shellcheck disable=SC2016  # développé par le shell du namespace
     unshare --user --map-current-user --mount --keep-caps -- sh -c \
@@ -906,7 +905,7 @@ if [[ -z "$KERNEL_SKIP" ]]; then
         "$L" "$ROMS/Arcade Game.wsquashfs"
     snapshot after-kernel
     note "opaques : Bin=$(getfattr --only-values -n user.overlay.opaque "$A/drive_c/Game Dir/Bin" 2>/dev/null) regs=$(getfattr --only-values -n user.overlay.opaque "$A/regs" 2>/dev/null)"
-    note "squashfuse restants : $(pgrep -cf "squashfuse.*${ROOT}")"
+    note "serveurs d'image restants : $(pgrep -cf "serve-image.*${ROOT}")"
     note "verrou Arcade Game après la partie : $(lock_state "Arcade Game")"
     # Repli : fuse-overlayfs relit les sauvegardes écrites par le noyau.
     step fuse-after-kernel env WSQUASHFS_UMU=0 FAKE_LS="$LS_ARCADE" \

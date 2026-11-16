@@ -125,7 +125,7 @@ func removeDuplicates(name, saves string) (skip string, n int, bytesFreed int64)
 			root = img
 			isDirImg = true
 		}
-		if isDirImg || execQuiet("squashfuse", img, mnt) == nil {
+		if isDirImg || mountSquashfs(img, mnt) {
 			if !isDirImg {
 				// Interrompu (signal) : cleanup démonte l'image au lieu de la laisser montée.
 				purgeMount.Store(&mnt)

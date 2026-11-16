@@ -20,7 +20,7 @@ help:
 	@echo "  make run-docker     Aide pour lancer un jeu via Docker"
 	@echo ""
 
-# Binaire Go statique (cmd/wsquashfs-launcher/), une seule dépendance : lipgloss. Le binaire
+# Binaire Go statique (cmd/wsquashfs-launcher/), sans cgo (montage FUSE de l'image en Go pur). Le binaire
 # versionné à la racine est régénéré par cette cible.
 build:
 	@command -v go >/dev/null || { echo "go absent (Go 1.26.7 ou plus récent ; go1.27.4 pour reproduire l'empreinte du binaire versionné)"; exit 1; }
@@ -52,11 +52,11 @@ deps:
 	@echo "Vérification des dépendances..."
 	@echo ""
 	@command -v wine          >/dev/null && echo "✓ wine"          || echo "✗ wine (requis)"
-	@command -v squashfuse    >/dev/null && echo "✓ squashfuse"    || echo "- squashfuse (optionnel si unsquashfs présent)"
-	@command -v unsquashfs    >/dev/null && echo "✓ unsquashfs"    || echo "- unsquashfs (optionnel si squashfuse présent)"
+	@command -v fusermount3   >/dev/null && echo "✓ fusermount3 (image montée par le lanceur)" || echo "- fusermount3 (fuse3, optionnel si unsquashfs présent)"
+	@command -v unsquashfs    >/dev/null && echo "✓ unsquashfs"    || echo "- unsquashfs (optionnel si fusermount3 présent)"
 	@command -v fuse-overlayfs >/dev/null && echo "✓ fuse-overlayfs (mode overlay)" || echo "- fuse-overlayfs absent (mode copy utilisé)"
 	@echo ""
-	@command -v wine >/dev/null && (command -v squashfuse >/dev/null || command -v unsquashfs >/dev/null) \
+	@command -v wine >/dev/null && (command -v fusermount3 >/dev/null || command -v unsquashfs >/dev/null) \
 		&& echo "✓ Installation fonctionnelle" \
 		|| echo "✗ Dépendances manquantes — voir README.md"
 

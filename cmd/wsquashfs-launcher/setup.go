@@ -181,6 +181,56 @@ func createMimeType() {
 	}
 	setupDone("Type MIME créé")
 	createDesktopEntry()
+	createThumbnailer()
+}
+
+// imageCoverPath : illustration du jeu dans l'image (jaquette ou icône, tout
+// format lu par gdk-pixbuf : PNG, JPEG, ICO, WebP), déposée par --pack (depuis
+// le dossier source) ou par la reconstruction du manager.
+const imageCoverPath = ".wsquashfs/cover"
+
+// thumbnailerFile : miniatures des .wsquashfs (spécification freedesktop, lue
+// par tumbler sous XFCE, Nautilus, Nemo, Caja ; pas par Dolphin).
+func thumbnailerFile() string {
+	return filepath.Join(os.Getenv("HOME"), ".local/share/thumbnailers/wsquashfs.thumbnailer")
+}
+
+// thumbnailerContent : unsquashfs -cat lit l'illustration sans monter l'image
+// (outils de /usr seulement : le bac à sable de GNOME ne voit pas le lanceur).
+// [X-Tumbler Settings] : tumbler (Thunar) ignore sinon les fichiers de plus de
+// 2 Gio ; les autres gestionnaires ignorent ce groupe.
+func thumbnailerContent() string {
+	return "[Thumbnailer Entry]\n" +
+		"TryExec=unsquashfs\n" +
+		"Exec=sh -c 'unsquashfs -cat \"$0\" " + imageCoverPath + " > \"$1\"' %i %o\n" +
+		"MimeType=application/x-wsquashfs;\n" +
+		"\n" +
+		"[X-Tumbler Settings]\n" +
+		"MaxFileSize=0\n" // tumbler ≥ 4.17 : pas de limite de 2 Gio (images de jeux)
+}
+
+// createThumbnailer : miniature des .wsquashfs dans le gestionnaire de
+// fichiers. Les échecs déjà mémorisés (avant le fichier) sont oubliés.
+func createThumbnailer() {
+	f := thumbnailerFile()
+	if dryRun {
+		simLine(f)
+		return
+	}
+	if old, err := os.ReadFile(f); err == nil && string(old) == thumbnailerContent() {
+		setupDone("Miniatures : " + f)
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(f), 0o755); err != nil {
+		setupFail("Miniatures impossibles : " + err.Error())
+		return
+	}
+	if err := os.WriteFile(f, []byte(thumbnailerContent()), 0o644); err != nil {
+		setupFail("Miniatures impossibles : " + err.Error())
+		return
+	}
+	_ = os.RemoveAll(filepath.Join(os.Getenv("HOME"), ".cache/thumbnails/fail"))
+	setupDone("Miniatures : " + f)
 }
 
 // createDesktopEntry : le double-clic lance le lanceur installé.
@@ -383,6 +433,10 @@ func uninstall() {
 		_ = removePaths(desktopFile)
 		updateMimeAndDesktopDatabases()
 		uiItem(stOK, "Entrée du bureau supprimée")
+	}
+	if isFile(thumbnailerFile()) {
+		_ = removePaths(thumbnailerFile())
+		uiItem(stOK, "Miniatures des .wsquashfs supprimées")
 	}
 	if isFile(trayAutostartPath()) {
 		_ = removePaths(trayAutostartPath())

@@ -5,7 +5,7 @@
 ╰─────────────────────────────╯
 Environnement    : ENV
 Fichier          : ROOT/userdata/roms/windows/Arcade Game.wsquashfs
-Mode             : overlay noyau (squashfuse + overlayfs, namespace utilisateur)
+Mode             : overlay noyau (image + overlayfs, namespace utilisateur)
 ✓ Préfixe Wine détecté (structure Batocera)
 Préfixe          : mise à jour pour wine-9.0 (fake)
 → Import des fichiers de registre...
@@ -375,7 +375,7 @@ l saves/Arcade Game/drive_c/windows/syswow64/kernel32.dll -> ROOT/home/.local/sh
 l src/Arcade Game.wine/drive_c/users/steamuser/Music -> /userdata/system/Music
 l src/Arcade Game.wine/drive_c/windows/system32/dxgi.dll -> /userdata/system/wine/dxvk/x64/dxgi.dll
 ## opaques : Bin=y regs=y
-## squashfuse restants : 0
+## serveurs d'image restants : 0
 ## verrou Arcade Game après la partie : libre
 ################ fuse-after-kernel
 ╭─────────────────────────────╮
@@ -384,7 +384,7 @@ l src/Arcade Game.wine/drive_c/windows/system32/dxgi.dll -> /userdata/system/win
 ╰─────────────────────────────╯
 Environnement    : ENV
 Fichier          : ROOT/userdata/roms/windows/Arcade Game.wsquashfs
-Mode             : overlay (squashfuse + fuse-overlayfs)
+Mode             : overlay (image + fuse-overlayfs)
 ✓ Préfixe Wine détecté (structure Batocera)
 Préfixe          : mise à jour pour wine-9.0 (fake)
 → Import des fichiers de registre...
@@ -502,7 +502,7 @@ WINESERVER -w
 Environnement    : ENV
 Fichier          : ROOT/userdata/roms/windows/Solo Game.wsquashfs
 Overlay noyau    : échec, namespace utilisateur refusé (Operation not permitted)
-Mode             : overlay (squashfuse + fuse-overlayfs)
+Mode             : overlay (image + fuse-overlayfs)
 → Initialisation du préfixe Wine (win64)...
 Préfixe          : mise à jour pour wine-9.0 (fake)
 
@@ -600,7 +600,7 @@ Erreur : overlay noyau impossible : namespace utilisateur refusé (Operation not
 Environnement    : ENV
 Fichier          : ROOT/userdata/roms/windows/Solo Game.wsquashfs
 Overlay noyau    : échec, overlay refusé (simulated failure)
-Mode             : overlay (squashfuse + fuse-overlayfs)
+Mode             : overlay (image + fuse-overlayfs)
 ✓ Préfixe Wine détecté (structure Batocera)
 Préfixe          : mise à jour pour wine-9.0 (fake)
 

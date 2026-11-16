@@ -2,7 +2,7 @@ package main
 
 // Overlay du noyau dans un namespace utilisateur (17/10), script bash, section 4.
 // L'hôte prépare les dossiers, puis se relance dans un namespace
-// (unshare --map-current-user) : le namespace monte l'image (squashfuse_ll),
+// (unshare --map-current-user) : le namespace monte l'image (lecteur intégré),
 // puis l'overlay, puis lance le jeu. Le statut revient à l'hôte par un
 // fichier NS_DIR/status.
 
@@ -14,7 +14,6 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
-	"time"
 )
 
 // nsCommand : unshare vers un namespace utilisateur, mapping de l'UID courant.
@@ -243,17 +242,17 @@ func useKernelOverlay() {
 		_ = os.WriteFile(filepath.Join(launch.nsDir, "status"), []byte(s+"\n"), 0o644)
 	}
 	_ = os.WriteFile(filepath.Join(launch.nsDir, "pid"), []byte(strconv.Itoa(os.Getpid())+"\n"), 0o644)
-	sq := exec.Command("squashfuse_ll", "-f", "-o", fmt.Sprintf("uid=%d,gid=%d", conf.wineUID, conf.wineGID), launch.wsquashfsFile, launch.squashfsPoint)
+	sq := imageServeCmd(launch.wsquashfsFile, launch.squashfsPoint,
+		"uid", strconv.Itoa(conf.wineUID), "gid", strconv.Itoa(conf.wineGID))
 	sq.SysProcAttr = &syscall.SysProcAttr{Pdeathsig: syscall.SIGKILL}
-	_ = sq.Start()
-	for i := 0; i < 100; i++ {
-		if isMountPoint(launch.squashfsPoint) {
-			break
-		}
-		time.Sleep(100 * time.Millisecond)
+	exited := make(chan struct{})
+	if sq.Start() == nil {
+		go func() { _ = sq.Wait(); close(exited) }()
+	} else {
+		close(exited)
 	}
-	if !isMountPoint(launch.squashfsPoint) {
-		writeStatus("squashfuse_ll impossible dans le namespace")
+	if !waitMounted(launch.squashfsPoint, exited) {
+		writeStatus("montage de l'image impossible dans le namespace")
 		exitNow(1)
 	}
 	if msg := mountKernelOverlayLayer(); msg != "" {
@@ -265,7 +264,7 @@ func useKernelOverlay() {
 	launch.overlayKind = "kernel"
 	mounted.Store(true)
 	detectImagePrefix()
-	uiKVLine("Mode", "overlay noyau (squashfuse + overlayfs, namespace utilisateur)")
+	uiKVLine("Mode", "overlay noyau (image + overlayfs, namespace utilisateur)")
 }
 
 // nsLauncherPID : PID du lanceur d'un jeu dans son namespace, pour --umount.

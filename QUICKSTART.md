@@ -10,7 +10,7 @@ ou, depuis le dépôt cloné : `./install.sh` (ou `make install`).
 
 L'installeur détecte la distribution — **Debian/Ubuntu** (apt) ou **Arch,
 CachyOS, Manjaro, EndeavourOS** (pacman) — installe les paquets système
-(squashfuse, fuse-overlayfs, bibliothèques 32 bits…), puis propose wine-tkg,
+(fuse3, fuse-overlayfs, bibliothèques 32 bits…), puis propose wine-tkg,
 umu et un Proton, DXVK, VKD3D-Proton et d7vk. Il pose ses questions au
 terminal ; `yes` pour tout accepter, `dry-run` pour voir ce qu'il ferait
 sans rien modifier.
@@ -99,7 +99,7 @@ de Proton. Sauvegardes et cache sont dans des volumes Docker.
 - **Le jeu ne se lance pas** : relancer depuis un terminal pour lire le
   récapitulatif et les erreurs Wine ; vérifier la commande avec `--info`.
 - **Erreur de montage** : `wsquashfs-launcher --doctor` vérifie `/dev/fuse`,
-  squashfuse et fuse-overlayfs. Sans FUSE (certains conteneurs), le lanceur
+  fusermount3 et fuse-overlayfs. Sans FUSE (certains conteneurs), le lanceur
   passe en mode copy (unsquashfs).
 - **Un jeu reste monté** : `wsquashfs-launcher --umount` (tous les jeux).
 - **Repartir de zéro pour un jeu** : `wsquashfs-launcher --clear "MonJeu"` ne

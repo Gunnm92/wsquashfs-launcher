@@ -49,14 +49,13 @@ func umountRetry(p string) {
 	}
 }
 
-// mountSquashfs : squashfuse, allow_other en root.
+// mountSquashfs : image montée par le lecteur intégré (imagefs.go),
+// allow_other en root.
 func mountSquashfs(image, point string) bool {
-	args := []string{}
 	if conf.allowOtherOpt != "" {
-		args = append(args, "-o", conf.allowOtherOpt)
+		return serveImageBg(image, point, conf.allowOtherOpt)
 	}
-	args = append(args, image, point)
-	return execQuiet("squashfuse", args...) == nil
+	return serveImageBg(image, point)
 }
 
 // mountOverlay : overlay fuse-overlayfs, image (lowerdir) et sauvegardes
@@ -126,13 +125,10 @@ func kernelOverlayUnavailable() string {
 	if conf.runAsRoot {
 		return "lancé en root"
 	}
-	for _, tool := range []string{"unshare", "setpriv", "squashfuse_ll", "mount", "umount", "mountpoint", "getfattr", "setfattr"} {
+	for _, tool := range []string{"unshare", "setpriv", "mount", "umount", "mountpoint", "getfattr", "setfattr"} {
 		if _, err := exec.LookPath(tool); err != nil {
 			return tool + " absent"
 		}
-	}
-	if out, _ := exec.Command("squashfuse_ll", "-h").CombinedOutput(); !strings.Contains(string(out), "uid=N") {
-		return "squashfuse_ll sans option uid= (squashfuse 0.5 requis)"
 	}
 	if out, _ := exec.Command("unshare", "--help").CombinedOutput(); !strings.Contains(string(out), "--map-current-user") {
 		return "unshare trop ancien (util-linux 2.38 requis)"

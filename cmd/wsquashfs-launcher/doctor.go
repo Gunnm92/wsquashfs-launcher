@@ -86,7 +86,11 @@ func runDoctorChecks() bool {
 	} else {
 		doctorFail("/dev/fuse inaccessible : mode copy seulement (conteneur : --device /dev/fuse)")
 	}
-	doctorTool("squashfuse", "montage de l'image", "fail")
+	if p := fusermountPath(); p != "" {
+		doctorOK("montage de l'image intégré (" + filepath.Base(p) + ")")
+	} else {
+		doctorNote("fusermount3 absent : image montée seulement dans le namespace (overlay noyau)")
+	}
 	if reason := kernelOverlayUnavailable(); reason != "" {
 		doctorNote("overlay noyau indisponible : " + reason + " (fuse-overlayfs à la place)")
 	} else if probe := kernelOverlayProbe(); probe == "" {
@@ -98,9 +102,8 @@ func runDoctorChecks() bool {
 	doctorTool("unsquashfs", "mode copy, --info, --install", "fail")
 	doctorTool("mksquashfs", "--pack", "note")
 	doctorTool("getfattr", "--clean (doublons des sauvegardes)", "note")
-	_, sqErr := exec.LookPath("squashfuse")
 	_, unErr := exec.LookPath("unsquashfs")
-	if sqErr != nil && unErr != nil {
+	if !writable("/dev/fuse") && unErr != nil {
 		fatal = true
 	}
 

@@ -1,0 +1,504 @@
+package main
+
+// Montage FUSE d'une image squashfs, intégré au lanceur (16/11) : remplace
+// squashfuse et squashfuse_ll, absents de SteamOS (fusermount3, fuse-overlayfs
+// et l'overlay noyau y sont, pas squashfuse). Le lanceur se relance avec
+// --serve-image, processus à part qui sert l'image jusqu'au démontage
+// (fusermount -u, umount) : mêmes démontages qu'avec squashfuse.
+//
+// Lecture seule. Les images sont construites sans attributs étendus
+// (-no-xattrs : --pack, rebuild.py du manager) : getxattr répond ENODATA.
+// Performances : blocs décompressés en cache (LRU partagée), requêtes FUSE
+// servies en parallèle, entrées et attributs gardés par le noyau (image
+// immuable pendant le montage).
+
+import (
+	"container/list"
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"os/signal"
+	"runtime"
+	"slices"
+	"strconv"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"syscall"
+	"time"
+
+	squashfslow "github.com/CalebQ42/squashfs/low"
+	"github.com/CalebQ42/squashfs/low/directory"
+	"github.com/CalebQ42/squashfs/low/inode"
+	"github.com/hanwen/go-fuse/v2/fs"
+	"github.com/hanwen/go-fuse/v2/fuse"
+)
+
+// imageMountOpts : options de --serve-image (sans tirets, comme les autres
+// sous-options : uid N, gid N, allow_other).
+type imageMountOpts struct {
+	image, point string
+	uid, gid     int // -1 : propriétaires de l'image
+	allowOther   bool
+}
+
+// imageCacheBlocks : blocs de données et de fragments décompressés (128 Kio
+// par bloc dans toutes les images, soit 32 Mio) ; imageCacheMeta : blocs de
+// métadonnées (8 Kio, soit 32 Mio).
+const (
+	imageCacheBlocks = 256
+	imageCacheMeta   = 4096
+	imageKernelTTL   = time.Hour
+	// imagePrefetchBlocks : blocs décompressés d'avance après une lecture
+	// (8 × 128 Kio, au-delà des 1 Mio de lecture anticipée du noyau).
+	imagePrefetchBlocks = 8
+)
+
+// lru : cache à éviction du plus ancien, sûr entre goroutines.
+type lru struct {
+	mu    sync.Mutex
+	max   int
+	order *list.List
+	items map[any]*list.Element
+}
+
+type lruEntry struct {
+	key, val any
+}
+
+func newLRU(max int) *lru {
+	return &lru{max: max, order: list.New(), items: map[any]*list.Element{}}
+}
+
+func (c *lru) get(k any) (any, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if e, ok := c.items[k]; ok {
+		c.order.MoveToFront(e)
+		return e.Value.(*lruEntry).val, true
+	}
+	return nil, false
+}
+
+func (c *lru) put(k, v any) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if e, ok := c.items[k]; ok {
+		e.Value.(*lruEntry).val = v
+		c.order.MoveToFront(e)
+		return
+	}
+	c.items[k] = c.order.PushFront(&lruEntry{k, v})
+	for c.order.Len() > c.max {
+		last := c.order.Back()
+		c.order.Remove(last)
+		delete(c.items, last.Value.(*lruEntry).key)
+	}
+}
+
+// squashImage : image ouverte et ses caches.
+type squashImage struct {
+	rdr    squashfslow.Reader
+	file   *os.File
+	dec    sqDecompressor
+	uid    int
+	gid    int
+	blocks *lru // position → bloc de données ou de fragments décompressé
+	meta   *lru // position → *sqMetaBlock
+
+	inflightMu    sync.Mutex
+	inflight      map[uint64]*sqInflight
+	prefetchSlots chan struct{} // lectures anticipées simultanées (un par cœur)
+}
+
+func openSquashImage(path string, uid, gid int) (*squashImage, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	rdr, err := squashfslow.NewReader(f)
+	if err != nil {
+		f.Close()
+		return nil, err
+	}
+	dec, err := newSqDecompressor(rdr.Superblock.CompType)
+	if err != nil {
+		f.Close()
+		return nil, err
+	}
+	return &squashImage{rdr: rdr, file: f, dec: dec, uid: uid, gid: gid,
+		blocks: newLRU(imageCacheBlocks), meta: newLRU(imageCacheMeta),
+		inflight: map[uint64]*sqInflight{}, prefetchSlots: make(chan struct{}, runtime.NumCPU())}, nil
+}
+
+// sqNode : nœud FUSE (fichier, dossier, lien…) de l'image.
+type sqNode struct {
+	fs.Inode
+	img  *squashImage
+	base squashfslow.FileBase
+
+	mu      sync.Mutex
+	entries []directory.Entry // dossier : entrées lues au premier accès
+	listed  bool
+	file    *sqFileLayout // fichier : blocs, lus au premier accès
+	lastEnd atomic.Int64  // fin de la dernière lecture (lecture séquentielle ?)
+}
+
+var (
+	_ fs.NodeGetattrer  = (*sqNode)(nil)
+	_ fs.NodeLookuper   = (*sqNode)(nil)
+	_ fs.NodeReaddirer  = (*sqNode)(nil)
+	_ fs.NodeOpener     = (*sqNode)(nil)
+	_ fs.NodeReader     = (*sqNode)(nil)
+	_ fs.NodeReadlinker = (*sqNode)(nil)
+	_ fs.NodeGetxattrer = (*sqNode)(nil)
+	_ fs.NodeStatfser   = (*sqNode)(nil)
+	_ fs.NodeAccesser   = (*sqNode)(nil)
+)
+
+// ino : numéro d'inode FUSE (celui de l'image, + 1 : la racine FUSE est 1).
+func (n *sqNode) ino() uint64 { return uint64(n.base.Inode.Num) + 1 }
+
+func (n *sqNode) fillAttr(a *fuse.Attr) {
+	in := n.base.Inode
+	a.Ino = n.ino()
+	a.Mode = uint32(in.Perm) | sqTypeMode(in.Type)
+	a.Nlink = in.LinkCount()
+	if a.Nlink == 0 {
+		a.Nlink = 1
+	}
+	a.Size = in.Size()
+	if t, ok := sqLinkTarget(in); ok {
+		a.Size = uint64(len(t)) // comme lstat : longueur de la cible
+	}
+	a.Blocks = (a.Size + 511) / 512
+	a.Blksize = n.img.rdr.Superblock.BlockSize
+	a.Mtime = uint64(in.ModTime)
+	a.Atime, a.Ctime = a.Mtime, a.Mtime
+	a.Uid, a.Gid = n.owner()
+	if dev, ok := sqDevice(in); ok {
+		a.Rdev = dev
+	}
+}
+
+// owner : uid/gid imposés (squashfuse_ll -o uid=,gid=), sinon ceux de l'image.
+func (n *sqNode) owner() (uint32, uint32) {
+	uid, gid := uint32(n.img.uid), uint32(n.img.gid)
+	if n.img.uid < 0 {
+		uid, _ = n.base.Uid(&n.img.rdr)
+	}
+	if n.img.gid < 0 {
+		gid, _ = n.base.Gid(&n.img.rdr)
+	}
+	return uid, gid
+}
+
+func sqTypeMode(t uint16) uint32 {
+	switch t {
+	case inode.Dir, inode.EDir:
+		return syscall.S_IFDIR
+	case inode.Fil, inode.EFil:
+		return syscall.S_IFREG
+	case inode.Sym, inode.ESym:
+		return syscall.S_IFLNK
+	case inode.Block, inode.EBlock:
+		return syscall.S_IFBLK
+	case inode.Char, inode.EChar:
+		return syscall.S_IFCHR
+	case inode.Fifo, inode.EFifo:
+		return syscall.S_IFIFO
+	case inode.Sock, inode.ESock:
+		return syscall.S_IFSOCK
+	}
+	return syscall.S_IFREG
+}
+
+func sqDevice(in inode.Inode) (uint32, bool) {
+	switch d := in.Data.(type) {
+	case inode.Device:
+		return d.Dev, true
+	case inode.EDevice:
+		return d.Dev, true
+	}
+	return 0, false
+}
+
+func (n *sqNode) Getattr(_ context.Context, _ fs.FileHandle, out *fuse.AttrOut) syscall.Errno {
+	n.fillAttr(&out.Attr)
+	out.SetTimeout(imageKernelTTL)
+	return 0
+}
+
+func (n *sqNode) Statfs(_ context.Context, out *fuse.StatfsOut) syscall.Errno {
+	sb := n.img.rdr.Superblock
+	out.Bsize = sb.BlockSize
+	out.Frsize = sb.BlockSize
+	out.Blocks = (sb.Size + uint64(sb.BlockSize) - 1) / uint64(sb.BlockSize)
+	out.Files = uint64(sb.InodeCount)
+	out.NameLen = 256
+	return 0
+}
+
+// Access : aucun contrôle, comme squashfuse (sans default_permissions) :
+// sinon une image dont les dossiers sont à un autre UID (racine en 744 à
+// l'UID 1000, Psyvariar Delta) devient illisible. Écriture : EROFS (ro).
+func (n *sqNode) Access(context.Context, uint32) syscall.Errno { return 0 }
+
+func (n *sqNode) Getxattr(context.Context, string, []byte) (uint32, syscall.Errno) {
+	return 0, syscall.ENODATA
+}
+
+// dir : entrées du dossier, lues une fois (le nœud reste en mémoire tant que
+// le noyau le connaît).
+func (n *sqNode) dir() ([]directory.Entry, syscall.Errno) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if !n.listed {
+		if !n.base.IsDir() {
+			return nil, syscall.ENOTDIR
+		}
+		e, err := n.img.readDir(n.base.Inode)
+		if err != nil {
+			return nil, syscall.EIO
+		}
+		n.entries, n.listed = e, true
+	}
+	return n.entries, 0
+}
+
+func (n *sqNode) Lookup(ctx context.Context, name string, out *fuse.EntryOut) (*fs.Inode, syscall.Errno) {
+	entries, errno := n.dir()
+	if errno != 0 {
+		return nil, errno
+	}
+	// Entrées triées par nom (format squashfs) : recherche dichotomique.
+	i, found := slices.BinarySearchFunc(entries, name, func(e directory.Entry, name string) int {
+		return strings.Compare(e.Name, name)
+	})
+	if !found {
+		return nil, syscall.ENOENT
+	}
+	in, err := n.img.inodeAt(entries[i].BlockStart, entries[i].Offset)
+	if err != nil {
+		return nil, syscall.EIO
+	}
+	child := &sqNode{img: n.img, base: squashfslow.FileBase{Inode: in, Name: name}}
+	child.fillAttr(&out.Attr)
+	out.SetEntryTimeout(imageKernelTTL)
+	out.SetAttrTimeout(imageKernelTTL)
+	return n.NewInode(ctx, child, fs.StableAttr{Mode: out.Attr.Mode & syscall.S_IFMT, Ino: child.ino()}), 0
+}
+
+func (n *sqNode) Readdir(context.Context) (fs.DirStream, syscall.Errno) {
+	entries, errno := n.dir()
+	if errno != 0 {
+		return nil, errno
+	}
+	list := make([]fuse.DirEntry, 0, len(entries))
+	for _, e := range entries {
+		list = append(list, fuse.DirEntry{Name: e.Name, Ino: uint64(e.Num) + 1, Mode: sqTypeMode(e.InodeType)})
+	}
+	return fs.NewListDirStream(list), 0
+}
+
+func sqLinkTarget(in inode.Inode) ([]byte, bool) {
+	switch s := in.Data.(type) {
+	case inode.Symlink:
+		return s.Target, true
+	case inode.ESymlink:
+		return s.Target, true
+	}
+	return nil, false
+}
+
+func (n *sqNode) Readlink(context.Context) ([]byte, syscall.Errno) {
+	if t, ok := sqLinkTarget(n.base.Inode); ok {
+		return t, 0
+	}
+	return nil, syscall.EINVAL
+}
+
+func (n *sqNode) Open(_ context.Context, flags uint32) (fs.FileHandle, uint32, syscall.Errno) {
+	if flags&(syscall.O_WRONLY|syscall.O_RDWR) != 0 {
+		return nil, 0, syscall.EROFS
+	}
+	if !n.base.IsRegular() {
+		return nil, 0, syscall.EINVAL
+	}
+	// Contenu immuable : le cache de pages du noyau reste valable d'une
+	// ouverture à l'autre. NOFLUSH : pas d'aller-retour FLUSH à chaque
+	// fermeture (rien à écrire ; sensible avec des milliers de petits fichiers).
+	return nil, fuse.FOPEN_KEEP_CACHE | fuse.FOPEN_NOFLUSH, 0
+}
+
+// layout : blocs du fichier, lus au premier accès.
+func (n *sqNode) layout() (*sqFileLayout, error) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if n.file == nil {
+		l, err := n.img.layout(n.base.Inode)
+		if err != nil {
+			return nil, err
+		}
+		n.file = l
+	}
+	return n.file, nil
+}
+
+func (n *sqNode) Read(_ context.Context, _ fs.FileHandle, dest []byte, off int64) (fuse.ReadResult, syscall.Errno) {
+	l, err := n.layout()
+	if err != nil {
+		return nil, syscall.EIO
+	}
+	size := int64(l.size)
+	if off >= size || len(dest) == 0 {
+		return fuse.ReadResultData(nil), 0
+	}
+	end := min(off+int64(len(dest)), size)
+	bs := int64(n.img.rdr.Superblock.BlockSize)
+	got := 0
+	for pos := off; pos < end; {
+		idx := uint32(pos / bs)
+		b, err := n.img.fileBlock(l, idx)
+		if err != nil {
+			return nil, syscall.EIO
+		}
+		in := pos - int64(idx)*bs
+		if in >= int64(len(b)) {
+			return nil, syscall.EIO
+		}
+		c := copy(dest[got:end-off], b[in:])
+		got += c
+		pos += int64(c)
+	}
+	// Lecture séquentielle (elle reprend où la précédente s'est arrêtée) : les
+	// blocs suivants seront demandés. Pas en accès aléatoire : 8 blocs
+	// décompressés pour rien à chaque lecture.
+	if n.lastEnd.Swap(end) == off {
+		n.img.prefetch(l, uint32((end-1)/bs)+1, imagePrefetchBlocks)
+	}
+	return fuse.ReadResultData(dest[:got]), 0
+}
+
+// serveImage : --serve-image IMAGE POINT [uid N] [gid N] [allow_other]. Sert
+// l'image jusqu'au démontage ; SIGTERM/SIGINT démontent proprement.
+func serveImage(args []string) int {
+	o, err := parseServeImage(args)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "--serve-image : "+err.Error())
+		return 2
+	}
+	img, err := openSquashImage(o.image, o.uid, o.gid)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "--serve-image : "+o.image+" : "+err.Error())
+		return 1
+	}
+	root := &sqNode{img: img, base: img.rdr.Root.FileBase}
+	ttl := imageKernelTTL
+	srv, err := fs.Mount(o.point, root, &fs.Options{
+		EntryTimeout:    &ttl,
+		AttrTimeout:     &ttl,
+		NullPermissions: true, // droits de l'image tels quels (0000 compris)
+		MountOptions: fuse.MountOptions{
+			FsName:       o.image,
+			Name:         "squashfuse",
+			AllowOther:   o.allowOther,
+			DirectMount:  true, // root du namespace : mount(2) sans fusermount
+			MaxReadAhead: 1 << 20,
+			MaxWrite:     1 << 20, // requêtes de lecture de 1 Mio (128 Kio sinon)
+			Options:      []string{"ro"},
+		},
+	})
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "--serve-image : montage impossible : "+err.Error())
+		return 1
+	}
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP)
+	go func() {
+		<-sig
+		if srv.Unmount() != nil {
+			_ = syscall.Unmount(o.point, syscall.MNT_DETACH)
+		}
+	}()
+	srv.Wait()
+	return 0
+}
+
+func parseServeImage(args []string) (imageMountOpts, error) {
+	o := imageMountOpts{uid: -1, gid: -1}
+	var pos []string
+	for i := 0; i < len(args); i++ {
+		switch a := args[i]; a {
+		case "uid", "gid":
+			if i+1 >= len(args) {
+				return o, errors.New(a + " sans valeur")
+			}
+			v, err := strconv.Atoi(args[i+1])
+			if err != nil || v < 0 {
+				return o, errors.New(a + " invalide : " + args[i+1])
+			}
+			if a == "uid" {
+				o.uid = v
+			} else {
+				o.gid = v
+			}
+			i++
+		case "allow_other":
+			o.allowOther = true
+		default:
+			pos = append(pos, a)
+		}
+	}
+	if len(pos) != 2 {
+		return o, errors.New("usage : --serve-image IMAGE POINT [uid N] [gid N] [allow_other]")
+	}
+	o.image, o.point = pos[0], pos[1]
+	return o, nil
+}
+
+// imageServeCmd : commande du serveur d'image (le lanceur lui-même).
+func imageServeCmd(image, point string, extra ...string) *exec.Cmd {
+	args := append([]string{"--serve-image", image, point}, extra...)
+	return exec.Command(conf.selfPath, args...)
+}
+
+// serveImageBg : monte l'image en arrière-plan (comme squashfuse, qui rend la
+// main une fois monté). Le serveur survit au lanceur jusqu'au démontage.
+func serveImageBg(image, point string, extra ...string) bool {
+	cmd := imageServeCmd(image, point, extra...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	if err := cmd.Start(); err != nil {
+		return false
+	}
+	exited := make(chan struct{})
+	go func() { _ = cmd.Wait(); close(exited) }()
+	return waitMounted(point, exited)
+}
+
+// waitMounted : attend le montage (10 s au plus) ou la fin du serveur.
+func waitMounted(point string, exited <-chan struct{}) bool {
+	for i := 0; i < 100; i++ {
+		if isMountPoint(point) {
+			return true
+		}
+		select {
+		case <-exited:
+			return isMountPoint(point)
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+	return isMountPoint(point)
+}
+
+// fusermountPath : outil setuid de montage FUSE hors namespace ("" si absent).
+func fusermountPath() string {
+	for _, t := range []string{"fusermount3", "fusermount"} {
+		if p, err := exec.LookPath(t); err == nil {
+			return p
+		}
+	}
+	return ""
+}

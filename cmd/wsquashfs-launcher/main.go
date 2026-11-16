@@ -28,6 +28,9 @@ func run(args []string) int {
 	if len(args) > 0 && args[0] == "--complete" { // complétion bash (completion.go) : rien d'autre
 		return cmdComplete(args[1:])
 	}
+	if len(args) > 0 && args[0] == "--serve-image" { // serveur FUSE d'une image (imagefs.go), interne
+		return serveImage(args[1:])
+	}
 	opts, err := parseArgs(args)
 	if err != nil {
 		var ae *argError
