@@ -108,6 +108,10 @@ type squashImage struct {
 	blocks *lru // position → bloc de données ou de fragments décompressé
 	meta   *lru // position → *sqMetaBlock
 
+	fragOnce sync.Once
+	fragPtrs []uint64
+	fragErr  error
+
 	inflightMu    sync.Mutex
 	inflight      map[uint64]*sqInflight
 	prefetchSlots chan struct{} // lectures anticipées simultanées (un par cœur)

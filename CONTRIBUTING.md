@@ -96,7 +96,7 @@ make test-update   # après un changement de comportement VOULU : relire
                    # le diff de tests/expected.out avant de commiter
 ```
 
-Prérequis : squashfuse, fuse-overlayfs, squashfs-tools, attr (getfattr),
+Prérequis : fuse3 (fusermount3), fuse-overlayfs, squashfs-tools, attr (getfattr),
 util-linux (flock) et l'accès à `/dev/fuse`. Un nouveau comportement
 s'accompagne d'un scénario dans `tests/run-tests.sh`.
 
@@ -152,7 +152,8 @@ Avant de soumettre une PR :
 - [Documentation Batocera](https://wiki.batocera.org/)
 - [Documentation Wine](https://wiki.winehq.org/)
 - [Documentation Docker](https://docs.docker.com/)
-- [SquashFS Tools](https://github.com/vasi/squashfuse)
+- [squashfs-tools](https://github.com/plougher/squashfs-tools)
+- [go-fuse](https://github.com/hanwen/go-fuse) (montage intégré de l'image)
 
 ## ❓ Questions
 

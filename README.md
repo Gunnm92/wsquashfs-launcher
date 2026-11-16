@@ -686,9 +686,13 @@ Batocera ou à un autre UID), puis l'overlay du noyau par-dessus. Wine est
 lancé sans les capacités du namespace.
 
 - Une seule couche FUSE au lieu de deux. Lectures aléatoires en parallèle
-  (chargement d'un niveau) environ 5 fois plus rapides, mesuré sur un jeu
-  récent à gros assets. En revanche, la lecture séquentielle pure est plus lente
-  (1,5 Go/s contre 3,7 Go/s).
+  (chargement d'un niveau) environ 5 fois plus rapides que fuse-overlayfs,
+  mesuré en octobre sur un jeu récent à gros assets, avec squashfuse_ll ; la
+  lecture séquentielle pure y était plus lente (1,5 Go/s contre 3,7 Go/s). Le
+  lecteur intégré qui l'a remplacé (16/11) décompresse d'avance en parallèle :
+  lecture séquentielle de gros fichiers plus rapide que squashfuse_ll,
+  métadonnées 2 fois plus rapides, accès aléatoire équivalent ; milliers de
+  petits fichiers déjà en cache environ 1,7 fois plus lents.
 - Les sauvegardes s'écrivent à la vitesse du disque.
 - Les montages sont invisibles hors du namespace et disparaissent avec lui :
   rien d'orphelin après un plantage.

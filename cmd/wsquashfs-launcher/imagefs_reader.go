@@ -195,17 +195,32 @@ type sqFragment struct {
 	size  uint32
 }
 
-// fragment : entrée i de la table des fragments (blocs d'index lus une fois).
+// fragIndex : positions des blocs de la table des fragments (512 entrées par
+// bloc), lues une fois : sinon un pread par lecture de petit fichier.
+func (s *squashImage) fragIndex() ([]uint64, error) {
+	s.fragOnce.Do(func() {
+		sb := &s.rdr.Superblock
+		raw := make([]byte, (int(sb.FragCount)+511)/512*8)
+		if _, s.fragErr = s.file.ReadAt(raw, int64(sb.FragTableStart)); s.fragErr == nil {
+			s.fragPtrs = make([]uint64, len(raw)/8)
+			for i := range s.fragPtrs {
+				s.fragPtrs[i] = binary.LittleEndian.Uint64(raw[i*8:])
+			}
+		}
+	})
+	return s.fragPtrs, s.fragErr
+}
+
+// fragment : entrée i de la table des fragments.
 func (s *squashImage) fragment(i uint32) (sqFragment, error) {
-	sb := &s.rdr.Superblock
-	if i >= sb.FragCount {
+	if i >= s.rdr.Superblock.FragCount {
 		return sqFragment{}, errors.New("fragment hors table")
 	}
-	var ptr [8]byte
-	if _, err := s.file.ReadAt(ptr[:], int64(sb.FragTableStart)+int64(i/512)*8); err != nil {
+	ptrs, err := s.fragIndex()
+	if err != nil {
 		return sqFragment{}, err
 	}
-	r := s.metaReader(int64(binary.LittleEndian.Uint64(ptr[:])), int(i%512)*16)
+	r := s.metaReader(int64(ptrs[i/512]), int(i%512)*16)
 	var e [16]byte
 	if _, err := io.ReadFull(r, e[:]); err != nil {
 		return sqFragment{}, err
