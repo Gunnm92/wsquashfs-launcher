@@ -680,7 +680,7 @@ const (
 
 // decideSync : sens de la synchro, d'après les empreintes locale et distante et l'état de la
 // dernière synchro (chacune son empreinte). Si les deux côtés ont changé (conflit), la plus lourde
-// gagne ; à taille égale, la plus récente. localNewest et remoteNewest : MTime le plus récent (s) ;
+// gagne ; à taille proche (sizesClose), la plus récente. localNewest et remoteNewest : MTime le plus récent (s) ;
 // localSize et remoteSize : taille totale du périmètre (octets).
 func decideSync(localFP, localState string, localNewest, localSize int64, remoteFP, remoteState string, remoteNewest, remoteSize int64) syncAction {
 	switch {
@@ -698,7 +698,7 @@ func decideSync(localFP, localState string, localNewest, localSize int64, remote
 		return syncReceive
 	case lc && !rc:
 		return syncSend
-	case localSize != remoteSize:
+	case !sizesClose(localSize, remoteSize):
 		if localSize > remoteSize {
 			return syncConflictSend
 		}
@@ -707,6 +707,20 @@ func decideSync(localFP, localState string, localNewest, localSize int64, remote
 		return syncConflictSend
 	}
 	return syncConflictReceive
+}
+
+// syncSizeTolerance : écart relatif à la plus lourde (en %) sous lequel deux tailles de
+// sauvegardes comptent comme égales ; même seuil que SIZE_TOLERANCE du manager.
+const syncSizeTolerance = 10
+
+// sizesClose : vrai si la plus légère des deux tailles est à moins de syncSizeTolerance % de la
+// plus lourde. Un conflit entre versions proches se départage alors par la date, pour qu'une
+// version plus récente ne perde pas pour quelques octets.
+func sizesClose(a, b int64) bool {
+	if a > b {
+		a, b = b, a
+	}
+	return a*100 >= b*(100-syncSizeTolerance)
 }
 
 // String : libellé court affiché à l'utilisateur.

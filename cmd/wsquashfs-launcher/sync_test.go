@@ -319,6 +319,9 @@ func TestSyncDecide(t *testing.T) {
 		{"conflit, distant plus lourd mais plus ancien", "a2", "a", 20, 100, "b2", "b", 10, 300, syncConflictReceive},
 		{"conflit, distant plus lourd et plus récent", "a2", "a", 10, 100, "b2", "b", 20, 300, syncConflictReceive},
 		{"conflit, local plus lourd et plus récent", "a2", "a", 20, 300, "b2", "b", 10, 100, syncConflictSend},
+		{"conflit, distant un peu plus lourd mais plus ancien", "a2", "a", 20, 95, "b2", "b", 10, 100, syncConflictSend},
+		{"conflit, local un peu plus lourd mais plus ancien", "a2", "a", 10, 100, "b2", "b", 20, 90, syncConflictReceive},
+		{"conflit, distant juste au-delà du seuil", "a2", "a", 20, 89, "b2", "b", 10, 100, syncConflictReceive},
 	}
 	for _, c := range cases {
 		if got := decideSync(c.lfp, c.lst, c.lnew, c.lsz, c.rfp, c.rst, c.rnew, c.rsz); got != c.want {

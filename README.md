@@ -520,7 +520,7 @@ voit simplement pas la machine (pastille « auto », envois vers elle), ce que
 - Ce qui est synchronisé : Documents, Saved Games et AppData des profils
   Windows du prefix, comme `--save`. Les caches sont exclus.
 - **Conflit** (les deux machines ont changé depuis la dernière synchro) : la
-  plus lourde gagne (à taille égale, la plus récente) ; l'autre version est
+  plus lourde gagne (à moins de 10 % d'écart, la plus récente) ; l'autre version est
   archivée dans le dossier
   `backups` (`~/.local/share/wsquashfs/backups`), dont `--clean` ne garde que
   les 3 dernières archives.

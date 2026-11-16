@@ -497,10 +497,10 @@ func archivedNote(path string) string {
 }
 
 // conflictWhy : ce qui a départagé un conflit gagné (« plus lourde », ou « plus récente » à taille
-// égale) et les deux tailles, gagnant d'abord.
+// proche, voir sizesClose) et les deux tailles, gagnant d'abord.
 func conflictWhy(winSize, loseSize int64) string {
 	why := "plus récente"
-	if winSize != loseSize {
+	if !sizesClose(winSize, loseSize) {
 		why = "plus lourde"
 	}
 	return why + " gardée (" + sizeText(winSize) + " contre " + sizeText(loseSize) + ")"
