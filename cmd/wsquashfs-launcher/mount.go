@@ -16,6 +16,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 // fuseUmount : démontage FUSE (fusermount, puis umount).
@@ -153,7 +155,46 @@ func kernelOverlayUnavailable() string {
 	} else {
 		f.Close()
 	}
+	if casefoldCapable(conf.savesDir) {
+		return "sauvegardes sur un système de fichiers à casse ignorée possible (casefold, SteamOS)"
+	}
 	return ""
+}
+
+// fsCasefoldFlag : FS_CASEFOLD_FL (chattr +F), dossier insensible à la casse.
+const fsCasefoldFlag = 0x40000000
+
+// casefoldCapable : le système de fichiers de dir (ou de son premier parent
+// existant) accepte les dossiers insensibles à la casse (ext4 avec casefold :
+// /home de SteamOS). Wine y marque drive_c à la création du prefix, l'overlay
+// noyau transmet la demande au dossier des sauvegardes, puis refuse toute
+// recherche dessous (« parent wrong casefold », ESTALE : Steam Deck, 16/11).
+// fuse-overlayfs ne transmet pas ce marqueur : il reste utilisable.
+func casefoldCapable(dir string) bool {
+	for {
+		if _, err := os.Stat(dir); err == nil || dir == "/" || dir == "." {
+			break
+		}
+		dir = filepath.Dir(dir)
+	}
+	tmp, err := os.MkdirTemp(dir, ".wsquashfs-casefold.")
+	if err != nil {
+		return false
+	}
+	defer os.Remove(tmp)
+	f, err := os.Open(tmp)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	flags, err := unix.IoctlGetInt(int(f.Fd()), unix.FS_IOC_GETFLAGS)
+	if err != nil {
+		return false
+	}
+	if flags&fsCasefoldFlag != 0 {
+		return true // hérité du parent
+	}
+	return unix.IoctlSetPointerInt(int(f.Fd()), unix.FS_IOC_SETFLAGS, flags|fsCasefoldFlag) == nil
 }
 
 // readTrim : contenu d'un petit fichier, sans fin de ligne ("" si absent).

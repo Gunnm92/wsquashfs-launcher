@@ -772,6 +772,11 @@ Pour activer FUSE dans le conteneur (mode overlay, recommandé) :
 (`Overlay noyau : indisponible, …`) avant de passer à fuse-overlayfs. Le jeu
 fonctionne dans les deux cas. Causes fréquentes :
 
+- **sauvegardes sur un système de fichiers à casse ignorée possible** (ext4 avec
+  casefold : `/home` de SteamOS) : Wine marque les dossiers qu'il crée (`drive_c`…)
+  insensibles à la casse, l'overlay noyau transmet ce marqueur aux sauvegardes puis
+  refuse d'y chercher quoi que ce soit (« parent wrong casefold », ESTALE). Le
+  lanceur passe directement à fuse-overlayfs, qui ne transmet pas ce marqueur.
 - **namespaces refusés** : profil seccomp par défaut de Docker (`privileged:
   true` ou `--security-opt seccomp=unconfined` les autorise), AppArmor
   (Ubuntu 24.04 : `kernel.apparmor_restrict_unprivileged_userns`), ou sysctl
