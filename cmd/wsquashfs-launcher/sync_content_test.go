@@ -99,13 +99,13 @@ func TestContentCacheBounded(t *testing.T) {
 // TestDecideSyncContent : contenus égaux → à jour malgré des empreintes différentes ; contenu
 // distant inconnu → comportement inchangé.
 func TestDecideSyncContent(t *testing.T) {
-	if got := decideSync("a2", "a", 10, 5, "b2", "b", 20, 5, "c", "c"); got != syncUpToDate {
+	if got := decideSync("a2", "a", 10, "b2", "b", 20, "c", "c"); got != syncUpToDate {
 		t.Errorf("contenus égaux : %v", got)
 	}
-	if got := decideSync("a2", "a", 10, 5, "b2", "b", 20, 5, "c", ""); got != syncConflictReceive {
+	if got := decideSync("a2", "a", 10, "b2", "b", 20, "c", ""); got != syncConflict {
 		t.Errorf("contenu distant inconnu : %v", got)
 	}
-	if got := decideSync("a2", "a", 10, 5, "b2", "b", 20, 5, "c", "d"); got != syncConflictReceive {
+	if got := decideSync("a2", "a", 10, "b2", "b", 20, "c", "d"); got != syncConflict {
 		t.Errorf("contenus différents : %v", got)
 	}
 }

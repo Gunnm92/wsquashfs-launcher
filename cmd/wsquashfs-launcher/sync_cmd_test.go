@@ -132,9 +132,9 @@ func TestSyncGameSend(t *testing.T) {
 	}
 }
 
-// TestSyncGameConflictSendKeepsNewerLocal : les deux côtés ont changé, la version d'ici est la plus
-// récente : elle est envoyée, la version du serveur est mise de côté là-bas.
-func TestSyncGameConflictSendKeepsHeavierLocal(t *testing.T) {
+// TestSyncGameConflictKeepsBoth : les deux côtés ont changé, quelle que soit la taille : rien n'est
+// transféré ni écrasé, la ligne annonce le conflit (sans échec). Sans manager déclaré : rien envoyé.
+func TestSyncGameConflictKeepsBoth(t *testing.T) {
 	r := newSyncRig(t)
 	syncNoLocalLock(t)
 	local := clientUsers(t)
@@ -142,56 +142,68 @@ func TestSyncGameConflictSendKeepsHeavierLocal(t *testing.T) {
 	if st, msg := syncOne(t, r, local, stateRoot, false); st != stOK {
 		t.Fatalf("réception initiale : %v %q", st, msg)
 	}
-	// Version d'ici plus lourde mais plus ancienne : elle gagne quand même.
-	syncTestPut(t, filepath.Join(r.users, "steamuser", "Documents", "Game", "serveur.sav"), "serveur", syncTestTime.Add(3*time.Hour))
-	syncTestPut(t, filepath.Join(local, "steamuser", "Documents", "Game", "client.sav"), strings.Repeat("client", 1000), syncTestTime.Add(time.Hour))
+	srvFile := filepath.Join(r.users, "steamuser", "Documents", "Game", "serveur.sav")
+	cliFile := filepath.Join(local, "steamuser", "Documents", "Game", "client.sav")
+	syncTestPut(t, srvFile, strings.Repeat("serveur", 1000), syncTestTime.Add(3*time.Hour))
+	syncTestPut(t, cliFile, "client", syncTestTime.Add(time.Hour))
+	localFP := saveFingerprint(local, collectSaveFiles(local))
+	srvFP := saveFingerprint(r.users, collectSaveFiles(r.users))
 
 	st, msg := syncOne(t, r, local, stateRoot, false)
-	if st != stOK || !strings.HasPrefix(msg, "conflit : version d'ici plus lourde gardée (") {
-		t.Fatalf("conflit côté envoi : %v %q", st, msg)
+	if st != stSkip || msg != "conflit avec steambox (les deux ont changé) : à départager dans le manager" {
+		t.Fatalf("conflit : %v %q", st, msg)
 	}
-	archive := syncArchiveWith(t, r.backups, "serveur.sav")
-	if filepath.Dir(archive) != r.backups {
-		t.Errorf("archive hors de WSQUASHFS_BACKUP_DIR : %s", archive)
+	if got := saveFingerprint(local, collectSaveFiles(local)); got != localFP {
+		t.Error("copie locale modifiée")
 	}
-	if _, err := os.Stat(filepath.Join(r.users, "steamuser", "Documents", "Game", "serveur.sav")); !os.IsNotExist(err) {
-		t.Error("version du serveur encore en place après le conflit")
+	if got := saveFingerprint(r.users, collectSaveFiles(r.users)); got != srvFP {
+		t.Error("copie du serveur modifiée")
 	}
-	if _, err := os.Stat(filepath.Join(r.users, "steamuser", "Documents", "Game", "client.sav")); err != nil {
-		t.Errorf("version d'ici absente du serveur : %v", err)
+	if _, err := os.Stat(srvFile); err != nil {
+		t.Errorf("version du serveur perdue : %v", err)
+	}
+	if _, err := os.Stat(cliFile); err != nil {
+		t.Errorf("version d'ici perdue : %v", err)
+	}
+	if entries, _ := os.ReadDir(r.backups); len(entries) != 0 {
+		t.Errorf("archive créée sans remplacement : %d", len(entries))
 	}
 }
 
-// TestSyncGameConflictReceiveKeepsHeavierRemote : les deux côtés ont changé, la version du serveur est la
-// plus lourde (mais la plus ancienne) : elle est reçue, la version d'ici est archivée localement avant.
-func TestSyncGameConflictReceiveKeepsHeavierRemote(t *testing.T) {
+// TestSyncGameConflictSendsToManager : avec un manager déclaré, la copie d'ici lui est envoyée ;
+// rien n'est remplacé et l'état de synchro ne change pas.
+func TestSyncGameConflictSendsToManager(t *testing.T) {
 	r := newSyncRig(t)
 	syncNoLocalLock(t)
+	syncGlobalsSaved(t)
 	local := clientUsers(t)
 	stateRoot := t.TempDir()
 	if st, msg := syncOne(t, r, local, stateRoot, false); st != stOK {
 		t.Fatalf("réception initiale : %v %q", st, msg)
 	}
-	syncTestPut(t, filepath.Join(r.users, "steamuser", "Documents", "Game", "serveur.sav"), strings.Repeat("serveur", 1000), syncTestTime.Add(2*time.Hour))
-	syncTestPut(t, filepath.Join(local, "steamuser", "Documents", "Game", "client.sav"), "client", syncTestTime.Add(3*time.Hour))
+	syncTestPut(t, filepath.Join(r.users, "steamuser", "Documents", "Game", "serveur.sav"), "serveur", syncTestTime.Add(3*time.Hour))
+	syncTestPut(t, filepath.Join(local, "steamuser", "Documents", "Game", "client.sav"), "client", syncTestTime.Add(time.Hour))
+	before := loadSyncState(stateRoot, rigPeerID(r), syncRigGame).Fingerprint
+	m, peer := newAutoManager(t)
+	cfg := loadSyncConfig()
+	cfg.ID = "client-machine-01"
+	cfg.Peers = append(cfg.Peers, peer)
+	if err := saveSyncConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
 
 	st, msg := syncOne(t, r, local, stateRoot, false)
-	const sep = " ; celle d'ici archivée dans "
-	if st != stOK || !strings.HasPrefix(msg, "conflit : version de steambox plus lourde gardée (") || !strings.Contains(msg, sep) {
-		t.Fatalf("conflit côté réception : %v %q", st, msg)
+	if st != stSkip || !strings.HasSuffix(msg, " ; copie d'ici envoyée au manager") {
+		t.Fatalf("conflit : %v %q", st, msg)
 	}
-	archive := msg[strings.Index(msg, sep)+len(sep):]
-	if filepath.Dir(archive) != r.backups {
-		t.Errorf("archive hors de WSQUASHFS_BACKUP_DIR : %s", archive)
+	if m.puts != 1 || !tarHas(t, m.body, "client.sav") {
+		t.Errorf("manager : %d envoi(s), archive sans client.sav", m.puts)
 	}
-	if out, err := exec.Command("tar", "-tf", archive).CombinedOutput(); err != nil || !strings.Contains(string(out), "client.sav") {
-		t.Errorf("archive locale sans la version d'ici (%v) : %s", err, out)
+	if _, err := os.Stat(filepath.Join(local, "steamuser", "Documents", "Game", "client.sav")); err != nil {
+		t.Errorf("version d'ici perdue : %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(local, "steamuser", "Documents", "Game", "client.sav")); !os.IsNotExist(err) {
-		t.Error("version d'ici encore en place après réception")
-	}
-	if _, err := os.Stat(filepath.Join(local, "steamuser", "Documents", "Game", "serveur.sav")); err != nil {
-		t.Errorf("version du serveur non reçue : %v", err)
+	if s := loadSyncState(stateRoot, rigPeerID(r), syncRigGame).Fingerprint; s != before {
+		t.Errorf("état de synchro modifié par le conflit : %q, attendu %q", s, before)
 	}
 }
 
@@ -513,7 +525,6 @@ func TestSyncPairAssociates(t *testing.T) {
 // est signalée et n'échoue pas la commande.
 func TestSyncRunNoPeersAndUnreachable(t *testing.T) {
 	out, _ := capteUI(t)
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	isolateState(t)
 	conf.savesDir, conf.cacheDir = t.TempDir(), t.TempDir()
 

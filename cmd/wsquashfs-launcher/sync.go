@@ -744,17 +744,22 @@ const (
 	syncUpToDate syncAction = iota
 	syncSend
 	syncReceive
-	syncConflictSend
-	syncConflictReceive
+	syncConflict // les deux ont changé : rien n'est écrasé, l'utilisateur départage dans le manager
 )
 
-// decideSync : sens de la synchro, d'après les empreintes locale et distante et l'état de la
-// dernière synchro (chacune son empreinte). Si les deux côtés ont changé (conflit), la plus lourde
-// gagne ; à taille proche (sizesClose), la plus récente. localNewest et remoteNewest : MTime le plus récent (s) ;
-// localSize et remoteSize : taille totale du périmètre (octets). localContent et remoteContent :
-// empreintes de contenu (contentFingerprint) ; égales et non vides, les copies sont identiques même
-// si leurs dates diffèrent. "" (inconnue, ancien agent) : seule l'empreinte compte.
-func decideSync(localFP, localState string, localNewest, localSize int64, remoteFP, remoteState string, remoteNewest, remoteSize int64, localContent, remoteContent string) syncAction {
+// decideSync : sens de la synchro (règle d'Unison, comme le manager), d'après les empreintes locale
+// et distante et l'état de la dernière synchro (chacune son empreinte) :
+//   - même empreinte, ou mêmes contenus non vides : à jour ;
+//   - un côté n'a rien : l'autre est copié ;
+//   - un seul côté a changé depuis son état : il gagne (envoi ou réception) ;
+//   - état inconnu des deux côtés (première synchro) : la copie la plus récente gagne, à égalité
+//     de date (localNewest, remoteNewest : MTime le plus récent, en s) c'est un conflit ;
+//   - les deux ont changé : conflit, jamais tranché ici (ni par la taille, ni par la date).
+//
+// localContent et remoteContent : empreintes de contenu (contentFingerprint) ; égales et non vides,
+// les copies sont identiques même si leurs dates diffèrent. "" (inconnue, ancien agent) : seule
+// l'empreinte compte.
+func decideSync(localFP, localState string, localNewest int64, remoteFP, remoteState string, remoteNewest int64, localContent, remoteContent string) syncAction {
 	switch {
 	case localFP == remoteFP:
 		return syncUpToDate
@@ -764,6 +769,14 @@ func decideSync(localFP, localState string, localNewest, localSize int64, remote
 		return syncReceive
 	case remoteFP == "":
 		return syncSend
+	case localState == "" && remoteState == "":
+		switch {
+		case localNewest > remoteNewest:
+			return syncSend
+		case localNewest < remoteNewest:
+			return syncReceive
+		}
+		return syncConflict
 	}
 	lc := localFP != localState
 	rc := remoteFP != remoteState
@@ -772,29 +785,8 @@ func decideSync(localFP, localState string, localNewest, localSize int64, remote
 		return syncReceive
 	case lc && !rc:
 		return syncSend
-	case !sizesClose(localSize, remoteSize):
-		if localSize > remoteSize {
-			return syncConflictSend
-		}
-		return syncConflictReceive
-	case localNewest >= remoteNewest:
-		return syncConflictSend
 	}
-	return syncConflictReceive
-}
-
-// syncSizeTolerance : écart relatif à la plus lourde (en %) sous lequel deux tailles de
-// sauvegardes comptent comme égales ; même seuil que SIZE_TOLERANCE du manager.
-const syncSizeTolerance = 10
-
-// sizesClose : vrai si la plus légère des deux tailles est à moins de syncSizeTolerance % de la
-// plus lourde. Un conflit entre versions proches se départage alors par la date, pour qu'une
-// version plus récente ne perde pas pour quelques octets.
-func sizesClose(a, b int64) bool {
-	if a > b {
-		a, b = b, a
-	}
-	return a*100 >= b*(100-syncSizeTolerance)
+	return syncConflict
 }
 
 // String : libellé court affiché à l'utilisateur.
@@ -806,10 +798,8 @@ func (a syncAction) String() string {
 		return "envoi"
 	case syncReceive:
 		return "réception"
-	case syncConflictSend:
-		return "conflit (envoi)"
-	case syncConflictReceive:
-		return "conflit (réception)"
+	case syncConflict:
+		return "conflit : à départager"
 	}
 	return "?"
 }

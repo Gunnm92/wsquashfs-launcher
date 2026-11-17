@@ -208,7 +208,7 @@ jamais modifiée. Un jeu Switch est refusé (409) tant qu'Eden tourne.
 
 Empreinte de contenu : l'envoi au manager porte aussi l'en-tête `X-Wsq-Content` (même valeur que `content`). Deux copies de même contenu mais de dates différentes ont la même empreinte de contenu : la synchro les tient pour à jour (pas de faux conflit). Absente (ancien agent) ou vide, seule `fingerprint` compte. Les hash de fichiers sont gardés en mémoire (chemin, taille, date).
 
-Règle du conflit (les deux côtés ont changé depuis la dernière synchro) : la version la plus lourde gagne ; à moins de 10 % d'écart de taille, la plus récente ; la perdante est archivée dans le dossier backups.
+Règle du conflit (comme Unison et le manager) : si un seul côté a changé depuis la dernière synchro, il gagne ; sans état connu des deux côtés (première synchro), la copie la plus récente gagne (la remplacée est archivée dans le dossier backups), et à date égale c'est un conflit. Si les deux ont changé, `--sync` ne tranche pas : rien n'est écrasé, la ligne du jeu indique « conflit : à départager » et la copie locale est envoyée au manager déclaré, qui la range comme version de conflit ; l'utilisateur départage dans le manager.
 
 Poussée du manager (synchro automatique active sur la machine) : le manager envoie aussi sa version la plus récente aux machines en retard, par `PUT /v1/saves/tar` puis `POST /v1/saves/state`, sous son identifiant (`X-Wsq-Machine`). Elle n'est envoyée que si la machine n'a pas de partie non envoyée ; sinon le conflit se règle dans le manager. L'agent doit tourner (`--agent`) pour recevoir. Un jeu en cours répond 409 et la poussée est retentée. Une fois reçue, la version n'est pas renvoyée au manager à la sortie du jeu.
 

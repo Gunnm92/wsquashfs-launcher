@@ -50,3 +50,24 @@ func autoSyncAfterGame(name string) {
 	}
 	uiStatusLine(stOK, "Partie envoyée au manager"+archivedNote(archived))
 }
+
+// sendConflictToManager : en conflit de synchro avec la machine peerName, envoie la copie d'ici au
+// manager déclaré (même envoi que autoSyncAfterGame) : il la range comme version de conflit sans
+// rien remplacer. Aucun état de synchro n'est enregistré. Retourne le complément de la ligne de
+// statut ("" sans manager, ou si le manager est la machine en conflit) ; un échec est signalé, sans
+// faire échouer la synchro des autres jeux.
+func sendConflictToManager(peerName, name string, t syncTarget) string {
+	cfg := loadSyncConfig()
+	mgr, ok := managerPeer(cfg)
+	if !ok || mgr.Name == peerName {
+		return ""
+	}
+	client := newSyncClientDial(mgr, cfg.ID, autoSyncConnectTimeout)
+	if _, _, err := client.send(t); err != nil {
+		if isUnreachable(err) {
+			return " ; manager injoignable, copie d'ici non envoyée"
+		}
+		return " ; envoi de la copie d'ici au manager : " + err.Error()
+	}
+	return " ; copie d'ici envoyée au manager"
+}

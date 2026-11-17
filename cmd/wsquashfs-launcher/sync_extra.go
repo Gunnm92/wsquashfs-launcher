@@ -2,8 +2,8 @@ package main
 
 // Synchro d'autres sauvegardes que celles des jeux Windows : dossiers déclarés (« custom »,
 // --sync dir add) et sauvegardes des jeux Switch d'Eden, un dossier par jeu (title ID). Elles
-// passent par les mêmes routes /v1/saves/*, le même --sync et la même règle que les jeux (la plus
-// lourde gagne, la plus récente à taille proche ; la perdante est archivée). Leur nom de synchro porte un préfixe :
+// passent par les mêmes routes /v1/saves/*, le même --sync et la même règle que les jeux (un seul côté
+// changé : il gagne ; les deux : conflit à départager dans le manager). Leur nom de synchro porte un préfixe :
 //
 //	dossier:<nom>     dossier déclaré sur la machine (chemin propre à chaque machine, sous HOME)
 //	switch:<TitleID>  sauvegarde Eden d'un jeu Switch (16 chiffres hexadécimaux)

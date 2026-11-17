@@ -496,16 +496,6 @@ func archivedNote(path string) string {
 	return " (" + path + ")"
 }
 
-// conflictWhy : ce qui a départagé un conflit gagné (« plus lourde », ou « plus récente » à taille
-// proche, voir sizesClose) et les deux tailles, gagnant d'abord.
-func conflictWhy(winSize, loseSize int64) string {
-	why := "plus récente"
-	if !sizesClose(winSize, loseSize) {
-		why = "plus lourde"
-	}
-	return why + " gardée (" + sizeText(winSize) + " contre " + sizeText(loseSize) + ")"
-}
-
 // syncGameWith : synchronise UNE cible (jeu, dossier, jeu Switch) avec une machine associée.
 // remote : son état sur la machine distante (liste). dryRun : rien n'est verrouillé ni écrit.
 // Retourne le statut et le texte de la ligne.
@@ -536,8 +526,7 @@ func syncGameWith(c *syncClient, peerName, peerID, stateRoot, name string, t syn
 		return stSkip, "aucune sauvegarde ici ni sur " + peerName
 	}
 	state := loadSyncState(stateRoot, peerID, name).Fingerprint
-	localSize := saveSize(files)
-	action := decideSync(fp, state, newestSave(files), localSize, remote.Fingerprint, remote.State, remote.Newest, remote.Size, t.content(files), remote.Content)
+	action := decideSync(fp, state, newestSave(files), remote.Fingerprint, remote.State, remote.Newest, t.content(files), remote.Content)
 	if dryRun {
 		return stInfo, action.String()
 	}
@@ -553,24 +542,27 @@ func syncGameWith(c *syncClient, peerName, peerID, stateRoot, name string, t syn
 		}
 		return stOK, "à jour"
 
-	case syncSend, syncConflictSend:
-		_, archived, err := c.send(t)
+	case syncConflict:
+		// Les deux ont changé : rien n'est transféré ni écrasé. La copie d'ici part au manager
+		// (version de conflit), où l'utilisateur départage.
+		msg := "conflit avec " + peerName + " (les deux ont changé) : à départager dans le manager"
+		return stSkip, msg + sendConflictToManager(peerName, name, t)
+
+	case syncSend:
+		_, _, err := c.send(t)
 		if err != nil {
 			return syncErrStatus(err, peerName)
 		}
 		if err := saveSyncState(stateRoot, peerID, name, t.fingerprint(t.files())); err != nil {
 			return stFail, err.Error()
 		}
-		if action == syncConflictSend {
-			return stOK, "conflit : version d'ici " + conflictWhy(localSize, remote.Size) + " ; celle de " + peerName + " archivée là-bas" + archivedNote(archived)
-		}
 		return stOK, "envoyé à " + peerName
 
-	case syncReceive, syncConflictReceive:
-		// Version d'ici modifiée depuis la dernière synchro, ou perdante d'un conflit (même quand
-		// l'état enregistré est incohérent) : mise de côté avant d'être remplacée.
+	case syncReceive:
+		// Version d'ici modifiée depuis la dernière synchro (ou état inconnu, première synchro) :
+		// mise de côté avant d'être remplacée.
 		archivedLocal := ""
-		if fp != "" && (fp != state || action == syncConflictReceive) {
+		if fp != "" && fp != state {
 			path, err := t.archiveLocal()
 			if err != nil {
 				return stFail, "version d'ici non archivée, rien reçu : " + err.Error()
@@ -587,10 +579,7 @@ func syncGameWith(c *syncClient, peerName, peerID, stateRoot, name string, t syn
 		if err := saveSyncState(stateRoot, peerID, name, t.fingerprint(t.files())); err != nil {
 			return stFail, err.Error()
 		}
-		if action == syncConflictReceive {
-			return stOK, "conflit : version de " + peerName + " " + conflictWhy(remote.Size, localSize) + " ; celle d'ici archivée dans " + archivedLocal
-		}
-		return stOK, "reçu de " + peerName
+		return stOK, "reçu de " + peerName + archivedNote(archivedLocal)
 	}
 	return stFail, "action de synchro inconnue"
 }
