@@ -46,7 +46,7 @@ import (
 )
 
 const (
-	agentVersion     = "9"
+	agentVersion     = "10"
 	agentDefaultPort = 8790
 )
 

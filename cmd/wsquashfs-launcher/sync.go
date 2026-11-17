@@ -21,6 +21,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -141,6 +142,75 @@ func saveFingerprint(users string, files []saveFile) string {
 			rel = syncProfileToken + "/" + rest
 		}
 		lines = append(lines, fmt.Sprintf("%s\x00%d\x00%d\n", rel, f.Size, f.MTime))
+	}
+	return hashLines(lines)
+}
+
+// contentKey : clé du cache des hash de fichiers (chemin absolu, taille, date).
+type contentKey struct {
+	path  string
+	size  int64
+	mtime int64
+}
+
+// contentCacheMax : nombre d'entrées au-delà duquel le cache des hash est vidé.
+const contentCacheMax = 20000
+
+var (
+	contentCacheMu sync.Mutex
+	contentCache   = map[contentKey]string{}
+)
+
+// fileContentHash : sha256 hex du contenu d'un fichier, mis en cache tant que sa taille et sa date
+// ne changent pas (pas de relecture à chaque listing). ok est faux si le fichier est illisible.
+func fileContentHash(path string, size, mtime int64) (string, bool) {
+	key := contentKey{path, size, mtime}
+	contentCacheMu.Lock()
+	sum, hit := contentCache[key]
+	contentCacheMu.Unlock()
+	if hit {
+		return sum, true
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return "", false
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", false
+	}
+	sum = hex.EncodeToString(h.Sum(nil))
+	contentCacheMu.Lock()
+	if len(contentCache) >= contentCacheMax {
+		contentCache = map[contentKey]string{}
+	}
+	contentCache[key] = sum
+	contentCacheMu.Unlock()
+	return sum, true
+}
+
+// contentFingerprint : empreinte du contenu (sha256 hex des lignes triées « chemin \x00 sha256 du
+// fichier \n »), sans tenir compte des dates. root : dossier des fichiers ; game : cible de jeu, dont
+// le profil unique est remplacé par syncProfileToken comme dans saveFingerprint. "" sans fichier,
+// ou si un fichier est illisible (on retombe alors sur l'empreinte habituelle).
+func contentFingerprint(root string, files []saveFile, game bool) string {
+	if len(files) == 0 {
+		return ""
+	}
+	single := game && len(fileProfiles(files)) == 1
+	lines := make([]string, 0, len(files))
+	for _, f := range files {
+		sum, ok := fileContentHash(filepath.Join(root, filepath.FromSlash(f.Rel)), f.Size, f.MTime)
+		if !ok {
+			return ""
+		}
+		rel := f.Rel
+		if single {
+			_, rest := splitRel(rel)
+			rel = syncProfileToken + "/" + rest
+		}
+		lines = append(lines, rel+"\x00"+sum+"\n")
 	}
 	return hashLines(lines)
 }
@@ -681,10 +751,14 @@ const (
 // decideSync : sens de la synchro, d'après les empreintes locale et distante et l'état de la
 // dernière synchro (chacune son empreinte). Si les deux côtés ont changé (conflit), la plus lourde
 // gagne ; à taille proche (sizesClose), la plus récente. localNewest et remoteNewest : MTime le plus récent (s) ;
-// localSize et remoteSize : taille totale du périmètre (octets).
-func decideSync(localFP, localState string, localNewest, localSize int64, remoteFP, remoteState string, remoteNewest, remoteSize int64) syncAction {
+// localSize et remoteSize : taille totale du périmètre (octets). localContent et remoteContent :
+// empreintes de contenu (contentFingerprint) ; égales et non vides, les copies sont identiques même
+// si leurs dates diffèrent. "" (inconnue, ancien agent) : seule l'empreinte compte.
+func decideSync(localFP, localState string, localNewest, localSize int64, remoteFP, remoteState string, remoteNewest, remoteSize int64, localContent, remoteContent string) syncAction {
 	switch {
 	case localFP == remoteFP:
+		return syncUpToDate
+	case localContent != "" && localContent == remoteContent:
 		return syncUpToDate
 	case localFP == "":
 		return syncReceive

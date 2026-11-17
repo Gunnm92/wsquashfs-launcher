@@ -521,6 +521,9 @@ func TestSyncGamesListsCopyModes(t *testing.T) {
 		if g.Fingerprint == "" {
 			t.Errorf("%s listé sans empreinte", g.Name)
 		}
+		if g.Content == "" {
+			t.Errorf("%s listé sans empreinte de contenu", g.Name)
+		}
 		names = append(names, g.Name)
 	}
 	if strings.Join(names, "|") != strings.Join(want, "|") {

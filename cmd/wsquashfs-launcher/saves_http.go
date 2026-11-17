@@ -48,6 +48,7 @@ type remoteSave struct {
 	Label       string `json:"label,omitempty"` // dossier déclaré, jeu Switch : nom lisible
 	Dir         string `json:"dir,omitempty"`   // dossier déclaré : chemin à partir de HOME (propagé à la cible)
 	Fingerprint string `json:"fingerprint"`
+	Content     string `json:"content"` // empreinte de contenu, sans les dates ("" : inconnue)
 	Newest      int64  `json:"newest"`
 	Size        int64  `json:"size"`
 	State       string `json:"state"`
@@ -86,7 +87,7 @@ func (s *agentServer) savesList(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		st := loadSyncState(syncStateRoot(), machine, name)
-		games = append(games, remoteSave{Name: name, Label: t.Label, Dir: t.relDir(), Fingerprint: fp, Newest: newestSave(files), Size: saveSize(files), State: st.Fingerprint})
+		games = append(games, remoteSave{Name: name, Label: t.Label, Dir: t.relDir(), Fingerprint: fp, Content: t.content(files), Newest: newestSave(files), Size: saveSize(files), State: st.Fingerprint})
 	}
 	sort.Slice(games, func(i, j int) bool { return games[i].Name < games[j].Name })
 	writeJSON(w, http.StatusOK, map[string]any{"games": games})

@@ -501,6 +501,11 @@ func (t syncTarget) fingerprint(files []saveFile) string {
 	return saveFingerprint(t.Dir, files)
 }
 
+// content : empreinte de contenu des fichiers ("" sans fichier ou si l'un est illisible).
+func (t syncTarget) content(files []saveFile) string {
+	return contentFingerprint(t.Dir, files, !t.Plain)
+}
+
 // writeArchive : tar.gz des fichiers ; profil Wine unique d'un jeu (voir writeSaveArchive), "" sinon.
 func (t syncTarget) writeArchive(w io.Writer, files []saveFile) (string, error) {
 	if t.Plain {

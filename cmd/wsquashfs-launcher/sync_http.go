@@ -431,6 +431,7 @@ func (c *syncClient) send(t syncTarget) (string, string, error) {
 	// (état de synchro, et les valeurs qui départagent un conflit, comme dans la liste d'un agent).
 	headers := map[string]string{
 		"X-Wsq-Fingerprint": t.fingerprint(files),
+		"X-Wsq-Content":     t.content(files),
 		"X-Wsq-Size":        strconv.FormatInt(saveSize(files), 10),
 		"X-Wsq-Newest":      strconv.FormatInt(newestSave(files), 10),
 	}

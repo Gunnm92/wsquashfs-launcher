@@ -122,7 +122,7 @@ Toutes les routes sauf `POST /v1/pair` exigent un jeton de machine associée (40
 - Succès : `pair.json` est retiré d'abord (usage unique ; s'il ne peut l'être, 500 et
   rien n'est délivré) ; un jeton durable est créé ; l'entrée de même identifiant de
   `agent.json` est remplacée, ou ajoutée ; `last-pair.json` est écrit ; réponse **200**
-  `{"token": "<jeton durable>", "host": "<nom d'hôte de l'agent>", "version": "9"}`.
+  `{"token": "<jeton durable>", "host": "<nom d'hôte de l'agent>", "version": "10"}`.
   C'est la seule fois où le jeton sort de l'agent.
 - 404 : la machine qui s'associe a un lanceur trop ancien (`--update` là-bas).
 ### Installation des images (`/v1/games/*`)
@@ -161,7 +161,7 @@ avec `GET /v1/games/part`, puis `PUT` à partir de `part_size`.
 ### Maintenance (`POST /v1/maintenance`)
 
 Table fermée (`maintenanceActions` dans `agent_http.go`), contrat commun avec
-wsquashfs-manager (version de l'agent : **9**, route `GET /v1/info`).
+wsquashfs-manager (version de l'agent : **10**, route `GET /v1/info`).
 
 | `action` | Lanceur | `rel` (image du jeu) |
 |---|---|---|
@@ -196,7 +196,7 @@ jamais modifiée. Un jeu Switch est refusé (409) tant qu'Eden tourne.
 
 | Route | Rôle |
 |---|---|
-| `GET /v1/saves/list` | jeux à sauvegardes (empreinte, plus récente date, `size` : taille totale en octets) et état enregistré pour cette machine |
+| `GET /v1/saves/list` | jeux à sauvegardes (`fingerprint`, `content` : empreinte de contenu, indépendante des dates (sha256 des chemins et des hash de fichiers), `""` si un fichier est illisible ; `newest` : plus récente date, `size` : taille totale en octets) et état enregistré pour cette machine |
 | `GET /v1/saves/tar?game=` | archive tar.gz du périmètre (en-têtes `X-Wsq-Fingerprint`, `X-Wsq-Profile`) ; 404 sans sauvegarde |
 | `PUT /v1/saves/tar?game=` | remplace le périmètre par l'archive (2 Gio max, 413 sinon) ; une archive sans fichier est refusée (« archive vide »), et une archive qui dépasse 4 Gio décompressés aussi : dans les deux cas rien n'est modifié (la même garde vaut à la réception côté client) ; si la version locale a changé depuis la dernière synchro avec cette machine, elle est archivée dans le dossier backups d'abord (réponse `archived`). Dossier déclaré ailleurs mais pas ici (`dossier:<nom>`) : déclaré à la réception avec le chemin de l'en-tête `X-Wsq-Dir` (à partir de HOME, encodé en pourcentage ; 400 s'il sort de HOME, 404 sans en-tête) ; la liste donne ce chemin dans `dir` |
 | `POST /v1/saves/state` `{game, fingerprint}` | enregistre l'empreinte commune après une réception (409 si le jeu a changé entre-temps) |
@@ -205,6 +205,8 @@ jamais modifiée. Un jeu Switch est refusé (409) tant qu'Eden tourne.
 | `DELETE /v1/saves/dirs?name=` | retire la déclaration, les fichiers restent (404 nom inconnu). Répond la liste |
 | `PUT /v1/saves/manager` `{name, url, token, fingerprint}` | déclare le manager (wsquashfs-manager) comme pair `manager` de cette machine : `url` en `https://hôte:port` (port obligatoire, sans chemin), `token` (lettres, chiffres, `_`, `-`), `fingerprint` (64 caractères hexadécimaux, certificat épinglé). `ui` facultatif : adresse http(s) de son interface web, ouverte par « Ouvrir le manager » de `--tray`. Remplace le manager déclaré précédemment, les autres machines restent. Réponse `{manager, auto}` ; 400 avec `detail` sinon |
 | `DELETE /v1/saves/tar?game=` | supprime les sauvegardes du jeu sur cette machine : le périmètre est archivé d'abord dans le dossier backups (réponse `archived`, en 500 sans rien supprimer si l'archivage échoue) ; seuls les fichiers du périmètre partent, puis les dossiers devenus vides (caches et fichiers hors périmètre restent) ; l'état de synchro de la machine appelante pour ce jeu est effacé (réponse `removed`, nombre de fichiers). Sans sauvegarde : 200 `removed: 0`, rien d'archivé |
+
+Empreinte de contenu : l'envoi au manager porte aussi l'en-tête `X-Wsq-Content` (même valeur que `content`). Deux copies de même contenu mais de dates différentes ont la même empreinte de contenu : la synchro les tient pour à jour (pas de faux conflit). Absente (ancien agent) ou vide, seule `fingerprint` compte. Les hash de fichiers sont gardés en mémoire (chemin, taille, date).
 
 Règle du conflit (les deux côtés ont changé depuis la dernière synchro) : la version la plus lourde gagne ; à moins de 10 % d'écart de taille, la plus récente ; la perdante est archivée dans le dossier backups.
 

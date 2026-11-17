@@ -192,10 +192,11 @@ func TestSyncAutoRequiresManager(t *testing.T) {
 // autoManager : faux manager en TLS, qui reçoit les archives de PUT /v1/saves/tar comme le fait le
 // manager réel (jeton et machine vérifiés).
 type autoManager struct {
-	puts int      // archives reçues
-	fps  []string // X-Wsq-Fingerprint de chaque envoi
-	meta []string // « taille date » (X-Wsq-Size, X-Wsq-Newest) de chaque envoi
-	body []byte   // dernière archive
+	puts     int      // archives reçues
+	fps      []string // X-Wsq-Fingerprint de chaque envoi
+	contents []string // X-Wsq-Content de chaque envoi
+	meta     []string // « taille date » (X-Wsq-Size, X-Wsq-Newest) de chaque envoi
+	body     []byte   // dernière archive
 }
 
 // newAutoManager : serveur de test et le pair qui le désigne (empreinte du certificat).
@@ -214,6 +215,7 @@ func newAutoManager(t *testing.T) (*autoManager, syncPeer) {
 		}
 		m.puts++
 		m.fps = append(m.fps, r.Header.Get("X-Wsq-Fingerprint"))
+		m.contents = append(m.contents, r.Header.Get("X-Wsq-Content"))
 		m.meta = append(m.meta, r.Header.Get("X-Wsq-Size")+" "+r.Header.Get("X-Wsq-Newest"))
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
@@ -285,7 +287,7 @@ func TestAutoSyncAfterGame(t *testing.T) {
 	want := target.fingerprint(target.files())
 	out.Reset()
 	autoSyncAfterGame(game)
-	if m.puts != 1 || m.fps[0] != want {
+	if m.puts != 1 || m.fps[0] != want || m.contents[0] != target.content(target.files()) || m.contents[0] == "" {
 		t.Fatalf("premier envoi : %d envoi(s), empreinte %v, attendue %s", m.puts, m.fps, want)
 	}
 	if !tarHas(t, m.body, "save1.sav") {

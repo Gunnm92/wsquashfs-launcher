@@ -537,7 +537,7 @@ func syncGameWith(c *syncClient, peerName, peerID, stateRoot, name string, t syn
 	}
 	state := loadSyncState(stateRoot, peerID, name).Fingerprint
 	localSize := saveSize(files)
-	action := decideSync(fp, state, newestSave(files), localSize, remote.Fingerprint, remote.State, remote.Newest, remote.Size)
+	action := decideSync(fp, state, newestSave(files), localSize, remote.Fingerprint, remote.State, remote.Newest, remote.Size, t.content(files), remote.Content)
 	if dryRun {
 		return stInfo, action.String()
 	}

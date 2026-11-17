@@ -324,7 +324,7 @@ func TestSyncDecide(t *testing.T) {
 		{"conflit, distant juste au-delà du seuil", "a2", "a", 20, 89, "b2", "b", 10, 100, syncConflictReceive},
 	}
 	for _, c := range cases {
-		if got := decideSync(c.lfp, c.lst, c.lnew, c.lsz, c.rfp, c.rst, c.rnew, c.rsz); got != c.want {
+		if got := decideSync(c.lfp, c.lst, c.lnew, c.lsz, c.rfp, c.rst, c.rnew, c.rsz, "", ""); got != c.want {
 			t.Errorf("%s : %v, attendu %v", c.name, got, c.want)
 		}
 	}
