@@ -20,6 +20,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"wsquashfs-launcher/internal/savesync"
 )
 
 const doctorTTL = 5 * time.Minute
@@ -162,9 +163,9 @@ func (s *agentServer) info(w http.ResponseWriter, r *http.Request) {
 	host, _ := os.Hostname()
 	gamesDir, gamesSet, _, _ := s.gamesDir()
 	// manager : empreinte du manager déclaré ("" sans déclaration) ; auto : synchro automatique avec le manager.
-	cfg := loadSyncConfig()
+	cfg := savesync.LoadConfig()
 	manager := ""
-	if p, ok := managerPeer(cfg); ok {
+	if p, ok := savesync.ManagerPeer(cfg); ok {
 		manager = p.Fingerprint
 	}
 	writeJSON(w, http.StatusOK, map[string]any{

@@ -1,23 +1,18 @@
 package main
 
 // Commandes --save et --saves : copie des sauvegardes de partie de l'overlay vers la ludothèque
-// (saves/<système>/<jeu>/), et périmètre de ces sauvegardes (saveProfileDirs, caches exclus).
+// (saves/<système>/<jeu>/), et périmètre de ces sauvegardes (savesync, caches exclus).
 
 import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 
+	"wsquashfs-launcher/internal/savesync"
 	"wsquashfs-launcher/internal/ui"
 )
 
 // ── --save et --saves (06/11) ─────────────────────────────────────────────────────
-
-// saveProfileDirs : dossiers du profil Windows où les jeux écrivent leurs
-// sauvegardes de partie.
-var saveProfileDirs = []string{"Documents", "Saved Games", "AppData/Roaming", "AppData/LocalLow", "AppData/Local",
-	"My Documents", "Application Data", "Local Settings/Application Data"}
 
 // copyGameSaves : copie les sauvegardes de partie de l'overlay dans la
 // ludothèque (saves/<système>/<jeu>/), sens unique.
@@ -45,12 +40,12 @@ func copyGameSaves(name string, g ui.Games) {
 		return
 	}
 	copied, total, bytesCopied := 0, 0, int64(0)
-	for _, f := range collectSaveFiles(users) {
+	for _, f := range savesync.CollectSaveFiles(users) {
 		total++
 		src := users + "/" + f.Rel
 		rel := "drive_c/users/" + f.Rel
 		target := dest + "/" + rel
-		// Date à la nanoseconde (collectSaveFiles ne garde que la seconde) : copie si la source est plus récente.
+		// Date à la nanoseconde (savesync.CollectSaveFiles ne garde que la seconde) : copie si la source est plus récente.
 		info, err := os.Lstat(src)
 		if err != nil {
 			ui.Warn(name + " : copie impossible de " + rel)
@@ -75,15 +70,6 @@ func copyGameSaves(name string, g ui.Games) {
 	default:
 		g.Line(ui.OK, name, "à jour ("+dest+")")
 	}
-}
-
-// isCacheDirName : dossiers de caches exclus des sauvegardes.
-func isCacheDirName(n string) bool {
-	switch n {
-	case "Temp", "NVIDIA", "D3DSCache", "DXCache", "INetCache", "CrashDumps":
-		return true
-	}
-	return strings.Contains(strings.ToLower(n), "shadercache")
 }
 
 // copyPreserve : copie d'un fichier avec date (cp -p).

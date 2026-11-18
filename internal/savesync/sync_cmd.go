@@ -1,4 +1,4 @@
-package main
+package savesync
 
 // Commande --sync : synchronisation manuelle des sauvegardes de partie entre machines du réseau
 // local (SteamBox, AIBox, Steam Deck), par l'agent HTTPS (--pair sur l'autre machine). Rien ne se
@@ -32,105 +32,121 @@ const syncUsage = "wsquashfs-launcher --sync [jeu | status [jeu] | forget <machi
 // syncAutoUsage : syntaxe de --sync auto.
 const syncAutoUsage = "wsquashfs-launcher --sync auto [on | off]"
 
-// syncLockGame : verrou local d'un jeu (lockIdleGame). Variable : les tests simulent deux machines
-// dans un même processus, qui partagent les globales (et donc le fichier de verrou) ; ils la
-// remplacent côté client.
-var syncLockGame = lockIdleGame
+// fail : message d'erreur, code de sortie 1.
+func fail(msg string) int {
+	ui.Error(msg)
+	return 1
+}
 
-// cmdSync : --sync [...]. Voir l'en-tête du fichier.
-func cmdSync(args []string) int {
-	cfg := loadSyncConfig()
+// usage : rappel de syntaxe, code de sortie 1.
+func usage(syntax string) int {
+	ui.Usage(syntax)
+	return 1
+}
+
+// Run : commande --sync [...]. Voir l'en-tête du fichier. Retourne le code de sortie : les erreurs
+// sont affichées ici, rien n'arrête le processus.
+func (s *Syncer) Run(args []string) int {
+	cfg := LoadConfig()
 	if len(args) == 0 {
-		return syncRun(cfg, "", false)
+		return s.syncRun(cfg, "", false)
 	}
 	switch first := args[0]; {
 	case strings.HasPrefix(first, "wsq://"):
 		if len(args) != 1 {
-			usageError(syncUsage)
+			return usage(syncUsage)
 		}
-		return syncPair(cfg, first)
+		return s.syncPair(cfg, first)
 	case first == "forget":
 		if len(args) != 2 {
-			usageError("wsquashfs-launcher --sync forget <machine>")
+			return usage("wsquashfs-launcher --sync forget <machine>")
 		}
-		return syncForget(cfg, args[1])
+		return s.syncForget(cfg, args[1])
 	case first == "dir":
-		return syncDirCmd(cfg, args[1:])
+		return s.syncDirCmd(cfg, args[1:])
 	case first == "auto":
-		return syncAutoCmd(cfg, args[1:])
+		return s.syncAutoCmd(cfg, args[1:])
 	case first == "status":
 		if len(args) > 2 {
-			usageError("wsquashfs-launcher --sync status [jeu]")
+			return usage("wsquashfs-launcher --sync status [jeu]")
 		}
 		game := ""
 		if len(args) == 2 {
-			game = syncGameArg(args[1])
+			var ok bool
+			if game, ok = syncGameArg(args[1]); !ok {
+				return 1
+			}
 		}
-		return syncRun(cfg, game, true)
+		return s.syncRun(cfg, game, true)
 	}
 	if len(args) != 1 {
-		usageError(syncUsage)
+		return usage(syncUsage)
 	}
-	return syncRun(cfg, syncGameArg(args[0]), false)
+	game, ok := syncGameArg(args[0])
+	if !ok {
+		return 1
+	}
+	return s.syncRun(cfg, game, false)
 }
 
 // syncGameArg : nom de synchro d'un argument : dossier:<nom> ou switch:<TitleID> tel quel, sinon
-// nom de jeu (image, dossier ou nom) ; sortie si le nom n'est pas valide.
-func syncGameArg(arg string) string {
+// nom de jeu (image, dossier ou nom). Si le nom n'est pas valide : message affiché, faux.
+func syncGameArg(arg string) (string, bool) {
 	if strings.HasPrefix(arg, syncDirPrefix) || strings.HasPrefix(arg, syncSwitchPrefix) {
 		if !validSyncName(arg) {
-			die("nom invalide : " + arg)
+			fail("nom invalide : " + arg)
+			return "", false
 		}
-		return arg
+		return arg, true
 	}
 	game := gameNameOf(arg)
-	if !validSyncGame(game) {
-		die("jeu invalide : " + arg)
+	if !ValidGame(game) {
+		fail("jeu invalide : " + arg)
+		return "", false
 	}
-	return game
+	return game, true
 }
 
 // syncDirCmd : --sync dir [add <nom> <chemin> | forget <nom>].
-func syncDirCmd(cfg syncConfig, args []string) int {
+func (s *Syncer) syncDirCmd(cfg Config, args []string) int {
 	switch {
 	case len(args) == 0:
-		syncDirList(cfg)
+		s.syncDirList(cfg)
 		return 0
 	case args[0] == "add" && len(args) == 3:
-		next, err := addSyncDir(cfg, args[1], args[2])
+		next, err := AddDir(cfg, args[1], args[2])
 		if err != nil {
-			die(err.Error())
+			return fail(err.Error())
 		}
-		if err := saveSyncConfig(next); err != nil {
-			die("configuration non enregistrée : " + err.Error())
+		if err := SaveConfig(next); err != nil {
+			return fail("configuration non enregistrée : " + err.Error())
 		}
 		for _, d := range next.Dirs {
 			if d.Name == args[1] {
-				ui.StatusLine(ui.OK, "Dossier déclaré : "+d.Name+" (~/"+homeRel(d.Path)+")")
+				ui.StatusLine(ui.OK, "Dossier déclaré : "+d.Name+" (~/"+HomeRel(d.Path)+")")
 			}
 		}
 		ui.Note("Le déclarer aussi sur les autres machines (même nom, leur chemin), puis --sync.")
 		return 0
 	case args[0] == "forget" && len(args) == 2:
-		next, found := removeSyncDir(cfg, args[1])
+		next, found := RemoveDir(cfg, args[1])
 		if !found {
-			die("dossier inconnu : " + args[1])
+			return fail("dossier inconnu : " + args[1])
 		}
-		if err := saveSyncConfig(next); err != nil {
-			die("configuration non enregistrée : " + err.Error())
+		if err := SaveConfig(next); err != nil {
+			return fail("configuration non enregistrée : " + err.Error())
 		}
 		ui.StatusLine(ui.OK, "Dossier retiré : "+args[1]+" (ses fichiers restent)")
 		return 0
 	}
-	usageError("wsquashfs-launcher --sync dir [add <nom> <chemin depuis le dossier personnel> | forget <nom>]")
-	return 1
+	return usage("wsquashfs-launcher --sync dir [add <nom> <chemin depuis le dossier personnel> | forget <nom>]")
 }
 
-// syncAutoSet : configuration avec la synchro automatique activée (on) ou désactivée. Activer sans
+// AutoSet : configuration avec la synchro automatique activée (on) ou désactivée. Activer sans
 // manager déclaré est refusé : le manager déclare la machine lui-même (PUT /v1/saves/manager).
-func syncAutoSet(cfg syncConfig, on bool) (syncConfig, error) {
+func AutoSet(cfg Config, on bool) (Config, error) {
 	if on {
-		if _, ok := managerPeer(cfg); !ok {
+		if _, ok := ManagerPeer(cfg); !ok {
 			return cfg, errors.New("aucun manager déclaré : associer la machine dans wsquashfs-manager d'abord")
 		}
 	}
@@ -140,7 +156,7 @@ func syncAutoSet(cfg syncConfig, on bool) (syncConfig, error) {
 
 // syncAutoCmd : --sync auto [on | off]. Sans argument, l'état ; on et off sont persistants et
 // idempotents (déjà dans l'état demandé : message, code 0).
-func syncAutoCmd(cfg syncConfig, args []string) int {
+func (s *Syncer) syncAutoCmd(cfg Config, args []string) int {
 	ui.Title("Synchronisation automatique", "avec le manager")
 	if len(args) == 0 {
 		state := "inactive"
@@ -148,23 +164,23 @@ func syncAutoCmd(cfg syncConfig, args []string) int {
 			state = "active"
 		}
 		manager := "aucun manager déclaré"
-		if p, ok := managerPeer(cfg); ok {
+		if p, ok := ManagerPeer(cfg); ok {
 			manager = p.Name
 		}
 		ui.KV(2, ui.Pair{"État", state}, ui.Pair{"Manager", manager})
 		if !cfg.Auto {
 			ui.Note("Activer : wsquashfs-launcher --sync auto on")
 		}
-		syncAutoAgentNote(cfg.Auto)
+		s.syncAutoAgentNote(cfg.Auto)
 		return 0
 	}
 	if len(args) != 1 || (args[0] != "on" && args[0] != "off") {
-		usageError(syncAutoUsage)
+		return usage(syncAutoUsage)
 	}
 	on := args[0] == "on"
-	next, err := syncAutoSet(cfg, on)
+	next, err := AutoSet(cfg, on)
 	if err != nil {
-		die(err.Error())
+		return fail(err.Error())
 	}
 	if cfg.Auto == on {
 		word := "désactivée"
@@ -172,16 +188,16 @@ func syncAutoCmd(cfg syncConfig, args []string) int {
 			word = "activée"
 		}
 		ui.StatusLine(ui.OK, "synchro automatique déjà "+word)
-		syncAutoAgentNote(on)
+		s.syncAutoAgentNote(on)
 		return 0
 	}
-	if err := saveSyncConfig(next); err != nil {
-		die("configuration non enregistrée : " + err.Error())
+	if err := SaveConfig(next); err != nil {
+		return fail("configuration non enregistrée : " + err.Error())
 	}
 	if on {
-		p, _ := managerPeer(next)
+		p, _ := ManagerPeer(next)
 		ui.StatusLine(ui.OK, "Synchro automatique activée avec "+p.Name+" : envoi à la sortie d'un jeu, réception de sa version la plus récente")
-		syncAutoAgentNote(true)
+		s.syncAutoAgentNote(true)
 		return 0
 	}
 	ui.StatusLine(ui.OK, "Synchro automatique désactivée")
@@ -191,38 +207,38 @@ func syncAutoCmd(cfg syncConfig, args []string) int {
 // syncAutoAgentNote : synchro automatique active mais agent arrêté : l'envoi à la sortie d'un jeu
 // marche quand même (le lanceur appelle le manager), mais le manager ne joint pas cette machine
 // (pastille « auto », version la plus récente envoyée vers elle) : le dire, sans rien bloquer.
-func syncAutoAgentNote(auto bool) {
+func (s *Syncer) syncAutoAgentNote(auto bool) {
 	if !auto {
 		return
 	}
-	if _, running := runningAgentPid(); running {
+	if s.env.AgentRunning != nil && s.env.AgentRunning() {
 		return
 	}
 	ui.Note("wsquashfs-launcher --agent pour recevoir les parties du manager et être visible dans le manager")
 }
 
 // syncDirList : dossiers déclarés, puis les jeux Switch d'Eden.
-func syncDirList(cfg syncConfig) {
+func (s *Syncer) syncDirList(cfg Config) {
 	ui.Title("Synchronisation des sauvegardes", "dossiers et Switch")
 	ui.Section("Dossiers déclarés")
 	if len(cfg.Dirs) == 0 {
 		ui.Note("Aucun. Déclarer : wsquashfs-launcher --sync dir add <nom> <chemin>")
 	}
 	for _, d := range cfg.Dirs {
-		t := syncTarget{Dir: d.Path, Plain: true}
-		files := t.files()
-		where := homeRel(d.Path)
+		t := Target{Dir: d.Path, Plain: true}
+		files := t.Files()
+		where := HomeRel(d.Path)
 		if !filepath.IsAbs(where) {
 			where = "~/" + where
 		}
 		detail := where + " · vide"
 		if len(files) > 0 {
-			detail = where + " · " + ui.SizeText(saveSize(files))
+			detail = where + " · " + ui.SizeText(SaveSize(files))
 		}
 		ui.KV(2, ui.Pair{d.Name, detail})
 	}
 	ui.Section("Switch (Eden)")
-	data := edenDataDir()
+	data := EdenDataDir()
 	switch user := edenSaveUser(); {
 	case data == "":
 		ui.Note("Eden absent (WSQUASHFS_EDEN_DIR pour un autre emplacement).")
@@ -232,7 +248,7 @@ func syncDirList(cfg syncConfig) {
 		titles := edenTitlesOf(user)
 		ui.Note(fmt.Sprintf("%s · %d jeu(x), synchronisés jeu par jeu", data, len(titles)))
 		for _, id := range titles {
-			if name := edenTitleName(id); name != "" {
+			if name := s.edenTitleName(id); name != "" {
 				ui.KV(2, ui.Pair{id, name})
 			} else {
 				ui.KV(2, ui.Pair{id, "(nom inconnu : TitleID absent des ROM et des gamelist.xml)"})
@@ -241,9 +257,9 @@ func syncDirList(cfg syncConfig) {
 	}
 }
 
-// syncPeerID : identifiant local d'une machine associée, tenu dans l'état de synchro : les 32 premiers
-// caractères hexadécimaux de son empreinte de certificat (valides pour validSyncID).
-func syncPeerID(peer syncPeer) string {
+// PeerID : identifiant local d'une machine associée, tenu dans l'état de synchro : les 32 premiers
+// caractères hexadécimaux de son empreinte de certificat (valides pour ValidID).
+func PeerID(peer Peer) string {
 	fp := strings.ToLower(peer.Fingerprint)
 	if len(fp) > 32 {
 		fp = fp[:32]
@@ -251,10 +267,10 @@ func syncPeerID(peer syncPeer) string {
 	return fp
 }
 
-// addSyncPeer : ajoute une machine, ou remplace celle de même empreinte ou de même adresse. Un nom
+// AddPeer : ajoute une machine, ou remplace celle de même empreinte ou de même adresse. Un nom
 // déjà pris par une autre machine (deux machines au même nom d'hôte) reçoit l'adresse entre parenthèses.
-func addSyncPeer(cfg syncConfig, peer syncPeer) syncConfig {
-	kept := []syncPeer{}
+func AddPeer(cfg Config, peer Peer) Config {
+	kept := []Peer{}
 	for _, p := range cfg.Peers {
 		if p.Fingerprint == peer.Fingerprint || p.URL == peer.URL {
 			continue
@@ -272,8 +288,8 @@ func addSyncPeer(cfg syncConfig, peer syncPeer) syncConfig {
 }
 
 // removeSyncPeer : retire la machine nommée (sans tenir compte de la casse). Faux si elle n'existe pas.
-func removeSyncPeer(cfg syncConfig, name string) (syncConfig, bool) {
-	kept := []syncPeer{}
+func removeSyncPeer(cfg Config, name string) (Config, bool) {
+	kept := []Peer{}
 	found := false
 	for _, p := range cfg.Peers {
 		if strings.EqualFold(p.Name, name) {
@@ -287,7 +303,7 @@ func removeSyncPeer(cfg syncConfig, name string) (syncConfig, bool) {
 }
 
 // syncPeerNames : noms des machines associées, « aucune » si la liste est vide.
-func syncPeerNames(cfg syncConfig) string {
+func syncPeerNames(cfg Config) string {
 	if len(cfg.Peers) == 0 {
 		return "aucune"
 	}
@@ -300,30 +316,32 @@ func syncPeerNames(cfg syncConfig) string {
 
 // syncPair : associe la machine dont le code (wsq://…) est donné, ou remplace son association. Le
 // code (à usage unique) est échangé contre un jeton durable propre à cette machine, qui seul est gardé.
-func syncPair(cfg syncConfig, code string) int {
-	peer, err := parsePairCode(code)
+func (s *Syncer) syncPair(cfg Config, code string) int {
+	peer, err := ParsePairCode(code)
 	if err != nil {
-		die(err.Error())
+		return fail(err.Error())
 	}
 	ui.Title("Association de machine", "réseau local")
-	if fp, err := certFingerprint(); err == nil && fp == peer.Fingerprint {
-		die("c'est cette machine : coller le code affiché par --pair sur l'AUTRE machine")
-	}
-	reply, err := newSyncClient(peer, cfg.ID).pair()
-	if err != nil {
-		if isUnreachable(err) {
-			die(peer.URL + " injoignable : l'autre machine est-elle allumée, sur le même réseau, et son agent lancé (--agent) ?")
+	if s.env.CertFingerprint != nil {
+		if fp, err := s.env.CertFingerprint(); err == nil && fp == peer.Fingerprint {
+			return fail("c'est cette machine : coller le code affiché par --pair sur l'AUTRE machine")
 		}
-		die(err.Error())
+	}
+	reply, err := s.NewClient(peer, cfg.ID).Pair()
+	if err != nil {
+		if IsUnreachable(err) {
+			return fail(peer.URL + " injoignable : l'autre machine est-elle allumée, sur le même réseau, et son agent lancé (--agent) ?")
+		}
+		return fail(err.Error())
 	}
 	peer.Token = reply.Token
 	peer.Name = reply.Host
 	if peer.Name == "" {
 		peer.Name = peer.URL
 	}
-	cfg = addSyncPeer(cfg, peer)
-	if err := saveSyncConfig(cfg); err != nil {
-		die("configuration impossible : " + err.Error())
+	cfg = AddPeer(cfg, peer)
+	if err := SaveConfig(cfg); err != nil {
+		return fail("configuration impossible : " + err.Error())
 	}
 	ui.StatusLine(ui.OK, peer.Name+" enregistrée")
 	ui.Note("Synchroniser : wsquashfs-launcher --sync")
@@ -331,14 +349,14 @@ func syncPair(cfg syncConfig, code string) int {
 }
 
 // syncForget : retire une machine associée.
-func syncForget(cfg syncConfig, name string) int {
+func (s *Syncer) syncForget(cfg Config, name string) int {
 	names := syncPeerNames(cfg)
 	cfg, found := removeSyncPeer(cfg, name)
 	if !found {
-		die("aucune machine associée nommée « " + name + " » (machines : " + names + ")")
+		return fail("aucune machine associée nommée « " + name + " » (machines : " + names + ")")
 	}
-	if err := saveSyncConfig(cfg); err != nil {
-		die("configuration impossible : " + err.Error())
+	if err := SaveConfig(cfg); err != nil {
+		return fail("configuration impossible : " + err.Error())
 	}
 	ui.Title("Machines associées", "réseau local")
 	ui.StatusLine(ui.OK, name+" retirée")
@@ -372,7 +390,7 @@ func syncStateGames(stateRoot, peerID string) []string {
 
 // syncRun : synchronise un jeu (game) ou tous les jeux (game vide) avec chaque machine associée.
 // dryRun : rien n'est verrouillé ni écrit, le sens de chaque jeu est seulement annoncé.
-func syncRun(cfg syncConfig, game string, dryRun bool) int {
+func (s *Syncer) syncRun(cfg Config, game string, dryRun bool) int {
 	if len(cfg.Peers) == 0 {
 		syncNoPeers()
 		return 0
@@ -382,20 +400,20 @@ func syncRun(cfg syncConfig, game string, dryRun bool) int {
 		sub = "simulation : rien n'est modifié"
 	}
 	ui.Title("Synchronisation des sauvegardes", sub)
-	stateRoot := syncStateRoot()
+	stateRoot := s.StateRoot()
 	local := map[string]bool{}
-	for _, g := range syncNames() {
+	for _, g := range s.Names() {
 		local[g] = true
 	}
-	peers := append([]syncPeer{}, cfg.Peers...)
-	slices.SortFunc(peers, func(a, b syncPeer) int { return cmp.Compare(a.Name, b.Name) })
+	peers := append([]Peer{}, cfg.Peers...)
+	slices.SortFunc(peers, func(a, b Peer) int { return cmp.Compare(a.Name, b.Name) })
 	failed := false
 	for _, peer := range peers {
 		ui.Section(peer.Name)
-		client := newSyncClient(peer, cfg.ID)
-		remote, err := client.list()
+		client := s.NewClient(peer, cfg.ID)
+		remote, err := client.List()
 		if err != nil {
-			if isUnreachable(err) {
+			if IsUnreachable(err) {
 				ui.StatusLine(ui.Skip, "injoignable (éteinte ou hors du réseau local)")
 				continue
 			}
@@ -403,8 +421,8 @@ func syncRun(cfg syncConfig, game string, dryRun bool) int {
 			failed = true
 			continue
 		}
-		peerID := syncPeerID(peer)
-		byName := map[string]remoteSave{}
+		peerID := PeerID(peer)
+		byName := map[string]RemoteSave{}
 		games := map[string]bool{}
 		for g := range local {
 			games[g] = true
@@ -435,7 +453,7 @@ func syncRun(cfg syncConfig, game string, dryRun bool) int {
 		shown := make([]string, 0, len(names))
 		for _, name := range names {
 			labels[name] = name
-			if t, err := syncTargetOf(name); err == nil && t.Label != "" {
+			if t, err := s.TargetOf(name); err == nil && t.Label != "" {
 				labels[name] = t.Label
 			} else if l := byName[name].Label; l != "" {
 				labels[name] = l
@@ -448,23 +466,23 @@ func syncRun(cfg syncConfig, game string, dryRun bool) int {
 			// --sync sans jeu : un jeu qui n'a de sauvegardes que d'un côté n'est pas une
 			// différence (machine à plus petit stockage, jeu pas installé). Le copier sur
 			// l'autre machine : --sync "<jeu>", explicite.
-			t, terr := syncTargetOf(name)
+			t, terr := s.TargetOf(name)
 			if game == "" {
-				here := terr == nil && t.fingerprint(t.files()) != ""
+				here := terr == nil && t.Fingerprint(t.Files()) != ""
 				if here != (byName[name].Fingerprint != "") {
 					oneSide++
 					continue
 				}
 			}
-			if errors.Is(terr, errSyncAbsent) && byName[name].Dir != "" && !dryRun {
+			if errors.Is(terr, ErrAbsent) && byName[name].Dir != "" && !dryRun {
 				// Dossier déclaré sur l'autre machine, pas ici : déclaré avec son chemin, puis reçu.
-				t, terr = declareFromPeer(name, byName[name].Dir)
+				t, terr = s.DeclareFromPeer(name, byName[name].Dir)
 			}
 			if terr != nil {
 				g.Line(ui.Skip, labels[name], "absent ici (dossier non déclaré : --sync dir add, ou Eden absent)")
 				continue
 			}
-			st, msg := syncGameWith(client, peer.Name, peerID, stateRoot, name, t, byName[name], dryRun)
+			st, msg := s.SyncTarget(client, peer.Name, peerID, stateRoot, name, t, byName[name], dryRun)
 			g.Line(st, labels[name], msg)
 			if st == ui.Fail {
 				failed = true
@@ -475,7 +493,7 @@ func syncRun(cfg syncConfig, game string, dryRun bool) int {
 				"--sync \"<jeu>\" pour en copier un", oneSide))
 		}
 	}
-	ui.Note("Réseau local uniquement. Versions écartées en cas de conflit : " + backupDir())
+	ui.Note("Réseau local uniquement. Versions écartées en cas de conflit : " + s.backupDir())
 	if failed {
 		return 1
 	}
@@ -485,10 +503,18 @@ func syncRun(cfg syncConfig, game string, dryRun bool) int {
 // syncErrStatus : statut d'une erreur de synchro d'un jeu : jeu en cours sur l'autre machine
 // (ignoré, la synchro reprendra plus tard), sinon échec.
 func syncErrStatus(err error, peerName string) (ui.Status, string) {
-	if errors.Is(err, errSyncBusy) {
+	if errors.Is(err, ErrBusy) {
 		return ui.Skip, "en cours sur " + peerName + ", ignoré"
 	}
 	return ui.Fail, err.Error()
+}
+
+// backupDir : dossier des backups, "" si l'environnement ne le dit pas.
+func (s *Syncer) backupDir() string {
+	if s.env.BackupDir == nil {
+		return ""
+	}
+	return s.env.BackupDir()
 }
 
 // archivedNote : « (chemin) » après une archive, rien sans archive.
@@ -499,22 +525,18 @@ func archivedNote(path string) string {
 	return " (" + path + ")"
 }
 
-// syncGameWith : synchronise UNE cible (jeu, dossier, jeu Switch) avec une machine associée.
+// SyncTarget : synchronise UNE cible (jeu, dossier, jeu Switch) avec une machine associée.
 // remote : son état sur la machine distante (liste). dryRun : rien n'est verrouillé ni écrit.
 // Retourne le statut et le texte de la ligne.
-func syncGameWith(c *syncClient, peerName, peerID, stateRoot, name string, t syncTarget, remote remoteSave, dryRun bool) (ui.Status, string) {
-	if t.game && gameUsesSaveDir(name) {
+func (s *Syncer) SyncTarget(c *Client, peerName, peerID, stateRoot, name string, t Target, remote RemoteSave, dryRun bool) (ui.Status, string) {
+	if t.game && s.env.GameUsesSaveDir != nil && s.env.GameUsesSaveDir(name) {
 		return ui.Skip, "sauvegardes hors du prefix (SAVEDIR/SAVEFILES), non synchronisées"
 	}
 	var lock *os.File
 	if !dryRun {
 		var f *os.File
 		var ok bool
-		if t.game {
-			f, ok = syncLockGame(name)
-		} else {
-			f, ok = t.lock()
-		}
+		f, ok = t.Lock()
 		if !ok {
 			return ui.Skip, "en cours ici, ignoré"
 		}
@@ -523,23 +545,23 @@ func syncGameWith(c *syncClient, peerName, peerID, stateRoot, name string, t syn
 	if lock != nil {
 		defer lock.Close()
 	}
-	files := t.files()
-	fp := t.fingerprint(files)
+	files := t.Files()
+	fp := t.Fingerprint(files)
 	if fp == "" && remote.Fingerprint == "" {
 		return ui.Skip, "aucune sauvegarde ici ni sur " + peerName
 	}
-	state := loadSyncState(stateRoot, peerID, name).Fingerprint
-	action := decideSync(fp, state, newestSave(files), remote.Fingerprint, remote.State, remote.Newest, t.content(files), remote.Content)
+	state := LoadState(stateRoot, peerID, name).Fingerprint
+	action := decideSync(fp, state, NewestSave(files), remote.Fingerprint, remote.State, remote.Newest, t.Content(files), remote.Content)
 	if dryRun {
 		return ui.Info, action.String()
 	}
 	switch action {
 	case syncUpToDate:
 		if state != fp {
-			if err := saveSyncState(stateRoot, peerID, name, fp); err != nil {
+			if err := SaveState(stateRoot, peerID, name, fp); err != nil {
 				return ui.Fail, err.Error()
 			}
-			if err := c.ack(name, fp); err != nil && isUnreachable(err) {
+			if err := c.Ack(name, fp); err != nil && IsUnreachable(err) {
 				return syncErrStatus(err, peerName)
 			}
 		}
@@ -549,14 +571,14 @@ func syncGameWith(c *syncClient, peerName, peerID, stateRoot, name string, t syn
 		// Les deux ont changé : rien n'est transféré ni écrasé. La copie d'ici part au manager
 		// (version de conflit), où l'utilisateur départage.
 		msg := "conflit avec " + peerName + " (les deux ont changé) : à départager dans le manager"
-		return ui.Skip, msg + sendConflictToManager(peerName, name, t)
+		return ui.Skip, msg + s.sendConflictToManager(peerName, name, t)
 
 	case syncSend:
-		_, _, err := c.send(t)
+		_, _, err := c.Send(t)
 		if err != nil {
 			return syncErrStatus(err, peerName)
 		}
-		if err := saveSyncState(stateRoot, peerID, name, t.fingerprint(t.files())); err != nil {
+		if err := SaveState(stateRoot, peerID, name, t.Fingerprint(t.Files())); err != nil {
 			return ui.Fail, err.Error()
 		}
 		return ui.OK, "envoyé à " + peerName
@@ -566,20 +588,20 @@ func syncGameWith(c *syncClient, peerName, peerID, stateRoot, name string, t syn
 		// mise de côté avant d'être remplacée.
 		archivedLocal := ""
 		if fp != "" && fp != state {
-			path, err := t.archiveLocal()
+			path, err := t.ArchiveLocal()
 			if err != nil {
 				return ui.Fail, "version d'ici non archivée, rien reçu : " + err.Error()
 			}
 			archivedLocal = path
 		}
-		rfp, err := c.fetch(t)
+		rfp, err := c.Fetch(t)
 		if err != nil {
 			return syncErrStatus(err, peerName)
 		}
-		if err := c.ack(name, rfp); err != nil && isUnreachable(err) {
+		if err := c.Ack(name, rfp); err != nil && IsUnreachable(err) {
 			return ui.Fail, "reçu, mais l'état n'est pas confirmé sur " + peerName + " : " + err.Error()
 		}
-		if err := saveSyncState(stateRoot, peerID, name, t.fingerprint(t.files())); err != nil {
+		if err := SaveState(stateRoot, peerID, name, t.Fingerprint(t.Files())); err != nil {
 			return ui.Fail, err.Error()
 		}
 		return ui.OK, "reçu de " + peerName + archivedNote(archivedLocal)

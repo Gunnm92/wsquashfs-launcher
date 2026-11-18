@@ -19,6 +19,7 @@ import (
 	"strconv"
 	"strings"
 	"unicode/utf8"
+	"wsquashfs-launcher/internal/savesync"
 )
 
 // completionScript : fonction de complétion bash (installée par --setup).
@@ -180,14 +181,14 @@ func completeWords(args []string, cur string) []string {
 func completeSync(rest []string) []string {
 	switch {
 	case len(rest) == 0:
-		return append([]string{"auto", "dir", "forget", "status"}, syncNames()...)
+		return append([]string{"auto", "dir", "forget", "status"}, syncer().Names()...)
 	case len(rest) == 1 && rest[0] == "auto":
 		return []string{"off", "on"}
 	case len(rest) == 1 && rest[0] == "status":
-		return syncNames()
+		return syncer().Names()
 	case len(rest) == 1 && rest[0] == "forget":
 		var out []string
-		for _, p := range loadSyncConfig().Peers {
+		for _, p := range savesync.LoadConfig().Peers {
 			out = append(out, p.Name)
 		}
 		return out
@@ -195,7 +196,7 @@ func completeSync(rest []string) []string {
 		return []string{"add", "forget"}
 	case len(rest) == 2 && rest[0] == "dir" && rest[1] == "forget":
 		var out []string
-		for _, d := range loadSyncConfig().Dirs {
+		for _, d := range savesync.LoadConfig().Dirs {
 			out = append(out, d.Name)
 		}
 		return out

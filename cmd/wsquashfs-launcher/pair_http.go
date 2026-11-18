@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 	"unicode"
+	"wsquashfs-launcher/internal/savesync"
 )
 
 // pairDetail : refus de POST /v1/pair (code absent, expiré, déjà utilisé ou faux).
@@ -30,7 +31,7 @@ type pairRequest struct {
 // mauvais secret ne consomme pas le code.
 func (s *agentServer) pairRoute(w http.ResponseWriter, r *http.Request) {
 	machine := r.Header.Get("X-Wsq-Machine")
-	if !validSyncID(machine) {
+	if !savesync.ValidID(machine) {
 		writeDetail(w, http.StatusBadRequest, "identifiant de machine absent ou invalide")
 		return
 	}

@@ -33,6 +33,7 @@ import (
 
 	"fyne.io/systray"
 
+	"wsquashfs-launcher/internal/savesync"
 	"wsquashfs-launcher/internal/ui"
 )
 
@@ -92,9 +93,9 @@ type trayView struct {
 
 // trayState : état affiché à partir de valeurs déjà lues (agent, sync.json, machines de l'agent,
 // jeux connus). Ne lit rien, pour être testée seule.
-func trayState(cfg syncConfig, agentRunning bool, machines, games []string) trayView {
+func trayState(cfg savesync.Config, agentRunning bool, machines, games []string) trayView {
 	v := trayView{AgentRunning: agentRunning, AutoSync: cfg.Auto}
-	if p, ok := managerPeer(cfg); ok {
+	if p, ok := savesync.ManagerPeer(cfg); ok {
 		v.ManagerURL = p.UI
 	}
 	v.Machines = machines[:min(len(machines), trayMaxMachines)]
@@ -284,7 +285,7 @@ func (a *trayApp) refresh() {
 	defer a.mu.Unlock()
 
 	_, running := runningAgentPid()
-	v := trayState(loadSyncConfig(), running, agentNames(), byLastLaunch(knownGames(), lastLaunch))
+	v := trayState(savesync.LoadConfig(), running, agentNames(), byLastLaunch(knownGames(), lastLaunch))
 	if running {
 		a.status.SetTitle("Agent : actif")
 		a.setLong(a.agent, "Arrêter l'agent")
@@ -404,10 +405,10 @@ func (a *trayApp) toggleAgent() {
 
 // toggleAuto : synchro automatique avec le manager (sync.json).
 func (a *trayApp) toggleAuto() {
-	cfg := loadSyncConfig()
-	next, err := syncAutoSet(cfg, !cfg.Auto)
+	cfg := savesync.LoadConfig()
+	next, err := savesync.AutoSet(cfg, !cfg.Auto)
 	if err == nil {
-		err = saveSyncConfig(next)
+		err = savesync.SaveConfig(next)
 	}
 	switch {
 	case err != nil:
@@ -422,7 +423,7 @@ func (a *trayApp) toggleAuto() {
 
 // openManager : ouvre l'interface du manager déclaré (xdg-open), adresse donnée par sa déclaration.
 func (a *trayApp) openManager() {
-	p, ok := managerPeer(loadSyncConfig())
+	p, ok := savesync.ManagerPeer(savesync.LoadConfig())
 	if !ok || p.UI == "" {
 		notify("Adresse du manager inconnue", "Le manager la donne en déclarant la machine")
 		return

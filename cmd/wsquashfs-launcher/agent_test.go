@@ -21,6 +21,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"wsquashfs-launcher/internal/savesync"
 )
 
 // agentFixture : configuration isolée, une racine roms/ avec une image, et un
@@ -300,7 +302,7 @@ func TestPairCodeMatchesCertificate(t *testing.T) {
 		t.Errorf("code d'association incorrect : %q", code)
 	}
 	// Le code produit par --pair est lu par --sync wsq:// (parsePairCode).
-	if p, err := parsePairCode(code); err != nil || p.Token != "jeton_TEST-123" {
+	if p, err := savesync.ParsePairCode(code); err != nil || p.Token != "jeton_TEST-123" {
 		t.Errorf("code relu : %+v, %v", p, err)
 	}
 }
@@ -479,7 +481,7 @@ func TestOSID(t *testing.T) {
 // startServedAgent : serveAgent dans ce processus, sur un port libre (configuration, sauvegardes
 // et cache isolés). Rend un client de synchro qui le vise, le users/ du jeu « Game », le crochet
 // d'interruption posé par l'agent (ce que SIGTERM appelle, voir installSignals) et son code de fin.
-func startServedAgent(t *testing.T) (*syncClient, string, func(), <-chan int) {
+func startServedAgent(t *testing.T) (*savesync.Client, string, func(), <-chan int) {
 	t.Helper()
 	agentFixture(t)
 	capteUI(t)
@@ -506,10 +508,10 @@ func startServedAgent(t *testing.T) (*syncClient, string, func(), <-chan int) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	peer := syncPeer{Name: "agent", URL: fmt.Sprintf("https://127.0.0.1:%d", cfg.Port), Token: "secret-token", Fingerprint: fp}
+	peer := savesync.Peer{Name: "agent", URL: fmt.Sprintf("https://127.0.0.1:%d", cfg.Port), Token: "secret-token", Fingerprint: fp}
 	users := filepath.Join(conf.savesDir, syncRigGame, "drive_c", "users")
 	syncTestPopulate(t, users, "steamuser")
-	return newSyncClient(peer, "client-machine-01"), users, *hook, done
+	return syncer().NewClient(peer, "client-machine-01"), users, *hook, done
 }
 
 // TestServeAgentStopsGracefully : un signal d'arrêt pendant un envoi de sauvegardes ; le port se
@@ -525,7 +527,7 @@ func TestServeAgentStopsGracefully(t *testing.T) {
 		time.Sleep(500 * time.Millisecond) // l'arrêt attend la requête
 		closed = !agentListening(port)
 	}}
-	resp, err := client.do(http.MethodPut, "/v1/saves/tar", url.Values{"game": {syncRigGame}}, body,
+	resp, err := client.Do(http.MethodPut, "/v1/saves/tar", url.Values{"game": {syncRigGame}}, body,
 		map[string]string{"X-Wsq-Profile": "deck"})
 	if err != nil {
 		t.Fatalf("requête en cours coupée par l'arrêt : %v", err)
@@ -564,7 +566,7 @@ func TestServeAgentStopCutsAfterGrace(t *testing.T) {
 	agentStopGrace = 300 * time.Millisecond
 	t.Cleanup(func() { agentStopGrace = old })
 	client, users, stop, done := startServedAgent(t)
-	before := saveFingerprint(users, collectSaveFiles(users))
+	before := saveFingerprint(users, savesync.CollectSaveFiles(users))
 	archive := syncTestSaveArchive(t)
 	release := make(chan struct{})
 	body := &slowBody{data: archive, pause: func() {
@@ -574,7 +576,7 @@ func TestServeAgentStopCutsAfterGrace(t *testing.T) {
 	}}
 	errc := make(chan error, 1)
 	go func() {
-		resp, err := client.do(http.MethodPut, "/v1/saves/tar", url.Values{"game": {syncRigGame}}, body,
+		resp, err := client.Do(http.MethodPut, "/v1/saves/tar", url.Values{"game": {syncRigGame}}, body,
 			map[string]string{"X-Wsq-Profile": "deck"})
 		if err == nil {
 			resp.Body.Close()
@@ -596,7 +598,7 @@ func TestServeAgentStopCutsAfterGrace(t *testing.T) {
 	if pathExistsFile(agentPidFile()) {
 		t.Error("fichier de PID gardé après l'arrêt")
 	}
-	if got := saveFingerprint(users, collectSaveFiles(users)); got != before {
+	if got := saveFingerprint(users, savesync.CollectSaveFiles(users)); got != before {
 		t.Error("sauvegardes modifiées par un envoi coupé")
 	}
 }

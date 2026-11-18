@@ -21,6 +21,8 @@ import (
 	"time"
 
 	"wsquashfs-launcher/internal/download"
+	"wsquashfs-launcher/internal/filetree"
+	"wsquashfs-launcher/internal/savesync"
 )
 
 const (
@@ -31,15 +33,6 @@ const (
 	gamesPutTimeout = 10 * time.Minute // délai de lecture d'un envoi (ReadTimeout de l'agent : 60 s)
 )
 
-// gamesHome : HOME avec les liens résolus.
-func gamesHome() (string, error) {
-	home := os.Getenv("HOME")
-	if home == "" {
-		return "", errors.New("HOME absent")
-	}
-	return filepath.EvalSymlinks(home)
-}
-
 // gamesRealPath : chemin sans liens symboliques, ou nettoyé si la résolution échoue.
 func gamesRealPath(p string) string {
 	if real, err := filepath.EvalSymlinks(p); err == nil {
@@ -48,18 +41,13 @@ func gamesRealPath(p string) string {
 	return filepath.Clean(p)
 }
 
-// gamesStrictlyUnder : p est un sous-dossier de base (base elle-même exclue).
-func gamesStrictlyUnder(base, p string) bool {
-	return p != base && within(p, base)
-}
-
 // gamesDirCheck : dossier choisi (absolu, existant, sous HOME après résolution des liens).
 // Retourne le chemin réel.
 func gamesDirCheck(dir string) (string, int, string) {
 	if !filepath.IsAbs(dir) {
 		return "", http.StatusBadRequest, "chemin absolu requis"
 	}
-	realHome, err := gamesHome()
+	realHome, err := filetree.Home()
 	if err != nil {
 		return "", http.StatusInternalServerError, "HOME inaccessible"
 	}
@@ -70,46 +58,23 @@ func gamesDirCheck(dir string) (string, int, string) {
 	if !isDirPath(real) {
 		return "", http.StatusBadRequest, "pas un dossier : " + dir
 	}
-	if !gamesStrictlyUnder(realHome, real) {
+	if !filetree.StrictlyUnder(realHome, real) {
 		return "", http.StatusBadRequest, "le dossier doit être un sous-dossier de HOME (" + realHome + ")"
 	}
 	return real, 0, ""
 }
 
-// gamesAncestor : p s'il existe, sinon son plus proche parent existant ("" si aucun).
-func gamesAncestor(p string) string {
-	for {
-		if _, err := os.Stat(p); err == nil {
-			return p
-		}
-		parent := filepath.Dir(p)
-		if parent == p {
-			return ""
-		}
-		p = parent
-	}
-}
-
-// gamesVerify : dossier prévu (qui peut ne pas encore exister). Le plus proche ancêtre existant, une
-// fois les liens résolus, doit être sous HOME ; retourne le chemin avec ce préfixe réel.
+// gamesVerify : dossier prévu (qui peut ne pas encore exister), sous HOME (filetree.UnderHome) ;
+// code HTTP et message si refusé.
 func gamesVerify(dir string) (string, int, string) {
-	realHome, err := gamesHome()
-	if err != nil {
-		return "", http.StatusInternalServerError, "HOME inaccessible"
+	real, err := filetree.UnderHome(dir)
+	switch {
+	case errors.Is(err, filetree.ErrHomeInaccessible):
+		return "", http.StatusInternalServerError, err.Error()
+	case err != nil:
+		return "", http.StatusBadRequest, err.Error()
 	}
-	anc := gamesAncestor(dir)
-	if anc == "" {
-		return "", http.StatusBadRequest, "dossier hors HOME : " + dir
-	}
-	realAnc, err := filepath.EvalSymlinks(anc)
-	if err != nil || !within(realAnc, realHome) {
-		return "", http.StatusBadRequest, "dossier hors HOME : " + dir
-	}
-	rest, err := filepath.Rel(anc, dir)
-	if err != nil {
-		return "", http.StatusBadRequest, "dossier invalide : " + dir
-	}
-	return filepath.Join(realAnc, rest), 0, ""
+	return real, 0, ""
 }
 
 // hiddenUnder : un composant de p, relatif à base, commence par « . ».
@@ -178,7 +143,7 @@ func detectGamesDir(home string, roms []string) string {
 	}
 	for _, root := range roms {
 		real, err := filepath.EvalSymlinks(root)
-		if err != nil || !gamesStrictlyUnder(realHome, real) || hiddenUnder(realHome, real) {
+		if err != nil || !filetree.StrictlyUnder(realHome, real) || hiddenUnder(realHome, real) {
 			continue
 		}
 		collectGameDirs(real, 0, 3, dirs)
@@ -227,7 +192,7 @@ func (s *agentServer) gamesDir() (dir string, set bool, code int, msg string) {
 			return real, true, 0, ""
 		}
 	}
-	realHome, err := gamesHome()
+	realHome, err := filetree.Home()
 	if err != nil {
 		return "", false, http.StatusInternalServerError, "HOME inaccessible"
 	}
@@ -237,7 +202,7 @@ func (s *agentServer) gamesDir() (dir string, set bool, code int, msg string) {
 
 // gamesFree : octets disponibles sur le système de fichiers de dir (ou de son plus proche ancêtre).
 func gamesFree(dir string) int64 {
-	anc := gamesAncestor(dir)
+	anc := filetree.Ancestor(dir)
 	if anc == "" {
 		return 0
 	}
@@ -256,7 +221,7 @@ func checkGamesName(name string) (string, string) {
 		return "", want
 	}
 	stem, ok := strings.CutSuffix(name, gamesExt)
-	if !ok || !validSyncGame(stem) {
+	if !ok || !savesync.ValidGame(stem) {
 		return "", want
 	}
 	return name, ""

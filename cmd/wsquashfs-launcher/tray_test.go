@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"wsquashfs-launcher/internal/savesync"
 )
 
 // fakeBin : dossier qui devient le PATH du test, avec des commandes factices (scripts vides).
@@ -38,13 +40,13 @@ func trayRig(t *testing.T) string {
 
 // TestTrayState : ce que le menu affiche selon l'agent, le manager, la synchro auto et les listes.
 func TestTrayState(t *testing.T) {
-	managerCfg := syncConfig{Peers: []syncPeer{
+	managerCfg := savesync.Config{Peers: []savesync.Peer{
 		{Name: "aibox", URL: "https://10.0.0.2:9000"},
 		{Name: "wsquashfs-manager", URL: "https://10.0.0.5:8790", Manager: true, UI: "http://10.0.0.5:8765"},
 	}}
 	cases := []struct {
 		name     string
-		cfg      syncConfig
+		cfg      savesync.Config
 		running  bool
 		machines []string
 		games    []string
@@ -52,13 +54,13 @@ func TestTrayState(t *testing.T) {
 	}{
 		{
 			name:    "agent arrêté, sans manager, synchro auto inactive",
-			cfg:     syncConfig{},
+			cfg:     savesync.Config{},
 			running: false,
 			want:    trayView{},
 		},
 		{
 			name:     "agent actif, manager déclaré, synchro auto active",
-			cfg:      syncConfig{Auto: true, Peers: managerCfg.Peers},
+			cfg:      savesync.Config{Auto: true, Peers: managerCfg.Peers},
 			running:  true,
 			machines: []string{"wsquashfs-manager"},
 			games:    []string{"Hollow Knight"},
@@ -90,7 +92,7 @@ func TestTrayStateLimites(t *testing.T) {
 	for i := 0; i < trayMaxMachines+3; i++ {
 		machines = append(machines, fmt.Sprintf("machine %02d", i))
 	}
-	got := trayState(syncConfig{}, false, machines, games)
+	got := trayState(savesync.Config{}, false, machines, games)
 	if len(got.Games) != trayMaxGames || got.GamesMore != 5 {
 		t.Fatalf("jeux : %d affichés, %d en plus ; voulu %d et 5", len(got.Games), got.GamesMore, trayMaxGames)
 	}

@@ -1,4 +1,4 @@
-package main
+package savesync
 
 // Synchronisation manuelle des sauvegardes de partie entre machines (--sync) :
 // le cœur local, sans réseau. Le périmètre est celui de --save (copyGameSaves) :
@@ -35,8 +35,8 @@ const syncProfileToken = "_profil_"
 // syncDefaultProfile : profil Wine supposé quand la machine n'en a aucun et que l'envoi n'en précise pas.
 const syncDefaultProfile = "steamuser"
 
-// isSystemProfile : comptes Windows système, jamais synchronisés.
-func isSystemProfile(name string) bool {
+// IsSystemProfile : comptes Windows système, jamais synchronisés.
+func IsSystemProfile(name string) bool {
 	switch name {
 	case "Public", "All Users", "Default User", "LocalService", "NetworkService":
 		return true
@@ -53,7 +53,7 @@ func userProfiles(users string) []string {
 	}
 	var out []string
 	for _, e := range entries {
-		if e.IsDir() && !isSystemProfile(e.Name()) {
+		if e.IsDir() && !IsSystemProfile(e.Name()) {
 			out = append(out, e.Name())
 		}
 	}
@@ -61,9 +61,9 @@ func userProfiles(users string) []string {
 	return out
 }
 
-// saveFile : une sauvegarde du périmètre. Rel est relatif à users/, avec "/" et le profil réel en tête.
+// File : une sauvegarde du périmètre. Rel est relatif à users/, avec "/" et le profil réel en tête.
 // MTime en secondes Unix.
-type saveFile struct {
+type File struct {
 	Rel   string
 	Size  int64
 	MTime int64
@@ -77,10 +77,10 @@ func splitRel(rel string) (profile, rest string) {
 	return rel, ""
 }
 
-// collectSaveFiles : fichiers du périmètre de sauvegarde, triés par Rel. Dossier absent : nil.
+// CollectSaveFiles : fichiers du périmètre de sauvegarde, triés par Rel. Dossier absent : nil.
 // Les liens ne sont jamais suivis (Lstat, Walk ne descend pas dans les liens).
-func collectSaveFiles(users string) []saveFile {
-	var out []saveFile
+func CollectSaveFiles(users string) []File {
+	var out []File
 	for _, p := range userProfiles(users) {
 		for _, sub := range saveProfileDirs {
 			src := filepath.Join(users, p, filepath.FromSlash(sub))
@@ -101,7 +101,7 @@ func collectSaveFiles(users string) []saveFile {
 				if err != nil {
 					return nil
 				}
-				out = append(out, saveFile{
+				out = append(out, File{
 					Rel:   filepath.ToSlash(rel),
 					Size:  info.Size(),
 					MTime: info.ModTime().Unix(),
@@ -110,12 +110,12 @@ func collectSaveFiles(users string) []saveFile {
 			})
 		}
 	}
-	slices.SortFunc(out, func(a, b saveFile) int { return cmp.Compare(a.Rel, b.Rel) })
+	slices.SortFunc(out, func(a, b File) int { return cmp.Compare(a.Rel, b.Rel) })
 	return out
 }
 
 // fileProfiles : profils réels ayant au moins un fichier dans files, triés. Un profil vide n'y figure pas.
-func fileProfiles(files []saveFile) []string {
+func fileProfiles(files []File) []string {
 	seen := map[string]bool{}
 	var out []string
 	for _, f := range files {
@@ -132,7 +132,7 @@ func fileProfiles(files []saveFile) []string {
 // saveFingerprint : empreinte du périmètre (sha256 hex) ; "" sans fichier. Quand les fichiers ne
 // viennent que d'un profil, celui-ci est remplacé par syncProfileToken : deux machines aux mêmes
 // fichiers ont la même empreinte, même si l'une a un profil vide en plus.
-func saveFingerprint(users string, files []saveFile) string {
+func saveFingerprint(users string, files []File) string {
 	if len(files) == 0 {
 		return ""
 	}
@@ -197,7 +197,7 @@ func fileContentHash(path string, size, mtime int64) (string, bool) {
 // fichier \n »), sans tenir compte des dates. root : dossier des fichiers ; game : cible de jeu, dont
 // le profil unique est remplacé par syncProfileToken comme dans saveFingerprint. "" sans fichier,
 // ou si un fichier est illisible (on retombe alors sur l'empreinte habituelle).
-func contentFingerprint(root string, files []saveFile, game bool) string {
+func contentFingerprint(root string, files []File, game bool) string {
 	if len(files) == 0 {
 		return ""
 	}
@@ -228,8 +228,8 @@ func hashLines(lines []string) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// newestSave : plus grand MTime du périmètre, 0 si vide.
-func newestSave(files []saveFile) int64 {
+// NewestSave : plus grand MTime du périmètre, 0 si vide.
+func NewestSave(files []File) int64 {
 	var newest int64
 	for _, f := range files {
 		if f.MTime > newest {
@@ -239,8 +239,8 @@ func newestSave(files []saveFile) int64 {
 	return newest
 }
 
-// saveSize : taille totale des sauvegardes du périmètre, en octets.
-func saveSize(files []saveFile) int64 {
+// SaveSize : taille totale des sauvegardes du périmètre, en octets.
+func SaveSize(files []File) int64 {
 	var total int64
 	for _, f := range files {
 		total += f.Size
@@ -263,7 +263,7 @@ func archiveEntryName(rel string, single bool) string {
 // writeSaveArchive : tar.gz des fichiers (entrées "<profil ou token>/<chemin>", dossiers
 // intermédiaires compris, avec mode et date). Retourne le nom réel du profil quand il est seul
 // (le token a été utilisé), "" sinon.
-func writeSaveArchive(w io.Writer, users string, files []saveFile) (profile string, err error) {
+func writeSaveArchive(w io.Writer, users string, files []File) (profile string, err error) {
 	profs := fileProfiles(files)
 	single := len(profs) == 1
 	if single {
@@ -277,7 +277,7 @@ func writeSaveArchive(w io.Writer, users string, files []saveFile) (profile stri
 
 // writeArchiveTree : tar.gz des fichiers de root (Rel relatifs à root), dossiers intermédiaires
 // compris, avec mode et date ; name donne le nom d'entrée d'un chemin relatif.
-func writeArchiveTree(w io.Writer, root string, files []saveFile, name func(rel string) string) error {
+func writeArchiveTree(w io.Writer, root string, files []File, name func(rel string) string) error {
 	gz := gzip.NewWriter(w)
 	tw := tar.NewWriter(gz)
 	dirsDone := map[string]bool{}
@@ -373,7 +373,7 @@ func checkSyncEntry(hdr *tar.Header) (syncEntry, error) {
 		}
 	}
 	e.profile = parts[0]
-	if e.profile != syncProfileToken && isSystemProfile(e.profile) {
+	if e.profile != syncProfileToken && IsSystemProfile(e.profile) {
 		return refuse("profil système")
 	}
 	if len(parts) == 1 {
@@ -416,14 +416,14 @@ func checkSyncEntry(hdr *tar.Header) (syncEntry, error) {
 // validSyncProfileName : nom de profil local acceptable (pas système, pas de séparateur).
 func validSyncProfileName(name string) bool {
 	return name != "" && name != "." && name != ".." && name != syncProfileToken &&
-		!strings.ContainsAny(name, "/\x00") && !isSystemProfile(name)
+		!strings.ContainsAny(name, "/\x00") && !IsSystemProfile(name)
 }
 
 // localSyncProfile : profil local qui reçoit le token. Préférence : le profil unique portant des
 // sauvegardes, sinon le profil unique de users/ (même vide), sinon l'envoyeur (origProfile), sinon
 // syncDefaultProfile.
 func localSyncProfile(users, origProfile string) (string, error) {
-	if withSaves := fileProfiles(collectSaveFiles(users)); len(withSaves) == 1 {
+	if withSaves := fileProfiles(CollectSaveFiles(users)); len(withSaves) == 1 {
 		return withSaves[0], nil
 	}
 	if profs := userProfiles(users); len(profs) == 1 {
@@ -481,22 +481,22 @@ func checkSyncDests(users string, moves []syncMove) error {
 // l'extraction s'arrête et rien n'est modifié. Variable pour les tests.
 var syncMaxUnpacked int64 = 4 << 30
 
-// syncTempMaxAge : âge au-delà duquel une archive temporaire de synchro est un reste (processus tué) :
+// TempMaxAge : âge au-delà duquel une archive temporaire de synchro est un reste (processus tué) :
 // --clean la retire.
-const syncTempMaxAge = 24 * time.Hour
+const TempMaxAge = 24 * time.Hour
 
-// syncTempDir : dossier des archives temporaires de synchro, dans le cache du lanceur (sur disque).
-func syncTempDir() string {
-	return filepath.Join(conf.cacheDir, "tmp")
+// TempDir : dossier des archives temporaires de synchro, dans le cache du lanceur (sur disque).
+func (s *Syncer) TempDir() string {
+	return filepath.Join(s.env.CacheDir, "tmp")
 }
 
-// syncTempFile : fichier temporaire d'une archive de synchro (envoyée par l'agent, reçue par --sync).
+// TempFile : fichier temporaire d'une archive de synchro (envoyée par l'agent, reçue par --sync).
 // Dans le cache du lanceur et non dans /tmp, souvent en mémoire : une grosse sauvegarde y prendrait
 // la RAM. Cache inconnu ou non inscriptible : dossier temporaire du système.
-func syncTempFile(pattern string) (*os.File, error) {
-	if conf.cacheDir != "" {
-		if err := os.MkdirAll(syncTempDir(), 0o700); err == nil {
-			if f, err := os.CreateTemp(syncTempDir(), pattern); err == nil {
+func (s *Syncer) TempFile(pattern string) (*os.File, error) {
+	if s.env.CacheDir != "" {
+		if err := os.MkdirAll(s.TempDir(), 0o700); err == nil {
+			if f, err := os.CreateTemp(s.TempDir(), pattern); err == nil {
 				return f, nil
 			}
 		}
@@ -504,16 +504,16 @@ func syncTempFile(pattern string) (*os.File, error) {
 	return os.CreateTemp("", pattern)
 }
 
-// pruneSyncTemp : retire les archives temporaires de synchro laissées par un processus tué (plus
-// vieilles que syncTempMaxAge : une synchro en cours n'est pas touchée). Retourne la place libérée.
-func pruneSyncTemp() (freed int64) {
-	entries, _ := os.ReadDir(syncTempDir())
+// PruneTemp : retire les archives temporaires de synchro laissées par un processus tué (plus
+// vieilles que TempMaxAge : une synchro en cours n'est pas touchée). Retourne la place libérée.
+func (s *Syncer) PruneTemp() (freed int64) {
+	entries, _ := os.ReadDir(s.TempDir())
 	for _, e := range entries {
 		info, err := e.Info()
-		if err != nil || !info.Mode().IsRegular() || time.Since(info.ModTime()) < syncTempMaxAge {
+		if err != nil || !info.Mode().IsRegular() || time.Since(info.ModTime()) < TempMaxAge {
 			continue
 		}
-		if os.Remove(filepath.Join(syncTempDir(), e.Name())) == nil {
+		if os.Remove(filepath.Join(s.TempDir(), e.Name())) == nil {
 			freed += info.Size()
 		}
 	}
@@ -556,13 +556,13 @@ func applySaveArchive(r io.Reader, users string, origProfile string) error {
 		}
 		return rel, e.isDir, nil
 	}
-	return replaceFromArchive(r, users, entry, func() []saveFile { return collectSaveFiles(users) })
+	return replaceFromArchive(r, users, entry, func() []File { return CollectSaveFiles(users) })
 }
 
 // replaceFromArchive : extrait l'archive dans un dossier temporaire frère de root (entry valide chaque
 // entrée et donne son chemin relatif à root), puis remplace les fichiers current() de root par ceux de
 // l'archive. Rien n'est modifié tant que toute l'archive n'est pas extraite et vérifiée.
-func replaceFromArchive(r io.Reader, root string, entry func(*tar.Header) (string, bool, error), current func() []saveFile) error {
+func replaceFromArchive(r io.Reader, root string, entry func(*tar.Header) (string, bool, error), current func() []File) error {
 	parent := filepath.Dir(root)
 	if err := os.MkdirAll(parent, 0o755); err != nil {
 		return err
@@ -667,21 +667,21 @@ func replaceFromArchive(r io.Reader, root string, entry func(*tar.Header) (strin
 	return nil
 }
 
-// syncState : état de la dernière synchro avec une machine distante, pour un jeu.
-type syncState struct {
+// State : état de la dernière synchro avec une machine distante, pour un jeu.
+type State struct {
 	Fingerprint string    `json:"fingerprint"`
 	At          time.Time `json:"at"`
 }
 
 var syncIDRe = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 
-// validSyncID : identifiant de machine, sûr dans un nom de fichier.
-func validSyncID(id string) bool {
+// ValidID : identifiant de machine, sûr dans un nom de fichier.
+func ValidID(id string) bool {
 	return syncIDRe.MatchString(id)
 }
 
-// validSyncGame : nom de jeu tel que la ludothèque le connaît (pas de chemin, pas de caché).
-func validSyncGame(name string) bool {
+// ValidGame : nom de jeu tel que la ludothèque le connaît (pas de chemin, pas de caché).
+func ValidGame(name string) bool {
 	return name != "" && !strings.ContainsAny(name, "/\x00") && !strings.HasPrefix(name, ".") &&
 		gameNameOf(name) == name
 }
@@ -691,32 +691,32 @@ func syncStatePath(stateRoot, peerID, game string) string {
 	return filepath.Join(stateRoot, peerID, game+".json")
 }
 
-// loadSyncState : état enregistré ; absent, illisible ou identifiant invalide : état zéro.
-func loadSyncState(stateRoot, peerID, game string) syncState {
-	if !validSyncID(peerID) || !validSyncGame(game) {
-		return syncState{}
+// LoadState : état enregistré ; absent, illisible ou identifiant invalide : état zéro.
+func LoadState(stateRoot, peerID, game string) State {
+	if !ValidID(peerID) || !ValidGame(game) {
+		return State{}
 	}
 	data, err := os.ReadFile(syncStatePath(stateRoot, peerID, game))
 	if err != nil {
-		return syncState{}
+		return State{}
 	}
-	var st syncState
+	var st State
 	if err := json.Unmarshal(data, &st); err != nil {
-		return syncState{}
+		return State{}
 	}
 	return st
 }
 
-// saveSyncState : enregistre l'empreinte après une synchro, par écriture atomique.
-func saveSyncState(stateRoot, peerID, game, fp string) error {
-	if !validSyncID(peerID) || !validSyncGame(game) {
+// SaveState : enregistre l'empreinte après une synchro, par écriture atomique.
+func SaveState(stateRoot, peerID, game, fp string) error {
+	if !ValidID(peerID) || !ValidGame(game) {
 		return fmt.Errorf("état de synchro refusé : %q / %q", peerID, game)
 	}
 	path := syncStatePath(stateRoot, peerID, game)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	data, err := json.MarshalIndent(syncState{Fingerprint: fp, At: time.Now().UTC()}, "", "  ")
+	data, err := json.MarshalIndent(State{Fingerprint: fp, At: time.Now().UTC()}, "", "  ")
 	if err != nil {
 		return fmt.Errorf("encodage de l'état de synchro : %w", err)
 	}
@@ -731,10 +731,10 @@ func saveSyncState(stateRoot, peerID, game, fp string) error {
 	return nil
 }
 
-// removeSyncState : efface l'état de synchro de cette machine pour ce jeu ; absent : rien à faire.
+// RemoveState : efface l'état de synchro de cette machine pour ce jeu ; absent : rien à faire.
 // Les états des autres machines ne sont pas touchés.
-func removeSyncState(stateRoot, peerID, game string) error {
-	if !validSyncID(peerID) || !validSyncGame(game) {
+func RemoveState(stateRoot, peerID, game string) error {
+	if !ValidID(peerID) || !ValidGame(game) {
 		return fmt.Errorf("état de synchro refusé : %q / %q", peerID, game)
 	}
 	if err := os.Remove(syncStatePath(stateRoot, peerID, game)); err != nil && !errors.Is(err, fs.ErrNotExist) {
@@ -810,22 +810,22 @@ func (a syncAction) String() string {
 	return "?"
 }
 
-// syncUsersDir : users/ effectif d'un jeu sur cette machine. En overlay, ce sont les sauvegardes de
+// UsersDir : users/ effectif d'un jeu sur cette machine. En overlay, ce sont les sauvegardes de
 // la couche (savesDir/<jeu>) quand elles existent. En mode copy, la copie de travail
 // (cacheDir/wine/<jeu>) si elle est marquée .wsquashfs_cache, sinon la mise de côté de
 // restoreCopyUsers. Le mode en vigueur n'est pas enregistré : l'overlay l'emporte quand il a des
 // sauvegardes, car il n'existe que lorsque le mode copy est le repli d'un overlay en échec.
 // Le jeu doit être arrêté (la couche et la copie sont alors à jour).
-func syncUsersDir(name string) string {
-	overlay := filepath.Join(conf.savesDir, name, "drive_c", "users")
+func (s *Syncer) UsersDir(name string) string {
+	overlay := filepath.Join(s.env.SavesDir, name, "drive_c", "users")
 	if isDirPath(overlay) {
 		return overlay
 	}
-	copyDir := filepath.Join(conf.cacheDir, "wine", name)
+	copyDir := filepath.Join(s.env.CacheDir, "wine", name)
 	if isFile(copyDir + "/.wsquashfs_cache") {
 		return copyDir + "/drive_c/users"
 	}
-	if stash := copyUsersStash(name); isDirPath(stash) {
+	if stash := s.copyUsersStash(name); isDirPath(stash) {
 		return stash
 	}
 	return overlay
@@ -835,19 +835,19 @@ func syncUsersDir(name string) string {
 // empreinte non vide, où qu'elles soient (couche de l'overlay, copie de travail cacheDir/wine, mise
 // de côté du mode copy cacheDir/copy-users). Liste commune à --sync et à la route /v1/saves/list de
 // l'agent : les deux côtés voient les mêmes jeux.
-func syncGames() []string {
-	candidates := savedGames()
-	candidates = append(candidates, visibleDirs(filepath.Join(conf.cacheDir, "wine"))...)
-	candidates = append(candidates, visibleDirs(filepath.Dir(copyUsersStash("x")))...)
+func (s *Syncer) syncGames() []string {
+	candidates := visibleDirs(s.env.SavesDir)
+	candidates = append(candidates, visibleDirs(filepath.Join(s.env.CacheDir, "wine"))...)
+	candidates = append(candidates, visibleDirs(filepath.Dir(s.copyUsersStash("x")))...)
 	seen := map[string]bool{}
 	var out []string
 	for _, g := range candidates {
-		if !validSyncGame(g) || seen[g] {
+		if !ValidGame(g) || seen[g] {
 			continue
 		}
 		seen[g] = true
-		users := syncUsersDir(g)
-		if saveFingerprint(users, collectSaveFiles(users)) != "" {
+		users := s.UsersDir(g)
+		if saveFingerprint(users, CollectSaveFiles(users)) != "" {
 			out = append(out, g)
 		}
 	}

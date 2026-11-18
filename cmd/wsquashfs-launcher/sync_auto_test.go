@@ -1,8 +1,5 @@
 package main
 
-// Tests de la synchro automatique : route PUT /v1/saves/manager (déclaration du manager), commande
-// --sync auto, et autoSyncAfterGame contre un faux manager en TLS (même contrat que l'agent).
-
 import (
 	"crypto/sha256"
 	"crypto/tls"
@@ -19,6 +16,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"wsquashfs-launcher/internal/savesync"
 )
 
 // managerBody : corps de PUT /v1/saves/manager valide (adresse, jeton et empreinte donnés).
@@ -34,8 +33,8 @@ func managerBody(t *testing.T, url, token, fp string) []byte {
 }
 
 // managersOf : pairs déclarés par le manager dans sync.json.
-func managersOf(cfg syncConfig) []syncPeer {
-	var out []syncPeer
+func managersOf(cfg savesync.Config) []savesync.Peer {
+	var out []savesync.Peer
 	for _, p := range cfg.Peers {
 		if p.Manager {
 			out = append(out, p)
@@ -83,14 +82,14 @@ func TestAgentManagerPut(t *testing.T) {
 	if rec := doSync(h, "PUT", "/v1/saves/manager", "", managerBody(t, "https://10.0.0.2:8790", "manager-token", fp)); rec.Code != http.StatusBadRequest {
 		t.Errorf("sans en-tête X-Wsq-Machine : code %d, attendu 400", rec.Code)
 	}
-	if n := len(managersOf(loadSyncConfig())); n != 0 {
+	if n := len(managersOf(savesync.LoadConfig())); n != 0 {
 		t.Fatalf("entrées refusées : %d manager(s) déclaré(s)", n)
 	}
 
 	// Une machine associée à la main, qui ne doit pas être touchée par la déclaration.
-	cfg := loadSyncConfig()
-	cfg.Peers = []syncPeer{{Name: "steambox", URL: "https://10.0.0.3:8790", Token: "t", Fingerprint: strings.Repeat("CD", 32)}}
-	if err := saveSyncConfig(cfg); err != nil {
+	cfg := savesync.LoadConfig()
+	cfg.Peers = []savesync.Peer{{Name: "steambox", URL: "https://10.0.0.3:8790", Token: "t", Fingerprint: strings.Repeat("CD", 32)}}
+	if err := savesync.SaveConfig(cfg); err != nil {
 		t.Fatal(err)
 	}
 
@@ -105,7 +104,7 @@ func TestAgentManagerPut(t *testing.T) {
 	if reply["manager"] != strings.ToUpper(fp) || reply["auto"] != false {
 		t.Errorf("réponse : %v", reply)
 	}
-	cfg = loadSyncConfig()
+	cfg = savesync.LoadConfig()
 	mgr := managersOf(cfg)
 	if len(mgr) != 1 || mgr[0].URL != "https://10.0.0.2:8790" || mgr[0].Token != "manager-token" || mgr[0].Fingerprint != strings.ToUpper(fp) {
 		t.Fatalf("manager déclaré : %+v", mgr)
@@ -119,7 +118,7 @@ func TestAgentManagerPut(t *testing.T) {
 	if rec := doSync(h, "PUT", "/v1/saves/manager", machine, managerBody(t, "https://10.0.0.4:8790", "manager-token-2", fp2)); rec.Code != http.StatusOK {
 		t.Fatalf("second appel : code %d", rec.Code)
 	}
-	cfg = loadSyncConfig()
+	cfg = savesync.LoadConfig()
 	mgr = managersOf(cfg)
 	if len(mgr) != 1 || mgr[0].URL != "https://10.0.0.4:8790" || mgr[0].Fingerprint != strings.ToUpper(fp2) {
 		t.Fatalf("manager après remplacement : %+v", mgr)
@@ -130,7 +129,7 @@ func TestAgentManagerPut(t *testing.T) {
 
 	// /v1/info : empreinte du manager et état de la synchro automatique.
 	cfg.Auto = true
-	if err := saveSyncConfig(cfg); err != nil {
+	if err := savesync.SaveConfig(cfg); err != nil {
 		t.Fatal(err)
 	}
 	rec = doSync(h, "GET", "/v1/info", machine, nil)
@@ -148,40 +147,40 @@ func TestAgentManagerPut(t *testing.T) {
 func TestSyncAutoRequiresManager(t *testing.T) {
 	agentFixture(t)
 	out, _ := capteUI(t)
-	if _, err := syncAutoSet(loadSyncConfig(), true); err == nil || !strings.Contains(err.Error(), "aucun manager déclaré") {
+	if _, err := savesync.AutoSet(savesync.LoadConfig(), true); err == nil || !strings.Contains(err.Error(), "aucun manager déclaré") {
 		t.Fatalf("sans manager : erreur %v", err)
 	}
-	if rc := cmdSync([]string{"auto"}); rc != 0 || !strings.Contains(out.String(), "aucun manager déclaré") {
+	if rc := syncer().Run([]string{"auto"}); rc != 0 || !strings.Contains(out.String(), "aucun manager déclaré") {
 		t.Fatalf("état sans manager : code %d, sortie %q", rc, out.String())
 	}
 
-	cfg := loadSyncConfig()
-	cfg.Peers = []syncPeer{{Name: "wsquashfs-manager", URL: "https://10.0.0.2:8790", Token: "manager-token", Fingerprint: strings.Repeat("AB", 32), Manager: true}}
-	if err := saveSyncConfig(cfg); err != nil {
+	cfg := savesync.LoadConfig()
+	cfg.Peers = []savesync.Peer{{Name: "wsquashfs-manager", URL: "https://10.0.0.2:8790", Token: "manager-token", Fingerprint: strings.Repeat("AB", 32), Manager: true}}
+	if err := savesync.SaveConfig(cfg); err != nil {
 		t.Fatal(err)
 	}
 	out.Reset()
-	if rc := cmdSync([]string{"auto", "on"}); rc != 0 || !loadSyncConfig().Auto {
-		t.Fatalf("--sync auto on : code %d, active %v", rc, loadSyncConfig().Auto)
+	if rc := syncer().Run([]string{"auto", "on"}); rc != 0 || !savesync.LoadConfig().Auto {
+		t.Fatalf("--sync auto on : code %d, active %v", rc, savesync.LoadConfig().Auto)
 	}
 	// Agent arrêté (aucun ne tourne pendant les tests) : activé quand même, avec un avertissement
 	if !strings.Contains(out.String(), "wsquashfs-launcher --agent pour recevoir les parties du manager") {
 		t.Errorf("sans agent : pas d'avertissement, sortie %q", out.String())
 	}
 	out.Reset()
-	if rc := cmdSync([]string{"auto", "on"}); rc != 0 || !strings.Contains(out.String(), "déjà activée") || !loadSyncConfig().Auto {
+	if rc := syncer().Run([]string{"auto", "on"}); rc != 0 || !strings.Contains(out.String(), "déjà activée") || !savesync.LoadConfig().Auto {
 		t.Errorf("deuxième on : code %d, sortie %q", rc, out.String())
 	}
 	out.Reset()
-	if rc := cmdSync([]string{"auto"}); rc != 0 || !strings.Contains(out.String(), "wsquashfs-manager") || strings.Contains(out.String(), "inactive") {
+	if rc := syncer().Run([]string{"auto"}); rc != 0 || !strings.Contains(out.String(), "wsquashfs-manager") || strings.Contains(out.String(), "inactive") {
 		t.Errorf("état actif : code %d, sortie %q", rc, out.String())
 	}
 	out.Reset()
-	if rc := cmdSync([]string{"auto", "off"}); rc != 0 || loadSyncConfig().Auto {
-		t.Fatalf("--sync auto off : code %d, active %v", rc, loadSyncConfig().Auto)
+	if rc := syncer().Run([]string{"auto", "off"}); rc != 0 || savesync.LoadConfig().Auto {
+		t.Fatalf("--sync auto off : code %d, active %v", rc, savesync.LoadConfig().Auto)
 	}
 	out.Reset()
-	if rc := cmdSync([]string{"auto", "off"}); rc != 0 || !strings.Contains(out.String(), "déjà désactivée") {
+	if rc := syncer().Run([]string{"auto", "off"}); rc != 0 || !strings.Contains(out.String(), "déjà désactivée") {
 		t.Errorf("deuxième off : code %d, sortie %q", rc, out.String())
 	}
 	if strings.Contains(out.String(), "pour recevoir les parties du manager") {
@@ -200,7 +199,7 @@ type autoManager struct {
 }
 
 // newAutoManager : serveur de test et le pair qui le désigne (empreinte du certificat).
-func newAutoManager(t *testing.T) (*autoManager, syncPeer) {
+func newAutoManager(t *testing.T) (*autoManager, savesync.Peer) {
 	t.Helper()
 	m := &autoManager{}
 	mux := http.NewServeMux()
@@ -230,7 +229,7 @@ func newAutoManager(t *testing.T) (*autoManager, syncPeer) {
 	srv.StartTLS()
 	t.Cleanup(srv.Close)
 	sum := sha256.Sum256(srv.Certificate().Raw)
-	return m, syncPeer{
+	return m, savesync.Peer{
 		Name:        "wsquashfs-manager",
 		URL:         srv.URL,
 		Token:       "manager-token",
@@ -240,9 +239,9 @@ func newAutoManager(t *testing.T) (*autoManager, syncPeer) {
 }
 
 // autoConfig : sync.json de cette machine (identifiant client-machine-01) avec les pairs et l'état donnés.
-func autoConfig(t *testing.T, auto bool, peers ...syncPeer) {
+func autoConfig(t *testing.T, auto bool, peers ...savesync.Peer) {
 	t.Helper()
-	if err := saveSyncConfig(syncConfig{ID: "client-machine-01", Peers: peers, Auto: auto}); err != nil {
+	if err := savesync.SaveConfig(savesync.Config{ID: "client-machine-01", Peers: peers, Auto: auto}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -272,7 +271,7 @@ func TestAutoSyncAfterGame(t *testing.T) {
 	const game = "Game"
 	users := filepath.Join(conf.savesDir, game, "drive_c", "users")
 	syncTestPopulate(t, users, "steamuser")
-	target := gameTarget(game, users)
+	target := syncer().GameTarget(game, users)
 	m, peer := newAutoManager(t)
 
 	// Synchro automatique désactivée : rien n'est envoyé, même manager déclaré.
@@ -284,23 +283,23 @@ func TestAutoSyncAfterGame(t *testing.T) {
 
 	// Activée : la partie part, avec son empreinte ; l'état est enregistré.
 	autoConfig(t, true, peer)
-	want := target.fingerprint(target.files())
+	want := target.Fingerprint(target.Files())
 	out.Reset()
 	autoSyncAfterGame(game)
-	if m.puts != 1 || m.fps[0] != want || m.contents[0] != target.content(target.files()) || m.contents[0] == "" {
+	if m.puts != 1 || m.fps[0] != want || m.contents[0] != target.Content(target.Files()) || m.contents[0] == "" {
 		t.Fatalf("premier envoi : %d envoi(s), empreinte %v, attendue %s", m.puts, m.fps, want)
 	}
 	if !tarHas(t, m.body, "save1.sav") {
 		t.Error("l'archive reçue ne contient pas la sauvegarde")
 	}
-	files := target.files()
-	if wantMeta := fmt.Sprintf("%d %d", saveSize(files), newestSave(files)); m.meta[0] != wantMeta {
+	files := target.Files()
+	if wantMeta := fmt.Sprintf("%d %d", savesync.SaveSize(files), savesync.NewestSave(files)); m.meta[0] != wantMeta {
 		t.Errorf("taille et date envoyées : %q, attendu %q", m.meta[0], wantMeta)
 	}
 	if !strings.Contains(out.String(), "Partie envoyée au manager (/backups/Game.tar.gz)") {
 		t.Errorf("sortie : %q", out.String())
 	}
-	if s := loadSyncState(syncStateRoot(), syncPeerID(peer), game).Fingerprint; s != want {
+	if s := savesync.LoadState(syncer().StateRoot(), savesync.PeerID(peer), game).Fingerprint; s != want {
 		t.Errorf("état enregistré %q, attendu %s", s, want)
 	}
 
@@ -379,10 +378,10 @@ func TestManagerPushRecordedAsSent(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("déclaration du manager : code %d (%s)", rec.Code, rec.Body.String())
 	}
-	cfg := loadSyncConfig()
+	cfg := savesync.LoadConfig()
 	cfg.ID = "client-machine-01"
 	cfg.Auto = true
-	if err := saveSyncConfig(cfg); err != nil {
+	if err := savesync.SaveConfig(cfg); err != nil {
 		t.Fatal(err)
 	}
 
@@ -433,7 +432,7 @@ func TestAgentManagerPutUI(t *testing.T) {
 	if rec := doSync(h, "PUT", "/v1/saves/manager", "client-machine-01", body("http://10.0.0.2:8765")); rec.Code != http.StatusOK {
 		t.Fatalf("déclaration : code %d (%s)", rec.Code, rec.Body.String())
 	}
-	if mgr := managersOf(loadSyncConfig()); len(mgr) != 1 || mgr[0].UI != "http://10.0.0.2:8765" {
+	if mgr := managersOf(savesync.LoadConfig()); len(mgr) != 1 || mgr[0].UI != "http://10.0.0.2:8765" {
 		t.Fatalf("manager déclaré : %+v", mgr)
 	}
 }

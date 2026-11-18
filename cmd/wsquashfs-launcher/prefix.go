@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"wsquashfs-launcher/internal/filetree"
+	"wsquashfs-launcher/internal/savesync"
 	"wsquashfs-launcher/internal/ui"
 )
 
@@ -121,7 +122,7 @@ func detectWineUsername() string {
 		return ""
 	}
 	for _, e := range entries {
-		if isSystemProfile(e.Name()) {
+		if savesync.IsSystemProfile(e.Name()) {
 			continue
 		}
 		if e.IsDir() {

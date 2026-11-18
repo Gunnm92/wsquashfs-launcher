@@ -4,6 +4,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"wsquashfs-launcher/internal/savesync"
 )
 
 // completionRig : HOME temporaire avec des jeux sauvegardés, une machine associée (--sync), un
@@ -20,12 +22,12 @@ func completionRig(t *testing.T) {
 		writeTree(t, filepath.Join(conf.savesDir, g, "drive_c", "users", "steamuser", "Documents"), map[string]string{"s.sav": g})
 	}
 	writeTree(t, filepath.Join(home, ".local", "share", "hookshot", "save"), map[string]string{"slot": "x"})
-	cfg := syncConfig{ID: "0123456789abcdef0123456789abcdef", Peers: []syncPeer{{Name: "aibox"}, {Name: "steamdeck"}}}
-	cfg, err := addSyncDir(cfg, "hookshot", ".local/share/hookshot/save")
+	cfg := savesync.Config{ID: "0123456789abcdef0123456789abcdef", Peers: []savesync.Peer{{Name: "aibox"}, {Name: "steamdeck"}}}
+	cfg, err := savesync.AddDir(cfg, "hookshot", ".local/share/hookshot/save")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := saveSyncConfig(cfg); err != nil {
+	if err := savesync.SaveConfig(cfg); err != nil {
 		t.Fatal(err)
 	}
 	if err := saveAgentConfig(agentConfig{Port: 8790, Machines: []agentMachine{{ID: "m1", Name: "wsquashfs-manager"}}}); err != nil {

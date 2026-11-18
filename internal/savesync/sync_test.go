@@ -1,4 +1,4 @@
-package main
+package savesync
 
 import (
 	"archive/tar"
@@ -99,7 +99,7 @@ func syncTestArchive(t *testing.T, hdrs ...*tar.Header) io.Reader {
 func TestSyncCollectPerimeter(t *testing.T) {
 	users := filepath.Join(t.TempDir(), "users")
 	syncTestPopulate(t, users, "deck")
-	files := collectSaveFiles(users)
+	files := CollectSaveFiles(users)
 	var got []string
 	for _, f := range files {
 		got = append(got, f.Rel)
@@ -111,7 +111,7 @@ func TestSyncCollectPerimeter(t *testing.T) {
 	if files[1].Size != int64(len("sauvegarde")) || files[1].MTime != syncTestTime.Unix() {
 		t.Errorf("taille ou date inattendues : %+v", files[1])
 	}
-	if collectSaveFiles(filepath.Join(t.TempDir(), "absent")) != nil {
+	if CollectSaveFiles(filepath.Join(t.TempDir(), "absent")) != nil {
 		t.Error("dossier absent : attendu nil")
 	}
 }
@@ -121,8 +121,8 @@ func TestSyncFingerprint(t *testing.T) {
 	b := filepath.Join(t.TempDir(), "users")
 	syncTestPopulate(t, a, "deck")
 	syncTestPopulate(t, b, "arcade")
-	fa := saveFingerprint(a, collectSaveFiles(a))
-	fb := saveFingerprint(b, collectSaveFiles(b))
+	fa := saveFingerprint(a, CollectSaveFiles(a))
+	fb := saveFingerprint(b, CollectSaveFiles(b))
 	if fa == "" || fa != fb {
 		t.Fatalf("empreintes A=%q B=%q : attendues identiques malgré les profils", fa, fb)
 	}
@@ -132,19 +132,19 @@ func TestSyncFingerprint(t *testing.T) {
 
 	// Changement de taille, puis de date : l'empreinte change.
 	syncTestPut(t, filepath.Join(b, "arcade", "Documents", "Game", "save1.sav"), "sauvegarde+", syncTestTime)
-	if fb2 := saveFingerprint(b, collectSaveFiles(b)); fb2 == fb {
+	if fb2 := saveFingerprint(b, CollectSaveFiles(b)); fb2 == fb {
 		t.Error("taille modifiée : l'empreinte n'a pas changé")
 	}
 	syncTestPut(t, filepath.Join(b, "arcade", "Documents", "Game", "save1.sav"), "sauvegarde", syncTestTime.Add(time.Second))
-	fb3 := saveFingerprint(b, collectSaveFiles(b))
+	fb3 := saveFingerprint(b, CollectSaveFiles(b))
 	if fb3 == fb {
 		t.Error("date modifiée : l'empreinte n'a pas changé")
 	}
-	if newestSave(collectSaveFiles(b)) != syncTestTime.Add(time.Hour).Unix() {
-		t.Errorf("newestSave = %d", newestSave(collectSaveFiles(b)))
+	if NewestSave(CollectSaveFiles(b)) != syncTestTime.Add(time.Hour).Unix() {
+		t.Errorf("NewestSave = %d", NewestSave(CollectSaveFiles(b)))
 	}
-	if newestSave(nil) != 0 {
-		t.Error("newestSave(vide) : attendu 0")
+	if NewestSave(nil) != 0 {
+		t.Error("NewestSave(vide) : attendu 0")
 	}
 }
 
@@ -162,7 +162,7 @@ func TestSyncRoundTrip(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	profile, err := writeSaveArchive(&buf, usersA, collectSaveFiles(usersA))
+	profile, err := writeSaveArchive(&buf, usersA, CollectSaveFiles(usersA))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,8 +205,8 @@ func TestSyncRoundTrip(t *testing.T) {
 	if entries, _ := os.ReadDir(root + "/B"); len(entries) != 1 {
 		t.Errorf("dossier temporaire resté : %v", entries)
 	}
-	fa := saveFingerprint(usersA, collectSaveFiles(usersA))
-	fb := saveFingerprint(usersB, collectSaveFiles(usersB))
+	fa := saveFingerprint(usersA, CollectSaveFiles(usersA))
+	fb := saveFingerprint(usersB, CollectSaveFiles(usersB))
 	if fa != fb {
 		t.Errorf("empreintes après synchro : A=%q B=%q", fa, fb)
 	}
@@ -217,7 +217,7 @@ func TestSyncApplyWithoutProfile(t *testing.T) {
 	usersA := filepath.Join(root, "A", "users")
 	syncTestPopulate(t, usersA, "deck")
 	var buf bytes.Buffer
-	if _, err := writeSaveArchive(&buf, usersA, collectSaveFiles(usersA)); err != nil {
+	if _, err := writeSaveArchive(&buf, usersA, CollectSaveFiles(usersA)); err != nil {
 		t.Fatal(err)
 	}
 	archive := buf.Bytes()
@@ -337,24 +337,24 @@ func TestSyncDecide(t *testing.T) {
 
 // TestSyncSaveSize : somme des tailles du périmètre, 0 si vide.
 func TestSyncSaveSize(t *testing.T) {
-	if saveSize(nil) != 0 {
-		t.Error("saveSize(vide) : attendu 0")
+	if SaveSize(nil) != 0 {
+		t.Error("SaveSize(vide) : attendu 0")
 	}
-	files := []saveFile{{Rel: "deck/a.sav", Size: 3}, {Rel: "deck/b.sav", Size: 4}}
-	if got := saveSize(files); got != 7 {
-		t.Errorf("saveSize = %d, attendu 7", got)
+	files := []File{{Rel: "deck/a.sav", Size: 3}, {Rel: "deck/b.sav", Size: 4}}
+	if got := SaveSize(files); got != 7 {
+		t.Errorf("SaveSize = %d, attendu 7", got)
 	}
 }
 
 func TestSyncState(t *testing.T) {
 	root := t.TempDir()
-	if st := loadSyncState(root, "steambox", "Game"); st != (syncState{}) {
+	if st := LoadState(root, "steambox", "Game"); st != (State{}) {
 		t.Errorf("absent : %+v, attendu zéro", st)
 	}
-	if err := saveSyncState(root, "steambox", "Game", "abc"); err != nil {
+	if err := SaveState(root, "steambox", "Game", "abc"); err != nil {
 		t.Fatal(err)
 	}
-	if st := loadSyncState(root, "steambox", "Game"); st.Fingerprint != "abc" || st.At.IsZero() {
+	if st := LoadState(root, "steambox", "Game"); st.Fingerprint != "abc" || st.At.IsZero() {
 		t.Errorf("aller-retour : %+v", st)
 	}
 	if _, err := os.Stat(filepath.Join(root, "steambox", "Game.json")); err != nil {
@@ -363,60 +363,64 @@ func TestSyncState(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(root, "steambox", "Game.json.tmp")); !os.IsNotExist(err) {
 		t.Error("fichier .tmp resté après écriture")
 	}
-	if st := loadSyncState(root, "autre", "Game"); st != (syncState{}) {
+	if st := LoadState(root, "autre", "Game"); st != (State{}) {
 		t.Errorf("autre machine : %+v, attendu zéro", st)
 	}
-	if err := saveSyncState(root, "../x", "Game", "abc"); err == nil {
+	if err := SaveState(root, "../x", "Game", "abc"); err == nil {
 		t.Error("identifiant de machine invalide : erreur attendue")
 	}
-	if st := loadSyncState(root, "../x", "Game"); st != (syncState{}) {
+	if st := LoadState(root, "../x", "Game"); st != (State{}) {
 		t.Errorf("identifiant invalide en lecture : %+v", st)
 	}
 }
 
 func TestSyncValidIDs(t *testing.T) {
 	for _, id := range []string{"steambox", "AIBox-1", "deck_2", strings.Repeat("a", 64)} {
-		if !validSyncID(id) {
-			t.Errorf("validSyncID(%q) = false", id)
+		if !ValidID(id) {
+			t.Errorf("ValidID(%q) = false", id)
 		}
 	}
 	for _, id := range []string{"", "../x", "a/b", ".sync", "a b", strings.Repeat("a", 65)} {
-		if validSyncID(id) {
-			t.Errorf("validSyncID(%q) = true", id)
+		if ValidID(id) {
+			t.Errorf("ValidID(%q) = true", id)
 		}
 	}
 	for _, g := range []string{"Game", "Jeu Deux"} {
-		if !validSyncGame(g) {
-			t.Errorf("validSyncGame(%q) = false", g)
+		if !ValidGame(g) {
+			t.Errorf("ValidGame(%q) = false", g)
 		}
 	}
 	for _, g := range []string{"", "../x", ".sync", "a/b", "x\x00", "jeu.wsquashfs", "x.pc"} {
-		if validSyncGame(g) {
-			t.Errorf("validSyncGame(%q) = true", g)
+		if ValidGame(g) {
+			t.Errorf("ValidGame(%q) = true", g)
 		}
 	}
 }
 
+// testSyncer : synchro aux dossiers temporaires, sans verrou ni archivage.
+func testSyncer(t *testing.T) *Syncer {
+	t.Helper()
+	return New(Env{CacheDir: t.TempDir(), SavesDir: t.TempDir()})
+}
+
 func TestSyncUsersDir(t *testing.T) {
-	isolateState(t)
-	conf.savesDir = t.TempDir()
-	conf.cacheDir = t.TempDir()
+	s := testSyncer(t)
 	// Overlay : la couche avec des sauvegardes.
-	if got, want := syncUsersDir("Game"), filepath.Join(conf.savesDir, "Game", "drive_c", "users"); got != want {
+	if got, want := s.UsersDir("Game"), filepath.Join(s.env.SavesDir, "Game", "drive_c", "users"); got != want {
 		t.Errorf("sans rien : %q, attendu %q", got, want)
 	}
-	copyDir := filepath.Join(conf.cacheDir, "wine", "Game")
+	copyDir := filepath.Join(s.env.CacheDir, "wine", "Game")
 	if err := os.MkdirAll(copyDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(copyDir, ".wsquashfs_cache"), []byte("sig"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if got, want := syncUsersDir("Game"), copyDir+"/drive_c/users"; got != want {
+	if got, want := s.UsersDir("Game"), copyDir+"/drive_c/users"; got != want {
 		t.Errorf("copie marquée : %q, attendu %q", got, want)
 	}
-	syncTestPut(t, filepath.Join(conf.savesDir, "Game", "drive_c", "users", "deck", "Documents", "s.sav"), "x", syncTestTime)
-	if got, want := syncUsersDir("Game"), filepath.Join(conf.savesDir, "Game", "drive_c", "users"); got != want {
+	syncTestPut(t, filepath.Join(s.env.SavesDir, "Game", "drive_c", "users", "deck", "Documents", "s.sav"), "x", syncTestTime)
+	if got, want := s.UsersDir("Game"), filepath.Join(s.env.SavesDir, "Game", "drive_c", "users"); got != want {
 		t.Errorf("overlay avec sauvegardes : %q, attendu %q", got, want)
 	}
 }
@@ -438,7 +442,7 @@ func TestSyncEmptyExtraProfile(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	if _, err := writeSaveArchive(&buf, usersA, collectSaveFiles(usersA)); err != nil {
+	if _, err := writeSaveArchive(&buf, usersA, CollectSaveFiles(usersA)); err != nil {
 		t.Fatal(err)
 	}
 	if err := applySaveArchive(bytes.NewReader(buf.Bytes()), usersB, "deck"); err != nil {
@@ -453,8 +457,8 @@ func TestSyncEmptyExtraProfile(t *testing.T) {
 	if entries, _ := os.ReadDir(filepath.Join(usersB, "arcade")); len(entries) != 0 {
 		t.Errorf("profil vide arcade : %v, attendu vide", entries)
 	}
-	fa := saveFingerprint(usersA, collectSaveFiles(usersA))
-	fb := saveFingerprint(usersB, collectSaveFiles(usersB))
+	fa := saveFingerprint(usersA, CollectSaveFiles(usersA))
+	fb := saveFingerprint(usersB, CollectSaveFiles(usersB))
 	if fa == "" || fa != fb {
 		t.Errorf("empreintes A=%q B=%q : attendues égales", fa, fb)
 	}
@@ -467,7 +471,7 @@ func TestSyncRefusesSymlinkDest(t *testing.T) {
 	usersA := filepath.Join(root, "A", "users")
 	syncTestPopulate(t, usersA, "deck")
 	var buf bytes.Buffer
-	if _, err := writeSaveArchive(&buf, usersA, collectSaveFiles(usersA)); err != nil {
+	if _, err := writeSaveArchive(&buf, usersA, CollectSaveFiles(usersA)); err != nil {
 		t.Fatal(err)
 	}
 

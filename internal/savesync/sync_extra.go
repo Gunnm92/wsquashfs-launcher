@@ -1,4 +1,4 @@
-package main
+package savesync
 
 // Synchro d'autres sauvegardes que celles des jeux Windows : dossiers déclarés (« custom »,
 // --sync dir add) et sauvegardes des jeux Switch d'Eden, un dossier par jeu (title ID). Elles
@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -29,6 +28,8 @@ import (
 	"time"
 
 	"archive/tar"
+
+	"wsquashfs-launcher/internal/filetree"
 )
 
 const (
@@ -36,8 +37,8 @@ const (
 	syncSwitchPrefix = "switch:"
 )
 
-// syncDir : dossier déclaré dans sync.json.
-type syncDir struct {
+// Dir : dossier déclaré dans sync.json.
+type Dir struct {
 	Name string `json:"name"`
 	Path string `json:"path"`
 }
@@ -49,8 +50,8 @@ var (
 )
 
 var (
-	errSyncInvalid = errors.New("nom de synchro invalide")
-	errSyncAbsent  = errors.New("absent de cette machine")
+	ErrInvalid = errors.New("nom de synchro invalide")
+	ErrAbsent  = errors.New("absent de cette machine")
 )
 
 // validSyncName : nom d'entrée de synchro : un jeu, dossier:<nom> ou switch:<TitleID>.
@@ -61,7 +62,7 @@ func validSyncName(name string) bool {
 	case strings.HasPrefix(name, syncSwitchPrefix):
 		return switchTitleRe.MatchString(strings.TrimPrefix(name, syncSwitchPrefix))
 	}
-	return validSyncGame(name)
+	return ValidGame(name)
 }
 
 // ── Dossiers déclarés ───────────────────────────────────────────────────
@@ -89,15 +90,15 @@ func checkSyncDirPath(p string) (string, error) {
 	case !filepath.IsAbs(p):
 		p = filepath.Join(home, p)
 	}
-	real, code, msg := gamesVerify(filepath.Clean(p))
-	if code != 0 {
-		return "", errors.New(msg)
-	}
-	home, err := gamesHome()
+	real, err := filetree.UnderHome(filepath.Clean(p))
 	if err != nil {
-		return "", errors.New("HOME inaccessible")
+		return "", err
 	}
-	if !gamesStrictlyUnder(home, real) {
+	home, err = filetree.Home()
+	if err != nil {
+		return "", filetree.ErrHomeInaccessible
+	}
+	if !filetree.StrictlyUnder(home, real) {
 		return "", errors.New("le dossier doit être un sous-dossier de HOME (" + home + ")")
 	}
 	if st, err := os.Stat(real); err == nil && !st.IsDir() {
@@ -106,44 +107,44 @@ func checkSyncDirPath(p string) (string, error) {
 	return real, nil
 }
 
-// syncDirHeader : en-tête qui transporte le chemin d'un dossier déclaré (à partir de HOME, encodé en
+// DirHeader : en-tête qui transporte le chemin d'un dossier déclaré (à partir de HOME, encodé en
 // pourcentage : accents et espaces passent dans un en-tête HTTP). Une machine qui reçoit un dossier
 // qu'elle n'a pas déclaré le déclare avec ce chemin, sous le même nom (comme un jeu installé ailleurs).
-const syncDirHeader = "X-Wsq-Dir"
+const DirHeader = "X-Wsq-Dir"
 
 // relDir : chemin d'un dossier déclaré à partir de HOME, "" s'il est ailleurs (rien à transmettre).
-func (t syncTarget) relDir() string {
+func (t Target) RelDir() string {
 	if !strings.HasPrefix(t.Name, syncDirPrefix) {
 		return ""
 	}
-	if rel := homeRel(t.Dir); rel != "" && !filepath.IsAbs(rel) {
+	if rel := HomeRel(t.Dir); rel != "" && !filepath.IsAbs(rel) {
 		return rel
 	}
 	return ""
 }
 
-// declareFromPeer : déclare ici le dossier « dossier:<nom> » reçu d'une autre machine, avec le chemin
+// DeclareFromPeer : déclare ici le dossier « dossier:<nom> » reçu d'une autre machine, avec le chemin
 // qu'elle donne (à partir de HOME, vérifié par checkSyncDirPath). Rend la cible.
-func declareFromPeer(name, rel string) (syncTarget, error) {
+func (s *Syncer) DeclareFromPeer(name, rel string) (Target, error) {
 	if !strings.HasPrefix(name, syncDirPrefix) || rel == "" {
-		return syncTarget{}, errSyncAbsent
+		return Target{}, ErrAbsent
 	}
-	cfg, err := addSyncDir(loadSyncConfig(), strings.TrimPrefix(name, syncDirPrefix), rel)
+	cfg, err := AddDir(LoadConfig(), strings.TrimPrefix(name, syncDirPrefix), rel)
 	if err != nil {
-		return syncTarget{}, err
+		return Target{}, err
 	}
-	if err := saveSyncConfig(cfg); err != nil {
-		return syncTarget{}, err
+	if err := SaveConfig(cfg); err != nil {
+		return Target{}, err
 	}
-	return syncTargetOf(name)
+	return s.TargetOf(name)
 }
 
-// homeRel : chemin affiché à partir de HOME (« .local/share/x »), absolu s'il est ailleurs.
-func homeRel(p string) string {
+// HomeRel : chemin affiché à partir de HOME (« .local/share/x »), absolu s'il est ailleurs.
+func HomeRel(p string) string {
 	if p == "" {
 		return ""
 	}
-	if home, err := gamesHome(); err == nil && gamesStrictlyUnder(home, p) {
+	if home, err := filetree.Home(); err == nil && filetree.StrictlyUnder(home, p) {
 		if rel, err := filepath.Rel(home, p); err == nil {
 			return filepath.ToSlash(rel)
 		}
@@ -151,8 +152,8 @@ func homeRel(p string) string {
 	return p
 }
 
-// addSyncDir : déclare (ou remplace, même nom) un dossier ; chemin vérifié.
-func addSyncDir(cfg syncConfig, name, path string) (syncConfig, error) {
+// AddDir : déclare (ou remplace, même nom) un dossier ; chemin vérifié.
+func AddDir(cfg Config, name, path string) (Config, error) {
 	if err := checkSyncDirName(name); err != nil {
 		return cfg, err
 	}
@@ -160,21 +161,21 @@ func addSyncDir(cfg syncConfig, name, path string) (syncConfig, error) {
 	if err != nil {
 		return cfg, err
 	}
-	dirs := []syncDir{}
+	dirs := []Dir{}
 	for _, d := range cfg.Dirs {
 		if d.Name != name {
 			dirs = append(dirs, d)
 		}
 	}
-	dirs = append(dirs, syncDir{Name: name, Path: real})
-	slices.SortFunc(dirs, func(a, b syncDir) int { return cmp.Compare(a.Name, b.Name) })
+	dirs = append(dirs, Dir{Name: name, Path: real})
+	slices.SortFunc(dirs, func(a, b Dir) int { return cmp.Compare(a.Name, b.Name) })
 	cfg.Dirs = dirs
 	return cfg, nil
 }
 
-// removeSyncDir : retire la déclaration (les fichiers restent) ; false si le nom est inconnu.
-func removeSyncDir(cfg syncConfig, name string) (syncConfig, bool) {
-	dirs := []syncDir{}
+// RemoveDir : retire la déclaration (les fichiers restent) ; false si le nom est inconnu.
+func RemoveDir(cfg Config, name string) (Config, bool) {
+	dirs := []Dir{}
 	found := false
 	for _, d := range cfg.Dirs {
 		if d.Name == name {
@@ -189,9 +190,9 @@ func removeSyncDir(cfg syncConfig, name string) (syncConfig, bool) {
 
 // ── Eden (Switch) ───────────────────────────────────────────────────────
 
-// edenDataDir : dossier de données d'Eden : WSQUASHFS_EDEN_DIR, sinon $XDG_DATA_HOME/eden
+// EdenDataDir : dossier de données d'Eden : WSQUASHFS_EDEN_DIR, sinon $XDG_DATA_HOME/eden
 // (~/.local/share/eden), sinon celui du Flatpak. "" si aucun n'a de nand/.
-func edenDataDir() string {
+func EdenDataDir() string {
 	if v := os.Getenv("WSQUASHFS_EDEN_DIR"); v != "" {
 		return v
 	}
@@ -226,7 +227,7 @@ func edenCacheDir(data string) string {
 
 // edenSaveRoot : nand/user/save/0000000000000000 d'Eden ("" si Eden est absent).
 func edenSaveRoot() string {
-	data := edenDataDir()
+	data := EdenDataDir()
 	if data == "" {
 		return ""
 	}
@@ -273,8 +274,8 @@ func edenSaveUser() string {
 // edenTitleName : nom d'un jeu Switch : cache de la liste d'Eden (<cache>/game_list/<ID>.appname.txt,
 // écrit par certaines versions seulement), sinon le nom du fichier de la ROM (« Nom [TitleID][v0].nsp »)
 // dans les dossiers de jeux d'Eden ou le dossier switch/ des roms de l'agent. "" s'il est introuvable.
-func edenTitleName(id string) string {
-	data := edenDataDir()
+func (s *Syncer) edenTitleName(id string) string {
+	data := EdenDataDir()
 	if data == "" {
 		return ""
 	}
@@ -283,7 +284,7 @@ func edenTitleName(id string) string {
 			return name
 		}
 	}
-	return switchRomNames()[id]
+	return s.switchRomNames()[id]
 }
 
 // cleanTitleName : nom affichable (une ligne, 120 caractères au plus), "" sinon.
@@ -303,7 +304,7 @@ var romIDRe = regexp.MustCompile(`\[([0-9A-Fa-f]{16})\]`)
 
 // switchRomDirs : dossiers de ROM Switch : dossiers de jeux d'Eden (qt-config.ini, chemins absolus),
 // puis switch/ et switch2/ de chaque dossier roms/ de l'agent.
-func switchRomDirs() []string {
+func (s *Syncer) switchRomDirs() []string {
 	var dirs []string
 	base := configHome()
 	for _, ini := range []string{
@@ -321,8 +322,10 @@ func switchRomDirs() []string {
 			}
 		}
 	}
-	for _, roms := range loadAgentConfig().Roms {
-		dirs = append(dirs, filepath.Join(roms, "switch"), filepath.Join(roms, "switch2"))
+	if s.env.AgentRoms != nil {
+		for _, roms := range s.env.AgentRoms() {
+			dirs = append(dirs, filepath.Join(roms, "switch"), filepath.Join(roms, "switch2"))
+		}
 	}
 	return dirs
 }
@@ -337,7 +340,7 @@ var (
 // pendant une liste) : d'abord gamelist.xml (nom de la fiche ; TitleID dans <path>, qui le garde même
 // après un renommage du fichier), puis les noms de fichiers. Une ROM de mise à jour (…800) nomme
 // aussi son jeu de base (…000).
-func switchRomNames() map[string]string {
+func (s *Syncer) switchRomNames() map[string]string {
 	romNamesMu.Lock()
 	defer romNamesMu.Unlock()
 	if romNames != nil && time.Since(romNamesAt) < 30*time.Second {
@@ -356,7 +359,7 @@ func switchRomNames() map[string]string {
 			}
 		}
 	}
-	dirs := switchRomDirs()
+	dirs := s.switchRomDirs()
 	for _, dir := range dirs {
 		var list struct {
 			Games []struct {
@@ -387,9 +390,11 @@ func switchRomNames() map[string]string {
 	return names
 }
 
-// edenRunningCheck : un processus Eden tourne-t-il ? (comm commençant par « eden » ou « yuzu »).
-// Variable pour les tests.
-var edenRunningCheck = func() bool {
+// edenRunning : un processus Eden tourne-t-il ? (comm commençant par « eden » ou « yuzu »).
+func (s *Syncer) edenRunning() bool {
+	if s.env.EdenRunning != nil {
+		return s.env.EdenRunning()
+	}
 	entries, _ := os.ReadDir("/proc")
 	for _, e := range entries {
 		pid := 0
@@ -404,73 +409,75 @@ var edenRunningCheck = func() bool {
 	return false
 }
 
+// processComm : nom du processus (comm), "" si illisible.
+func processComm(pid int) string {
+	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/comm", pid))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
+}
+
 // ── Cibles de synchro ───────────────────────────────────────────────────
 
-// syncTarget : ce qu'un nom de synchro désigne sur cette machine.
-type syncTarget struct {
+// Target : ce qu'un nom de synchro désigne sur cette machine.
+type Target struct {
 	Name  string // nom de synchro (jeu, dossier:<nom>, switch:<ID>)
 	Dir   string // users/ du jeu, ou le dossier lui-même
 	Plain bool   // dossier simple : pas de profils Wine, tout le dossier est copié
 	Label string // nom lisible : nom du dossier, nom du jeu Switch ("" pour un jeu Windows)
 	game  bool
+	s     *Syncer // pour le verrou et l'archivage d'un jeu (Env)
 }
 
-// gameTarget : cible d'un jeu Windows dont users/ est donné.
-func gameTarget(name, users string) syncTarget {
-	return syncTarget{Name: name, Dir: users, game: true}
+// GameTarget : cible d'un jeu Windows dont users/ est donné.
+func (s *Syncer) GameTarget(name, users string) Target {
+	return Target{Name: name, Dir: users, game: true, s: s}
 }
 
-// syncTargetOf : cible d'un nom sur cette machine. errSyncInvalid : nom invalide ; errSyncAbsent :
+// TargetOf : cible d'un nom sur cette machine. ErrInvalid : nom invalide ; ErrAbsent :
 // dossier non déclaré, ou Eden absent (ou sans profil) pour un jeu Switch.
-func syncTargetOf(name string) (syncTarget, error) {
+func (s *Syncer) TargetOf(name string) (Target, error) {
 	if !validSyncName(name) {
-		return syncTarget{}, errSyncInvalid
+		return Target{}, ErrInvalid
 	}
 	switch {
 	case strings.HasPrefix(name, syncDirPrefix):
 		dir := strings.TrimPrefix(name, syncDirPrefix)
-		for _, d := range loadSyncConfig().Dirs {
+		for _, d := range LoadConfig().Dirs {
 			if d.Name == dir {
-				return syncTarget{Name: name, Dir: d.Path, Plain: true, Label: dir}, nil
+				return Target{Name: name, Dir: d.Path, Plain: true, Label: dir, s: s}, nil
 			}
 		}
-		return syncTarget{}, errSyncAbsent
+		return Target{}, ErrAbsent
 	case strings.HasPrefix(name, syncSwitchPrefix):
 		id := strings.TrimPrefix(name, syncSwitchPrefix)
 		user := edenSaveUser()
 		if user == "" {
-			return syncTarget{}, errSyncAbsent
+			return Target{}, ErrAbsent
 		}
-		label := edenTitleName(id)
+		label := s.edenTitleName(id)
 		if label == "" {
 			label = id
 		}
-		return syncTarget{Name: name, Dir: filepath.Join(user, id), Plain: true, Label: "Switch · " + label}, nil
+		return Target{Name: name, Dir: filepath.Join(user, id), Plain: true, Label: "Switch · " + label, s: s}, nil
 	}
-	return gameTarget(name, syncUsersDir(name)), nil
-}
-
-// syncTargetHTTP : code HTTP d'une erreur de syncTargetOf.
-func syncTargetHTTP(err error) (int, string) {
-	if errors.Is(err, errSyncAbsent) {
-		return http.StatusNotFound, "absent de cette machine (dossier non déclaré, ou Eden absent)"
-	}
-	return http.StatusBadRequest, "jeu invalide"
+	return s.GameTarget(name, s.UsersDir(name)), nil
 }
 
 // extraSyncNames : dossiers déclarés et jeux Switch d'Eden qui ont des sauvegardes, triés.
-func extraSyncNames() []string {
+func (s *Syncer) extraSyncNames() []string {
 	var out []string
-	for _, d := range loadSyncConfig().Dirs {
-		t := syncTarget{Dir: d.Path, Plain: true}
-		if t.fingerprint(t.files()) != "" {
+	for _, d := range LoadConfig().Dirs {
+		t := Target{Dir: d.Path, Plain: true}
+		if t.Fingerprint(t.Files()) != "" {
 			out = append(out, syncDirPrefix+d.Name)
 		}
 	}
 	if user := edenSaveUser(); user != "" {
 		for _, id := range edenTitlesOf(user) {
-			t := syncTarget{Dir: filepath.Join(user, id), Plain: true}
-			if t.fingerprint(t.files()) != "" {
+			t := Target{Dir: filepath.Join(user, id), Plain: true}
+			if t.Fingerprint(t.Files()) != "" {
 				out = append(out, syncSwitchPrefix+id)
 			}
 		}
@@ -479,23 +486,23 @@ func extraSyncNames() []string {
 	return out
 }
 
-// syncNames : tout ce que cette machine peut synchroniser (jeux, dossiers, jeux Switch), trié.
-func syncNames() []string {
-	out := append(syncGames(), extraSyncNames()...)
+// Names : tout ce que cette machine peut synchroniser (jeux, dossiers, jeux Switch), trié.
+func (s *Syncer) Names() []string {
+	out := append(s.syncGames(), s.extraSyncNames()...)
 	slices.Sort(out)
 	return out
 }
 
 // files : fichiers de la cible (périmètre de sauvegarde d'un jeu, ou tout le dossier).
-func (t syncTarget) files() []saveFile {
+func (t Target) Files() []File {
 	if t.Plain {
 		return collectPlainFiles(t.Dir)
 	}
-	return collectSaveFiles(t.Dir)
+	return CollectSaveFiles(t.Dir)
 }
 
 // fingerprint : empreinte des fichiers ("" sans fichier).
-func (t syncTarget) fingerprint(files []saveFile) string {
+func (t Target) Fingerprint(files []File) string {
 	if t.Plain {
 		return plainFingerprint(files)
 	}
@@ -503,12 +510,12 @@ func (t syncTarget) fingerprint(files []saveFile) string {
 }
 
 // content : empreinte de contenu des fichiers ("" sans fichier ou si l'un est illisible).
-func (t syncTarget) content(files []saveFile) string {
+func (t Target) Content(files []File) string {
 	return contentFingerprint(t.Dir, files, !t.Plain)
 }
 
 // writeArchive : tar.gz des fichiers ; profil Wine unique d'un jeu (voir writeSaveArchive), "" sinon.
-func (t syncTarget) writeArchive(w io.Writer, files []saveFile) (string, error) {
+func (t Target) WriteArchive(w io.Writer, files []File) (string, error) {
 	if t.Plain {
 		return "", writeArchiveTree(w, t.Dir, files, func(rel string) string { return rel })
 	}
@@ -516,7 +523,7 @@ func (t syncTarget) writeArchive(w io.Writer, files []saveFile) (string, error) 
 }
 
 // apply : remplace les fichiers de la cible par ceux de l'archive.
-func (t syncTarget) apply(r io.Reader, profile string) error {
+func (t Target) Apply(r io.Reader, profile string) error {
 	if t.Plain {
 		return applyPlainArchive(r, t.Dir)
 	}
@@ -525,24 +532,30 @@ func (t syncTarget) apply(r io.Reader, profile string) error {
 
 // lock : verrou pendant la synchro. Jeu Windows : verrou du jeu (refusé s'il tourne) ; jeu Switch :
 // refusé si Eden tourne ; dossier déclaré : rien à vérifier.
-func (t syncTarget) lock() (*os.File, bool) {
+func (t Target) Lock() (*os.File, bool) {
 	switch {
 	case t.game:
-		return lockIdleGame(t.Name)
+		if t.s == nil || t.s.env.LockIdleGame == nil {
+			return nil, true
+		}
+		return t.s.env.LockIdleGame(t.Name)
 	case strings.HasPrefix(t.Name, syncSwitchPrefix):
-		return nil, !edenRunningCheck()
+		return nil, !t.s.edenRunning()
 	}
 	return nil, true
 }
 
 // archiveLocal : met de côté le dossier de la cible dans le dossier des backups.
-func (t syncTarget) archiveLocal() (string, error) {
-	return archiveUsers(strings.ReplaceAll(t.Name, ":", "-"), filepath.Dir(t.Dir), filepath.Base(t.Dir))
+func (t Target) ArchiveLocal() (string, error) {
+	if t.s == nil || t.s.env.ArchiveUsers == nil {
+		return "", errors.New("archivage non disponible")
+	}
+	return t.s.env.ArchiveUsers(strings.ReplaceAll(t.Name, ":", "-"), filepath.Dir(t.Dir), filepath.Base(t.Dir))
 }
 
 // removeFiles : supprime les fichiers (puis les dossiers devenus vides, sans remonter au-delà du
 // profil pour un jeu, du dossier pour un dossier simple). Retourne le nombre de fichiers supprimés.
-func (t syncTarget) removeFiles(files []saveFile) (int, error) {
+func (t Target) RemoveFiles(files []File) (int, error) {
 	removed := 0
 	for _, f := range files {
 		stop := t.Dir
@@ -566,11 +579,11 @@ func (t syncTarget) removeFiles(files []saveFile) (int, error) {
 
 // collectPlainFiles : tous les fichiers réguliers d'un dossier, triés par Rel (relatif au dossier).
 // Dossier absent, ou lien : nil. Les liens ne sont jamais suivis.
-func collectPlainFiles(root string) []saveFile {
+func collectPlainFiles(root string) []File {
 	if st, err := os.Lstat(root); err != nil || !st.IsDir() {
 		return nil
 	}
-	var out []saveFile
+	var out []File
 	_ = filepath.Walk(root, func(f string, info os.FileInfo, err error) error {
 		if err != nil || !info.Mode().IsRegular() {
 			return nil
@@ -579,15 +592,15 @@ func collectPlainFiles(root string) []saveFile {
 		if err != nil {
 			return nil
 		}
-		out = append(out, saveFile{Rel: filepath.ToSlash(rel), Size: info.Size(), MTime: info.ModTime().Unix()})
+		out = append(out, File{Rel: filepath.ToSlash(rel), Size: info.Size(), MTime: info.ModTime().Unix()})
 		return nil
 	})
-	slices.SortFunc(out, func(a, b saveFile) int { return cmp.Compare(a.Rel, b.Rel) })
+	slices.SortFunc(out, func(a, b File) int { return cmp.Compare(a.Rel, b.Rel) })
 	return out
 }
 
 // plainFingerprint : empreinte d'un dossier simple (chemin, taille, date de chaque fichier).
-func plainFingerprint(files []saveFile) string {
+func plainFingerprint(files []File) string {
 	if len(files) == 0 {
 		return ""
 	}
@@ -624,5 +637,5 @@ func checkPlainEntry(hdr *tar.Header) (string, bool, error) {
 // applyPlainArchive : remplace le contenu d'un dossier simple par celui de l'archive (même garanties
 // que applySaveArchive : rien n'est modifié si l'archive est refusée).
 func applyPlainArchive(r io.Reader, root string) error {
-	return replaceFromArchive(r, root, checkPlainEntry, func() []saveFile { return collectPlainFiles(root) })
+	return replaceFromArchive(r, root, checkPlainEntry, func() []File { return collectPlainFiles(root) })
 }

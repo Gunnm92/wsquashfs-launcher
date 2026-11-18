@@ -1,4 +1,4 @@
-package main
+package savesync
 
 import (
 	"os"
@@ -12,21 +12,21 @@ import (
 func TestContentFingerprint(t *testing.T) {
 	dir := t.TempDir()
 	writeTree(t, dir, map[string]string{"slot1.sav": "aaa", "opt/o.ini": "x=1"})
-	tg := syncTarget{Dir: dir, Plain: true}
-	base := tg.content(tg.files())
+	tg := Target{Dir: dir, Plain: true}
+	base := tg.Content(tg.Files())
 	if base == "" {
 		t.Fatal("empreinte vide")
 	}
 	// Seule la date change : contenu identique, empreinte habituelle différente.
-	fpBefore := tg.fingerprint(tg.files())
+	fpBefore := tg.Fingerprint(tg.Files())
 	mt := time.Unix(1_800_000_000, 0)
 	if err := os.Chtimes(filepath.Join(dir, "slot1.sav"), mt, mt); err != nil {
 		t.Fatal(err)
 	}
-	if got := tg.content(tg.files()); got != base {
+	if got := tg.Content(tg.Files()); got != base {
 		t.Errorf("la date seule ne doit pas changer l'empreinte de contenu")
 	}
-	if tg.fingerprint(tg.files()) == fpBefore {
+	if tg.Fingerprint(tg.Files()) == fpBefore {
 		t.Errorf("l'empreinte habituelle devait changer avec la date")
 	}
 	// Contenu changé à taille égale, date remise : le cache (taille, date) ne le voit pas, mais
@@ -37,7 +37,7 @@ func TestContentFingerprint(t *testing.T) {
 	}
 	mt2 := time.Unix(1_800_000_100, 0)
 	_ = os.Chtimes(p, mt2, mt2)
-	changed := tg.content(tg.files())
+	changed := tg.Content(tg.Files())
 	if changed == base {
 		t.Errorf("contenu changé : l'empreinte devait changer (date nouvelle)")
 	}
@@ -46,19 +46,19 @@ func TestContentFingerprint(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = os.Chtimes(p, mt2, mt2)
-	if got := tg.content(tg.files()); got == changed || got == "" {
+	if got := tg.Content(tg.Files()); got == changed || got == "" {
 		t.Errorf("taille changée : cache non invalidé")
 	}
 	// Fichier illisible (jamais lu, donc absent du cache) : "".
 	writeTree(t, dir, map[string]string{"neuf.sav": "n"})
-	files := tg.files()
+	files := tg.Files()
 	if err := os.Remove(filepath.Join(dir, "neuf.sav")); err != nil {
 		t.Fatal(err)
 	}
-	if got := tg.content(files); got != "" {
+	if got := tg.Content(files); got != "" {
 		t.Errorf("fichier illisible : %q, attendu \"\"", got)
 	}
-	if tg.content(nil) != "" {
+	if tg.Content(nil) != "" {
 		t.Errorf("sans fichier : attendu \"\"")
 	}
 }
@@ -69,8 +69,8 @@ func TestContentFingerprintGameProfile(t *testing.T) {
 	a, b := t.TempDir(), t.TempDir()
 	writeTree(t, a, map[string]string{"alice/Documents/s.dat": "zzz"})
 	writeTree(t, b, map[string]string{"steamuser/Documents/s.dat": "zzz"})
-	fa := contentFingerprint(a, collectSaveFiles(a), true)
-	fb := contentFingerprint(b, collectSaveFiles(b), true)
+	fa := contentFingerprint(a, CollectSaveFiles(a), true)
+	fb := contentFingerprint(b, CollectSaveFiles(b), true)
 	if fa == "" || fa != fb {
 		t.Errorf("empreintes : %q et %q", fa, fb)
 	}

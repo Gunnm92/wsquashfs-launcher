@@ -1,10 +1,5 @@
 package main
 
-// Tests de --sync (sync_cmd.go) : la logique d'un jeu (syncGameWith) contre le serveur httptest de
-// sync_http_test.go, une séquence réaliste à deux machines, l'association et la liste des machines.
-// Serveur et client partagent les globales du processus : le client n'a donc pas de verrou local
-// (syncLockGame remplacée), et ses dossiers (users, stateRoot) sont explicites.
-
 import (
 	"errors"
 	"net"
@@ -17,16 +12,15 @@ import (
 	"testing"
 	"time"
 
+	"wsquashfs-launcher/internal/savesync"
 	"wsquashfs-launcher/internal/ui"
 )
 
 // syncNoLocalLock : pas de verrou côté client (le serveur, dans le même processus, tient le même
 // fichier de verrou : son verrou suffit à la route).
-func syncNoLocalLock(t *testing.T) {
+func syncNoLocalLock(t *testing.T, r *syncRig) {
 	t.Helper()
-	old := syncLockGame
-	syncLockGame = func(string) (*os.File, bool) { return nil, true }
-	t.Cleanup(func() { syncLockGame = old })
+	r.lock = func(string) (*os.File, bool) { return nil, true }
 }
 
 // syncGlobalsSaved : restaure les globales que gameUsesSaveDir et copyGameSaves modifient.
@@ -37,13 +31,13 @@ func syncGlobalsSaved(t *testing.T) {
 
 // rigPeerID : identifiant local du serveur de test (état de synchro côté client).
 func rigPeerID(r *syncRig) string {
-	return syncPeerID(r.peer)
+	return savesync.PeerID(r.peer)
 }
 
 // rigRemote : état du jeu sur le serveur de test, tel que la liste le donne.
-func rigRemote(t *testing.T, r *syncRig, name string) remoteSave {
+func rigRemote(t *testing.T, r *syncRig, name string) savesync.RemoteSave {
 	t.Helper()
-	games, err := r.client.list()
+	games, err := r.client.List()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,35 +46,36 @@ func rigRemote(t *testing.T, r *syncRig, name string) remoteSave {
 			return g
 		}
 	}
-	return remoteSave{Name: name}
+	return savesync.RemoteSave{Name: name}
 }
 
 // syncOne : synchronise le jeu de test avec le serveur de test, depuis le dossier local donné.
 func syncOne(t *testing.T, r *syncRig, local, stateRoot string, dryRun bool) (ui.Status, string) {
 	t.Helper()
-	return syncGameWith(r.client, "steambox", rigPeerID(r), stateRoot, syncRigGame, gameTarget(syncRigGame, local), rigRemote(t, r, syncRigGame), dryRun)
+	s := r.local()
+	return s.SyncTarget(r.client, "steambox", rigPeerID(r), stateRoot, syncRigGame, s.GameTarget(syncRigGame, local), rigRemote(t, r, syncRigGame), dryRun)
 }
 
 // TestSyncGameReceiveThenUpToDate : première synchro (pas d'état) = réception ; la suivante est à jour.
 // Les deux états sont enregistrés des deux côtés.
 func TestSyncGameReceiveThenUpToDate(t *testing.T) {
 	r := newSyncRig(t)
-	syncNoLocalLock(t)
+	syncNoLocalLock(t, r)
 	local := clientUsers(t)
 	stateRoot := t.TempDir()
-	want := saveFingerprint(r.users, collectSaveFiles(r.users))
+	want := saveFingerprint(r.users, savesync.CollectSaveFiles(r.users))
 
 	st, msg := syncOne(t, r, local, stateRoot, false)
 	if st != ui.OK || msg != "reçu de steambox" {
 		t.Fatalf("première synchro : %v %q", st, msg)
 	}
-	if got := saveFingerprint(local, collectSaveFiles(local)); got != want {
+	if got := saveFingerprint(local, savesync.CollectSaveFiles(local)); got != want {
 		t.Fatalf("empreinte locale %s, attendue %s", got, want)
 	}
-	if s := loadSyncState(stateRoot, rigPeerID(r), syncRigGame).Fingerprint; s != want {
+	if s := savesync.LoadState(stateRoot, rigPeerID(r), syncRigGame).Fingerprint; s != want {
 		t.Errorf("état local %q, attendu %s", s, want)
 	}
-	if s := loadSyncState(syncStateRoot(), "client-machine-01", syncRigGame).Fingerprint; s != want {
+	if s := savesync.LoadState(syncer().StateRoot(), "client-machine-01", syncRigGame).Fingerprint; s != want {
 		t.Errorf("état serveur %q, attendu %s", s, want)
 	}
 	st, msg = syncOne(t, r, local, stateRoot, false)
@@ -92,26 +87,26 @@ func TestSyncGameReceiveThenUpToDate(t *testing.T) {
 // TestSyncGameSend : des sauvegardes changées ici, rien de changé là-bas : envoi.
 func TestSyncGameSend(t *testing.T) {
 	r := newSyncRig(t)
-	syncNoLocalLock(t)
+	syncNoLocalLock(t, r)
 	local := clientUsers(t)
 	stateRoot := t.TempDir()
 	if st, msg := syncOne(t, r, local, stateRoot, false); st != ui.OK {
 		t.Fatalf("réception initiale : %v %q", st, msg)
 	}
 	syncTestPut(t, filepath.Join(local, "steamuser", "Documents", "Game", "nouvelle.sav"), "nouveau", syncTestTime.Add(time.Hour))
-	mine := saveFingerprint(local, collectSaveFiles(local))
+	mine := saveFingerprint(local, savesync.CollectSaveFiles(local))
 
 	st, msg := syncOne(t, r, local, stateRoot, false)
 	if st != ui.OK || msg != "envoyé à steambox" {
 		t.Fatalf("envoi : %v %q", st, msg)
 	}
-	if got := saveFingerprint(r.users, collectSaveFiles(r.users)); got != mine {
+	if got := saveFingerprint(r.users, savesync.CollectSaveFiles(r.users)); got != mine {
 		t.Errorf("serveur : empreinte %s, attendue %s", got, mine)
 	}
-	if s := loadSyncState(stateRoot, rigPeerID(r), syncRigGame).Fingerprint; s != mine {
+	if s := savesync.LoadState(stateRoot, rigPeerID(r), syncRigGame).Fingerprint; s != mine {
 		t.Errorf("état local %q, attendu %s", s, mine)
 	}
-	if s := loadSyncState(syncStateRoot(), "client-machine-01", syncRigGame).Fingerprint; s != mine {
+	if s := savesync.LoadState(syncer().StateRoot(), "client-machine-01", syncRigGame).Fingerprint; s != mine {
 		t.Errorf("état serveur %q, attendu %s", s, mine)
 	}
 }
@@ -120,7 +115,7 @@ func TestSyncGameSend(t *testing.T) {
 // transféré ni écrasé, la ligne annonce le conflit (sans échec). Sans manager déclaré : rien envoyé.
 func TestSyncGameConflictKeepsBoth(t *testing.T) {
 	r := newSyncRig(t)
-	syncNoLocalLock(t)
+	syncNoLocalLock(t, r)
 	local := clientUsers(t)
 	stateRoot := t.TempDir()
 	if st, msg := syncOne(t, r, local, stateRoot, false); st != ui.OK {
@@ -130,17 +125,17 @@ func TestSyncGameConflictKeepsBoth(t *testing.T) {
 	cliFile := filepath.Join(local, "steamuser", "Documents", "Game", "client.sav")
 	syncTestPut(t, srvFile, strings.Repeat("serveur", 1000), syncTestTime.Add(3*time.Hour))
 	syncTestPut(t, cliFile, "client", syncTestTime.Add(time.Hour))
-	localFP := saveFingerprint(local, collectSaveFiles(local))
-	srvFP := saveFingerprint(r.users, collectSaveFiles(r.users))
+	localFP := saveFingerprint(local, savesync.CollectSaveFiles(local))
+	srvFP := saveFingerprint(r.users, savesync.CollectSaveFiles(r.users))
 
 	st, msg := syncOne(t, r, local, stateRoot, false)
 	if st != ui.Skip || msg != "conflit avec steambox (les deux ont changé) : à départager dans le manager" {
 		t.Fatalf("conflit : %v %q", st, msg)
 	}
-	if got := saveFingerprint(local, collectSaveFiles(local)); got != localFP {
+	if got := saveFingerprint(local, savesync.CollectSaveFiles(local)); got != localFP {
 		t.Error("copie locale modifiée")
 	}
-	if got := saveFingerprint(r.users, collectSaveFiles(r.users)); got != srvFP {
+	if got := saveFingerprint(r.users, savesync.CollectSaveFiles(r.users)); got != srvFP {
 		t.Error("copie du serveur modifiée")
 	}
 	if _, err := os.Stat(srvFile); err != nil {
@@ -158,7 +153,7 @@ func TestSyncGameConflictKeepsBoth(t *testing.T) {
 // rien n'est remplacé et l'état de synchro ne change pas.
 func TestSyncGameConflictSendsToManager(t *testing.T) {
 	r := newSyncRig(t)
-	syncNoLocalLock(t)
+	syncNoLocalLock(t, r)
 	syncGlobalsSaved(t)
 	local := clientUsers(t)
 	stateRoot := t.TempDir()
@@ -167,12 +162,12 @@ func TestSyncGameConflictSendsToManager(t *testing.T) {
 	}
 	syncTestPut(t, filepath.Join(r.users, "steamuser", "Documents", "Game", "serveur.sav"), "serveur", syncTestTime.Add(3*time.Hour))
 	syncTestPut(t, filepath.Join(local, "steamuser", "Documents", "Game", "client.sav"), "client", syncTestTime.Add(time.Hour))
-	before := loadSyncState(stateRoot, rigPeerID(r), syncRigGame).Fingerprint
+	before := savesync.LoadState(stateRoot, rigPeerID(r), syncRigGame).Fingerprint
 	m, peer := newAutoManager(t)
-	cfg := loadSyncConfig()
+	cfg := savesync.LoadConfig()
 	cfg.ID = "client-machine-01"
 	cfg.Peers = append(cfg.Peers, peer)
-	if err := saveSyncConfig(cfg); err != nil {
+	if err := savesync.SaveConfig(cfg); err != nil {
 		t.Fatal(err)
 	}
 
@@ -186,7 +181,7 @@ func TestSyncGameConflictSendsToManager(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(local, "steamuser", "Documents", "Game", "client.sav")); err != nil {
 		t.Errorf("version d'ici perdue : %v", err)
 	}
-	if s := loadSyncState(stateRoot, rigPeerID(r), syncRigGame).Fingerprint; s != before {
+	if s := savesync.LoadState(stateRoot, rigPeerID(r), syncRigGame).Fingerprint; s != before {
 		t.Errorf("état de synchro modifié par le conflit : %q, attendu %q", s, before)
 	}
 }
@@ -195,7 +190,7 @@ func TestSyncGameConflictSendsToManager(t *testing.T) {
 // (le verrou local est refusé pour le prouver).
 func TestSyncGameDryRunChangesNothing(t *testing.T) {
 	r := newSyncRig(t)
-	syncNoLocalLock(t)
+	syncNoLocalLock(t, r)
 	local := clientUsers(t)
 	stateRoot := t.TempDir()
 	if st, msg := syncOne(t, r, local, stateRoot, false); st != ui.OK {
@@ -203,11 +198,9 @@ func TestSyncGameDryRunChangesNothing(t *testing.T) {
 	}
 	syncTestPut(t, filepath.Join(local, "steamuser", "Documents", "Game", "nouvelle.sav"), "nouveau", syncTestTime.Add(time.Hour))
 
-	old := syncLockGame
-	syncLockGame = func(string) (*os.File, bool) { return nil, false }
-	defer func() { syncLockGame = old }()
+	r.lock = func(string) (*os.File, bool) { return nil, false }
 	beforeLocal, beforeServer := syncTestTree(t, local), syncTestTree(t, r.users)
-	beforeState := syncTestTree(t, syncStateRoot())
+	beforeState := syncTestTree(t, syncer().StateRoot())
 	beforeClientState := syncTestTree(t, stateRoot)
 
 	st, msg := syncOne(t, r, local, stateRoot, true)
@@ -217,7 +210,7 @@ func TestSyncGameDryRunChangesNothing(t *testing.T) {
 	if !reflect.DeepEqual(beforeLocal, syncTestTree(t, local)) || !reflect.DeepEqual(beforeServer, syncTestTree(t, r.users)) {
 		t.Error("simulation : sauvegardes modifiées")
 	}
-	if !reflect.DeepEqual(beforeState, syncTestTree(t, syncStateRoot())) || !reflect.DeepEqual(beforeClientState, syncTestTree(t, stateRoot)) {
+	if !reflect.DeepEqual(beforeState, syncTestTree(t, syncer().StateRoot())) || !reflect.DeepEqual(beforeClientState, syncTestTree(t, stateRoot)) {
 		t.Error("simulation : états de synchro modifiés")
 	}
 }
@@ -225,7 +218,7 @@ func TestSyncGameDryRunChangesNothing(t *testing.T) {
 // TestSyncGameLockedOnServer : le jeu tourne (verrou tenu) sur la machine distante : ignoré, sans erreur.
 func TestSyncGameLockedOnServer(t *testing.T) {
 	r := newSyncRig(t)
-	syncNoLocalLock(t)
+	syncNoLocalLock(t, r)
 	local := clientUsers(t)
 	stateRoot := t.TempDir()
 	if st, msg := syncOne(t, r, local, stateRoot, false); st != ui.OK {
@@ -253,9 +246,7 @@ func TestSyncGameLockedOnServer(t *testing.T) {
 // TestSyncGameLockedHere : le jeu tourne ici (verrou local refusé) : ignoré, rien n'est échangé.
 func TestSyncGameLockedHere(t *testing.T) {
 	r := newSyncRig(t)
-	old := syncLockGame
-	syncLockGame = func(string) (*os.File, bool) { return nil, false }
-	defer func() { syncLockGame = old }()
+	r.lock = func(string) (*os.File, bool) { return nil, false }
 	before := syncTestTree(t, r.users)
 	st, msg := syncOne(t, r, clientUsers(t), t.TempDir(), false)
 	if st != ui.Skip || msg != "en cours ici, ignoré" {
@@ -270,7 +261,7 @@ func TestSyncGameLockedHere(t *testing.T) {
 // prefix) ; sans image connue, il ne l'est pas.
 func TestSyncGameSaveDirIgnored(t *testing.T) {
 	r := newSyncRig(t)
-	syncNoLocalLock(t)
+	syncNoLocalLock(t, r)
 	syncGlobalsSaved(t)
 	img := filepath.Join(t.TempDir(), syncRigGame+".wsquashfs")
 	writeGameImage(t, syncRigGame, img, "SAVEDIR=drive_c/game/saves\n")
@@ -323,7 +314,7 @@ func writeGameImage(t *testing.T, name, img, autorun string) {
 // puis une nouvelle synchro ne change plus rien.
 func TestSyncTwoMachinesSequence(t *testing.T) {
 	r := newSyncRig(t)
-	syncNoLocalLock(t)
+	syncNoLocalLock(t, r)
 	// B part sans sauvegarde de ce jeu.
 	if err := os.RemoveAll(filepath.Join(conf.savesDir, syncRigGame)); err != nil {
 		t.Fatal(err)
@@ -367,7 +358,7 @@ func TestSyncArchiveNamesStash(t *testing.T) {
 	local := clientUsers(t)
 	syncTestPut(t, filepath.Join(local, "steamuser", "Documents", "Game", "client.sav"), "client", syncTestTime.Add(time.Hour))
 
-	_, archived, err := r.client.send(gameTarget(syncRigGame, local))
+	_, archived, err := r.client.Send(syncer().GameTarget(syncRigGame, local))
 	if err != nil {
 		t.Fatalf("envoi vers une mise de côté : %v", err)
 	}
@@ -383,7 +374,7 @@ func TestSyncArchiveNamesStash(t *testing.T) {
 	}
 }
 
-// TestCopyGameSavesNewerSource : copyGameSaves (refactor sur collectSaveFiles) copie ce qui est absent
+// TestCopyGameSavesNewerSource : copyGameSaves (refactor sur savesync.CollectSaveFiles) copie ce qui est absent
 // ou plus récent à la nanoseconde près, et se tait sinon.
 func TestCopyGameSavesNewerSource(t *testing.T) {
 	isolateState(t)
@@ -425,38 +416,9 @@ func TestCopyGameSavesNewerSource(t *testing.T) {
 	}
 }
 
-// TestSyncPeersAddReplaceRemove : une machine remplacée par son empreinte, nom en double distingué,
-// retrait sans tenir compte de la casse.
-func TestSyncPeersAddReplaceRemove(t *testing.T) {
-	fpA, fpB := strings.Repeat("A", 64), strings.Repeat("B", 64)
-	cfg := syncConfig{ID: "client-machine-01"}
-	cfg = addSyncPeer(cfg, syncPeer{Name: "steambox", URL: "https://10.0.0.2:8790", Token: "t1", Fingerprint: fpA})
-	cfg = addSyncPeer(cfg, syncPeer{Name: "steambox", URL: "https://10.0.0.2:8791", Token: "t2", Fingerprint: fpA})
-	if len(cfg.Peers) != 1 || cfg.Peers[0].URL != "https://10.0.0.2:8791" {
-		t.Fatalf("même empreinte : %+v, attendue une seule machine remplacée", cfg.Peers)
-	}
-	cfg = addSyncPeer(cfg, syncPeer{Name: "STEAMBOX", URL: "https://10.0.0.3:8790", Fingerprint: fpB})
-	if len(cfg.Peers) != 2 || cfg.Peers[1].Name != "STEAMBOX (https://10.0.0.3:8790)" {
-		t.Fatalf("nom en double : %+v", cfg.Peers)
-	}
-	cfg, ok := removeSyncPeer(cfg, "steambox")
-	if !ok || len(cfg.Peers) != 1 {
-		t.Fatalf("retrait sans tenir compte de la casse : ok %v, %+v", ok, cfg.Peers)
-	}
-	if _, ok := removeSyncPeer(cfg, "inconnue"); ok {
-		t.Error("machine inconnue retirée")
-	}
-	if got := syncPeerNames(cfg); got != cfg.Peers[0].Name {
-		t.Errorf("noms : %q", got)
-	}
-	if id := syncPeerID(syncPeer{Fingerprint: fpA}); id != strings.Repeat("a", 32) || !validSyncID(id) {
-		t.Errorf("identifiant local : %q", id)
-	}
-}
-
 // TestSyncPairAssociates : --sync wsq:// échange le code contre un jeton durable : la machine est
 // enregistrée (nom reçu, adresse, empreinte) avec ce jeton, jamais avec le secret du code. Une
-// deuxième association la remplace ; un code déjà utilisé est refusé (errPairCode).
+// deuxième association la remplace ; un code déjà utilisé est refusé (savesync.ErrPairCode).
 func TestSyncPairAssociates(t *testing.T) {
 	r := newSyncRig(t)
 	out, _ := capteUI(t)
@@ -465,10 +427,10 @@ func TestSyncPairAssociates(t *testing.T) {
 		t.Fatal(err)
 	}
 	code := "wsq://" + secret + "@" + strings.TrimPrefix(r.srv.URL, "https://") + "#" + r.peer.Fingerprint
-	if rc := syncPair(loadSyncConfig(), code); rc != 0 {
+	if rc := syncer().Run([]string{code}); rc != 0 {
 		t.Fatalf("association : code %d", rc)
 	}
-	cfg := loadSyncConfig()
+	cfg := savesync.LoadConfig()
 	if len(cfg.Peers) != 1 {
 		t.Fatalf("machines : %+v", cfg.Peers)
 	}
@@ -483,7 +445,7 @@ func TestSyncPairAssociates(t *testing.T) {
 		t.Errorf("sortie : %q", out.String())
 	}
 	// Le jeton enregistré ouvre les routes de synchro.
-	if _, err := newSyncClient(p, cfg.ID).list(); err != nil {
+	if _, err := syncer().NewClient(p, cfg.ID).List(); err != nil {
 		t.Errorf("jeton durable refusé : %v", err)
 	}
 	// Deuxième association, avec un code neuf : elle remplace la première.
@@ -491,17 +453,17 @@ func TestSyncPairAssociates(t *testing.T) {
 	if err := beginPairing(secret2, time.Minute); err != nil {
 		t.Fatal(err)
 	}
-	syncPair(cfg, "wsq://"+secret2+"@"+strings.TrimPrefix(r.srv.URL, "https://")+"#"+r.peer.Fingerprint)
-	if n := len(loadSyncConfig().Peers); n != 1 {
+	syncer().Run([]string{"wsq://" + secret2 + "@" + strings.TrimPrefix(r.srv.URL, "https://") + "#" + r.peer.Fingerprint})
+	if n := len(savesync.LoadConfig().Peers); n != 1 {
 		t.Errorf("deuxième association : %d machines", n)
 	}
 	// L'ancien code, déjà utilisé, est refusé.
-	peer, err := parsePairCode(code)
+	peer, err := savesync.ParsePairCode(code)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := newSyncClient(peer, cfg.ID).pair(); !errors.Is(err, errPairCode) {
-		t.Errorf("code réutilisé : erreur %v, attendu errPairCode", err)
+	if _, err := syncer().NewClient(peer, cfg.ID).Pair(); !errors.Is(err, savesync.ErrPairCode) {
+		t.Errorf("code réutilisé : erreur %v, attendu savesync.ErrPairCode", err)
 	}
 }
 
@@ -511,8 +473,9 @@ func TestSyncRunNoPeersAndUnreachable(t *testing.T) {
 	out, _ := capteUI(t)
 	isolateState(t)
 	conf.savesDir, conf.cacheDir = t.TempDir(), t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 
-	if rc := syncRun(syncConfig{}, "", false); rc != 0 {
+	if rc := syncer().Run(nil); rc != 0 {
 		t.Errorf("sans machine : code %d", rc)
 	}
 	if !strings.Contains(out.String(), "Aucune machine associée") || !strings.Contains(out.String(), "wsquashfs-launcher --pair") {
@@ -526,8 +489,11 @@ func TestSyncRunNoPeersAndUnreachable(t *testing.T) {
 	}
 	addr := ln.Addr().String()
 	ln.Close()
-	cfg := syncConfig{ID: "client-machine-01", Peers: []syncPeer{{Name: "eteinte", URL: "https://" + addr, Token: "t", Fingerprint: strings.Repeat("0", 64)}}}
-	if rc := syncRun(cfg, "", true); rc != 0 {
+	cfg := savesync.Config{ID: "client-machine-01", Peers: []savesync.Peer{{Name: "eteinte", URL: "https://" + addr, Token: "t", Fingerprint: strings.Repeat("0", 64)}}}
+	if err := savesync.SaveConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if rc := syncer().Run([]string{"status"}); rc != 0 {
 		t.Errorf("machine éteinte : code %d, attendu 0", rc)
 	}
 	if !strings.Contains(out.String(), "injoignable (éteinte ou hors du réseau local)") || !strings.Contains(out.String(), "Versions écartées en cas de conflit") {
@@ -555,7 +521,7 @@ func TestSyncCommandAction(t *testing.T) {
 // TestSyncGameNothingAnywhere : aucune sauvegarde ici ni là-bas : ligne ignorée, rien n'est écrit.
 func TestSyncGameNothingAnywhere(t *testing.T) {
 	r := newSyncRig(t)
-	syncNoLocalLock(t)
+	syncNoLocalLock(t, r)
 	if err := os.RemoveAll(filepath.Join(conf.savesDir, syncRigGame)); err != nil {
 		t.Fatal(err)
 	}

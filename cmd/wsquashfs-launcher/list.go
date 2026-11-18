@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 
+	"wsquashfs-launcher/internal/savesync"
 	"wsquashfs-launcher/internal/ui"
 )
 
@@ -54,10 +55,10 @@ func knownGames() []string {
 }
 
 // gameHasSaves : le jeu a encore des sauvegardes de partie, au sens de --save, --sync et de la
-// suppression par le manager (collectSaveFiles : Documents, Saved Games, AppData des profils, caches et
+// suppression par le manager (savesync.CollectSaveFiles : Documents, Saved Games, AppData des profils, caches et
 // comptes système exclus). Le reste de l'overlay (prefix, fichiers temporaires…) ne compte pas.
 func gameHasSaves(name string) bool {
-	return len(collectSaveFiles(syncUsersDir(name))) > 0
+	return len(savesync.CollectSaveFiles(syncer().UsersDir(name))) > 0
 }
 
 // gameState : état d'un jeu (en cours, verrouillé, monté, -).

@@ -3,6 +3,7 @@
 package filetree
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -63,4 +64,64 @@ func Find(roots []string, maxDepth int, match func(path string) bool) string {
 		}
 	}
 	return ""
+}
+
+// ErrHomeInaccessible : HOME absent ou illisible.
+var ErrHomeInaccessible = errors.New("HOME inaccessible")
+
+// Home : HOME avec les liens résolus.
+func Home() (string, error) {
+	home := os.Getenv("HOME")
+	if home == "" {
+		return "", errors.New("HOME absent")
+	}
+	return filepath.EvalSymlinks(home)
+}
+
+// StrictlyUnder : p est un sous-dossier de base (base elle-même exclue).
+func StrictlyUnder(base, p string) bool {
+	return p != base && within(p, base)
+}
+
+// within : p est base ou dessous.
+func within(p, base string) bool {
+	rel, err := filepath.Rel(base, p)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, "../")
+}
+
+// Ancestor : p s'il existe, sinon son plus proche parent existant ("" si aucun).
+func Ancestor(p string) string {
+	for {
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+		parent := filepath.Dir(p)
+		if parent == p {
+			return ""
+		}
+		p = parent
+	}
+}
+
+// UnderHome : dossier prévu (qui peut ne pas encore exister). Le plus proche ancêtre existant, une
+// fois les liens résolus, doit être sous HOME ; retourne le chemin avec ce préfixe réel.
+// ErrHomeInaccessible si HOME ne se résout pas ; toute autre erreur est un refus du chemin.
+func UnderHome(dir string) (string, error) {
+	realHome, err := Home()
+	if err != nil {
+		return "", ErrHomeInaccessible
+	}
+	anc := Ancestor(dir)
+	if anc == "" {
+		return "", errors.New("dossier hors HOME : " + dir)
+	}
+	realAnc, err := filepath.EvalSymlinks(anc)
+	if err != nil || !within(realAnc, realHome) {
+		return "", errors.New("dossier hors HOME : " + dir)
+	}
+	rest, err := filepath.Rel(anc, dir)
+	if err != nil {
+		return "", errors.New("dossier invalide : " + dir)
+	}
+	return filepath.Join(realAnc, rest), nil
 }

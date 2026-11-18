@@ -5,7 +5,6 @@ package main
 // membre commençant par un tiret, SAVEDIR/SAVEFILES hors du prefix.
 
 import (
-	"bytes"
 	"context"
 	"net/http/httptest"
 	"os"
@@ -16,83 +15,22 @@ import (
 	"time"
 )
 
-// TestSyncArchiveKeepsFileMode : les droits d'un fichier passent par l'archive (600 reste 600, un
-// exécutable le reste) au lieu de devenir 644.
-func TestSyncArchiveKeepsFileMode(t *testing.T) {
-	src := filepath.Join(t.TempDir(), "users")
-	docs := filepath.Join(src, "deck", "Documents")
-	writeTree(t, docs, map[string]string{"prive.sav": "secret", "outil.sh": "#!/bin/sh\n", "normal.sav": "x"})
-	for name, mode := range map[string]os.FileMode{"prive.sav": 0o600, "outil.sh": 0o755, "normal.sav": 0o644} {
-		if err := os.Chmod(filepath.Join(docs, name), mode); err != nil {
-			t.Fatal(err)
-		}
-	}
-	var buf bytes.Buffer
-	if _, err := writeSaveArchive(&buf, src, collectSaveFiles(src)); err != nil {
-		t.Fatal(err)
-	}
-	dst := filepath.Join(t.TempDir(), "users")
-	if err := applySaveArchive(&buf, dst, "deck"); err != nil {
-		t.Fatal(err)
-	}
-	for name, want := range map[string]os.FileMode{"prive.sav": 0o600, "outil.sh": 0o755, "normal.sav": 0o644} {
-		st, err := os.Stat(filepath.Join(dst, "deck", "Documents", name))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if got := st.Mode().Perm(); got != want {
-			t.Errorf("%s : droits %o, attendus %o", name, got, want)
-		}
-	}
-}
-
-// TestSyncTempFileInCache : les archives temporaires de synchro vont dans le cache du lanceur, pas
-// dans /tmp ; --clean (pruneSyncTemp) retire les restes anciens et garde une archive récente.
-func TestSyncTempFileInCache(t *testing.T) {
-	isolateSaves(t)
-	f, err := syncTempFile("wsq-sync-*.tar.gz")
-	if err != nil {
-		t.Fatal(err)
-	}
-	f.Close()
-	if filepath.Dir(f.Name()) != filepath.Join(conf.cacheDir, "tmp") {
-		t.Fatalf("archive temporaire dans %s, attendue dans %s", filepath.Dir(f.Name()), filepath.Join(conf.cacheDir, "tmp"))
-	}
-	old := filepath.Join(syncTempDir(), "wsq-recu-reste.tar.gz")
-	if err := os.WriteFile(old, []byte("12345"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	past := time.Now().Add(-2 * syncTempMaxAge)
-	if err := os.Chtimes(old, past, past); err != nil {
-		t.Fatal(err)
-	}
-	if freed := pruneSyncTemp(); freed != 5 {
-		t.Errorf("place libérée : %d, attendu 5", freed)
-	}
-	if pathExists(old) {
-		t.Error("reste ancien gardé")
-	}
-	if !pathExists(f.Name()) {
-		t.Error("archive récente (synchro en cours) retirée")
-	}
-}
-
 // TestSyncFetchRefusesHugeArchive : une archive reçue plus grosse que la limite est refusée, rien
 // n'est modifié ici et le fichier temporaire est retiré.
 func TestSyncFetchRefusesHugeArchive(t *testing.T) {
-	r := newSyncRig(t)
 	oldMax := syncMaxBody
 	t.Cleanup(func() { syncMaxBody = oldMax })
 	syncMaxBody = 64
+	r := newSyncRig(t)
 	local := clientUsers(t)
-	_, err := r.client.fetch(gameTarget(syncRigGame, local))
+	_, err := r.client.Fetch(syncer().GameTarget(syncRigGame, local))
 	if err == nil || !strings.Contains(err.Error(), "trop volumineuse") {
 		t.Fatalf("archive trop grosse acceptée : %v", err)
 	}
 	if pathExists(local) {
 		t.Error("sauvegardes locales modifiées malgré le refus")
 	}
-	if left, _ := filepath.Glob(filepath.Join(syncTempDir(), "wsq-recu-*")); len(left) != 0 {
+	if left, _ := filepath.Glob(filepath.Join(syncer().TempDir(), "wsq-recu-*")); len(left) != 0 {
 		t.Errorf("fichier temporaire laissé : %v", left)
 	}
 }

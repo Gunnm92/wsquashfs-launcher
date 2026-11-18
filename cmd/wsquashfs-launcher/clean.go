@@ -266,7 +266,7 @@ func cleanCache() (freed int64) {
 			lock.Close()
 		}
 	}
-	freed += pruneSyncTemp()
+	freed += syncer().PruneTemp()
 	ui.StatusLine(ui.OK, "Copies de travail supprimées")
 	return freed
 }

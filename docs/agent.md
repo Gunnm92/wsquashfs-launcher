@@ -181,11 +181,11 @@ Réponse : `{"action": "<action>", "code": <code de sortie du lanceur>, "output"
 est alors ajouté à `output`. Le manager tient un code différent de 0 pour un échec.
 
 Ces routes servent la synchro manuelle des sauvegardes entre machines (commande
-`--sync` dans `sync_cmd.go` ; cœur dans `sync.go`, client dans `sync_http.go`). Elles exigent l'en-tête `X-Wsq-Machine` (identifiant
+`--sync` dans `internal/savesync/sync_cmd.go` ; cœur dans `sync.go`, client dans `sync_http.go`, même dossier). Elles exigent l'en-tête `X-Wsq-Machine` (identifiant
 aléatoire de la machine cliente, 400 sinon, et celui de la machine du jeton, 401 sinon) : l'état de synchro est tenu par
 machine, dans `savesDir/.sync/<identifiant>/<jeu>.json`. Le périmètre est celui de
 `--save` / `--saves` (sous users/, sans caches ni comptes système). La liste des jeux
-(`GET /v1/saves/list`) est celle de `--sync` (`syncNames`, sync_extra.go) : jeux (overlay, copie de
+(`GET /v1/saves/list`) est celle de `--sync` (`Syncer.Names`, `internal/savesync/sync_extra.go`) : jeux (overlay, copie de
 travail et mise de côté du mode copy), plus les **dossiers déclarés** (`dossier:<nom>`) et les **jeux
 Switch d'Eden** (`switch:<TitleID>`). Ces deux-là sont des dossiers simples, copiés tels quels (pas de
 profil Wine, pas d'en-tête `X-Wsq-Profile`) ; leur `label` dans la liste est le nom lisible (nom du

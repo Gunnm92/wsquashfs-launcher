@@ -1,4 +1,4 @@
-package main
+package savesync
 
 // Client de la synchro (--sync) : parle aux routes /v1/saves/* d'une autre machine (saves_http.go).
 // La machine qui lance --sync fait tout : elle lit la liste distante, puis reçoit ou envoie.
@@ -28,8 +28,8 @@ import (
 	"wsquashfs-launcher/internal/ui"
 )
 
-// syncPeer : une machine distante, telle qu'elle est enregistrée dans sync.json.
-type syncPeer struct {
+// Peer : une machine distante, telle qu'elle est enregistrée dans sync.json.
+type Peer struct {
 	Name        string `json:"name"`
 	URL         string `json:"url"`   // https://hôte:port
 	Token       string `json:"token"` // jeton durable de cette machine chez l'autre (jamais le secret du code)
@@ -39,22 +39,22 @@ type syncPeer struct {
 	UI          string `json:"ui,omitempty"`      // manager : adresse de son interface web (--tray, « Ouvrir le manager »)
 }
 
-// syncConfig : sync.json (identifiant de cette machine et machines associées).
-type syncConfig struct {
-	ID    string     `json:"id"`
-	Peers []syncPeer `json:"peers"`
-	Dirs  []syncDir  `json:"dirs,omitempty"` // dossiers déclarés (--sync dir add), synchronisés comme des jeux
-	Auto  bool       `json:"auto,omitempty"` // --sync auto on : synchro avec le manager (envoi à la sortie d'un jeu, réception)
+// Config : sync.json (identifiant de cette machine et machines associées).
+type Config struct {
+	ID    string `json:"id"`
+	Peers []Peer `json:"peers"`
+	Dirs  []Dir  `json:"dirs,omitempty"` // dossiers déclarés (--sync dir add), synchronisés comme des jeux
+	Auto  bool   `json:"auto,omitempty"` // --sync auto on : synchro avec le manager (envoi à la sortie d'un jeu, réception)
 }
 
-// managerPeer : le pair déclaré par le manager (Manager), s'il y en a un.
-func managerPeer(cfg syncConfig) (syncPeer, bool) {
+// ManagerPeer : le pair déclaré par le manager (Manager), s'il y en a un.
+func ManagerPeer(cfg Config) (Peer, bool) {
 	for _, p := range cfg.Peers {
 		if p.Manager {
 			return p, true
 		}
 	}
-	return syncPeer{}, false
+	return Peer{}, false
 }
 
 // syncConfigPath : ~/.config/wsquashfs/sync.json (XDG_CONFIG_HOME respecté).
@@ -71,20 +71,20 @@ func newSyncID() string {
 	return hex.EncodeToString(buf)
 }
 
-// loadSyncConfig : sync.json ; identifiant créé s'il manque (sans écrire le fichier).
-func loadSyncConfig() syncConfig {
-	var cfg syncConfig
+// LoadConfig : sync.json ; identifiant créé s'il manque (sans écrire le fichier).
+func LoadConfig() Config {
+	var cfg Config
 	if data, err := os.ReadFile(syncConfigPath()); err == nil {
 		_ = json.Unmarshal(data, &cfg)
 	}
-	if !validSyncID(cfg.ID) {
+	if !ValidID(cfg.ID) {
 		cfg.ID = newSyncID()
 	}
 	return cfg
 }
 
-// saveSyncConfig : écriture atomique, droits 600 (dossier 700).
-func saveSyncConfig(cfg syncConfig) error {
+// SaveConfig : écriture atomique, droits 600 (dossier 700).
+func SaveConfig(cfg Config) error {
 	path := syncConfigPath()
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
@@ -109,45 +109,51 @@ var (
 	pairFPRe    = regexp.MustCompile(`^[0-9A-Fa-f]{64}$`)
 )
 
-// parsePairCode : code d'association wsq://JETON@HÔTE:PORT#EMPREINTE (sortie de --pair).
+// ValidToken : jeton d'association bien formé (lettres, chiffres, _ et -).
+func ValidToken(token string) bool { return pairTokenRe.MatchString(token) }
+
+// ValidFingerprint : empreinte de certificat bien formée (64 caractères hexadécimaux).
+func ValidFingerprint(fp string) bool { return pairFPRe.MatchString(fp) }
+
+// ParsePairCode : code d'association wsq://JETON@HÔTE:PORT#EMPREINTE (sortie de --pair).
 // Le nom de la machine n'est pas dans le code : il reste vide.
-func parsePairCode(code string) (syncPeer, error) {
+func ParsePairCode(code string) (Peer, error) {
 	const scheme = "wsq://"
 	if !strings.HasPrefix(code, scheme) {
-		return syncPeer{}, errors.New("code d'association : il doit commencer par wsq://")
+		return Peer{}, errors.New("code d'association : il doit commencer par wsq://")
 	}
 	rest, fp, ok := strings.Cut(code[len(scheme):], "#")
 	if !ok {
-		return syncPeer{}, errors.New("code d'association : empreinte (#…) absente")
+		return Peer{}, errors.New("code d'association : empreinte (#…) absente")
 	}
 	token, hostPort, ok := strings.Cut(rest, "@")
 	if !ok || token == "" {
-		return syncPeer{}, errors.New("code d'association : jeton (wsq://JETON@…) absent")
+		return Peer{}, errors.New("code d'association : jeton (wsq://JETON@…) absent")
 	}
 	if !pairTokenRe.MatchString(token) {
-		return syncPeer{}, errors.New("code d'association : jeton mal formé")
+		return Peer{}, errors.New("code d'association : jeton mal formé")
 	}
 	host, portStr, err := net.SplitHostPort(hostPort)
 	if err != nil || host == "" {
-		return syncPeer{}, errors.New("code d'association : hôte:port attendu")
+		return Peer{}, errors.New("code d'association : hôte:port attendu")
 	}
 	port, err := strconv.Atoi(portStr)
 	if err != nil || port < 1 || port > 65535 {
-		return syncPeer{}, errors.New("code d'association : port invalide")
+		return Peer{}, errors.New("code d'association : port invalide")
 	}
 	if !pairFPRe.MatchString(fp) {
-		return syncPeer{}, errors.New("code d'association : empreinte invalide (64 caractères hexadécimaux)")
+		return Peer{}, errors.New("code d'association : empreinte invalide (64 caractères hexadécimaux)")
 	}
-	return syncPeer{
+	return Peer{
 		URL:         "https://" + net.JoinHostPort(host, portStr),
 		Token:       token,
 		Fingerprint: strings.ToUpper(fp),
 	}, nil
 }
 
-// managerURL : adresse du manager telle qu'elle est gardée, https://hôte:port (port obligatoire, sans
+// ManagerURL : adresse du manager telle qu'elle est gardée, https://hôte:port (port obligatoire, sans
 // chemin ni requête). Erreur sinon.
-func managerURL(raw string) (string, error) {
+func ManagerURL(raw string) (string, error) {
 	const msg = "adresse du manager : https://hôte:port attendue"
 	u, err := url.Parse(raw)
 	if err != nil || u.Scheme != "https" || u.Hostname() == "" || u.User != nil || u.RawQuery != "" ||
@@ -161,11 +167,11 @@ func managerURL(raw string) (string, error) {
 	return "https://" + u.Host, nil
 }
 
-// errSyncBusy : un jeu est en cours d'utilisation sur la machine distante (409).
-var errSyncBusy = errors.New("jeu en cours sur la machine distante")
+// ErrBusy : un jeu est en cours d'utilisation sur la machine distante (409).
+var ErrBusy = errors.New("jeu en cours sur la machine distante")
 
-// errCertPin : le certificat distant n'a pas l'empreinte du code d'association.
-var errCertPin = errors.New("empreinte du certificat différente")
+// ErrCertPin : le certificat distant n'a pas l'empreinte du code d'association.
+var ErrCertPin = errors.New("empreinte du certificat différente")
 
 // unreachableError : la machine distante ne répond pas (réseau, délai, serveur arrêté).
 type unreachableError struct{ err error }
@@ -173,46 +179,63 @@ type unreachableError struct{ err error }
 func (e *unreachableError) Error() string { return "machine injoignable : " + e.err.Error() }
 func (e *unreachableError) Unwrap() error { return e.err }
 
-// isUnreachable : vrai si la machine distante est injoignable (et non refusante).
-func isUnreachable(err error) bool {
+// IsUnreachable : vrai si la machine distante est injoignable (et non refusante).
+func IsUnreachable(err error) bool {
 	var u *unreachableError
 	return errors.As(err, &u)
 }
 
-// syncClient : client HTTPS d'une machine distante ; id est celui de cette machine.
-type syncClient struct {
-	peer syncPeer
+// Client : client HTTPS d'une machine distante ; id est celui de cette machine.
+type Client struct {
+	s    *Syncer
+	peer Peer
 	id   string
 	http *http.Client
-	slow *http.Client // réception d'une archive : en-têtes attendus plus longtemps (syncFetchHeaderTimeout)
+	slow *http.Client // réception d'une archive : en-têtes attendus plus longtemps (Env.FetchHeaderTimeout)
 }
 
-// syncHeaderTimeout : attente des en-têtes d'une réponse ; au-delà, la machine est dite
-// injoignable. Variable pour les tests.
-var syncHeaderTimeout = 30 * time.Second
+// Délais par défaut (Env.HeaderTimeout, Env.FetchHeaderTimeout) : attente des en-têtes d'une réponse,
+// au-delà de laquelle la machine est dite injoignable ; et, pour la seule réception d'une archive
+// (GET /v1/saves/tar), plus longue : l'agent écrit toute l'archive avant de répondre, une grosse
+// sauvegarde est longue à compresser.
+const (
+	defaultHeaderTimeout      = 30 * time.Second
+	defaultFetchHeaderTimeout = 10 * time.Minute
+)
 
-// syncFetchHeaderTimeout : attente des en-têtes pour la seule réception d'une archive
-// (GET /v1/saves/tar) : l'agent écrit toute l'archive avant de répondre, une grosse sauvegarde
-// est longue à compresser. Variable pour les tests.
-var syncFetchHeaderTimeout = 10 * time.Minute
-
-// remoteSave : une entrée de /v1/saves/list (côté client).
-// (Le type est partagé avec la route : voir saves_http.go.)
-
-// newSyncClient : client pour une machine distante (délai de connexion de 3 s). Voir newSyncClientDial.
-func newSyncClient(peer syncPeer, id string) *syncClient {
-	return newSyncClientDial(peer, id, 3*time.Second)
+// RemoteSave : un jeu tel que la machine le voit pour la synchro (routes /v1/saves/list, partagées
+// entre l'agent qui la sert et ce client).
+type RemoteSave struct {
+	Name        string `json:"name"`
+	Label       string `json:"label,omitempty"` // dossier déclaré, jeu Switch : nom lisible
+	Dir         string `json:"dir,omitempty"`   // dossier déclaré : chemin à partir de HOME (propagé à la cible)
+	Fingerprint string `json:"fingerprint"`
+	Content     string `json:"content"` // empreinte de contenu, sans les dates ("" : inconnue)
+	Newest      int64  `json:"newest"`
+	Size        int64  `json:"size"`
+	State       string `json:"state"`
 }
 
-// newSyncClientDial : newSyncClient avec le délai de connexion donné (sortie de jeu : court, sync_auto.go).
+// StateRequest : corps de POST /v1/saves/state (confirmation de l'empreinte commune).
+type StateRequest struct {
+	Game        string `json:"game"`
+	Fingerprint string `json:"fingerprint"`
+}
+
+// NewClient : client pour une machine distante (délai de connexion de 3 s). Voir NewClientDial.
+func (s *Syncer) NewClient(peer Peer, id string) *Client {
+	return s.NewClientDial(peer, id, 3*time.Second)
+}
+
+// NewClientDial : NewClient avec le délai de connexion donné (sortie de jeu : court, sync_auto.go).
 // TLS 1.3 ; le certificat est accepté si son empreinte SHA-256 (DER) est celle du code d'association.
-func newSyncClientDial(peer syncPeer, id string, dial time.Duration) *syncClient {
+func (s *Syncer) NewClientDial(peer Peer, id string, dial time.Duration) *Client {
 	want := strings.ToUpper(peer.Fingerprint)
 	tr := &http.Transport{
 		Proxy:                 nil, // réseau local : pas de proxy d'environnement
 		DialContext:           (&net.Dialer{Timeout: dial}).DialContext,
 		TLSHandshakeTimeout:   5 * time.Second,
-		ResponseHeaderTimeout: syncHeaderTimeout,
+		ResponseHeaderTimeout: orDuration(s.env.HeaderTimeout, defaultHeaderTimeout),
 		TLSClientConfig: &tls.Config{
 			MinVersion: tls.VersionTLS13,
 			// La chaîne de confiance n'existe pas (certificat auto-signé) : c'est l'empreinte
@@ -220,11 +243,11 @@ func newSyncClientDial(peer syncPeer, id string, dial time.Duration) *syncClient
 			InsecureSkipVerify: true,
 			VerifyPeerCertificate: func(raw [][]byte, _ [][]*x509.Certificate) error {
 				if len(raw) == 0 {
-					return errCertPin
+					return ErrCertPin
 				}
 				sum := sha256.Sum256(raw[0])
 				if strings.ToUpper(hex.EncodeToString(sum[:])) != want {
-					return errCertPin
+					return ErrCertPin
 				}
 				return nil
 			},
@@ -232,26 +255,26 @@ func newSyncClientDial(peer syncPeer, id string, dial time.Duration) *syncClient
 	}
 	// Même transport, seul le délai des en-têtes change.
 	slow := tr.Clone()
-	slow.ResponseHeaderTimeout = syncFetchHeaderTimeout
-	return &syncClient{peer: peer, id: id, http: &http.Client{Transport: tr}, slow: &http.Client{Transport: slow}}
+	slow.ResponseHeaderTimeout = orDuration(s.env.FetchHeaderTimeout, defaultFetchHeaderTimeout)
+	return &Client{s: s, peer: peer, id: id, http: &http.Client{Transport: tr}, slow: &http.Client{Transport: slow}}
 }
 
 // label : nom de la machine pour les messages (le nom, à défaut l'adresse).
-func (c *syncClient) label() string {
+func (c *Client) label() string {
 	if c.peer.Name != "" {
 		return c.peer.Name
 	}
 	return c.peer.URL
 }
 
-// do : requête authentifiée. Un statut autre que 200 devient une erreur (statusError).
+// Do : requête authentifiée. Un statut autre que 200 devient une erreur (statusError).
 // body et headers sont facultatifs ; le corps peut être un flux.
-func (c *syncClient) do(method, path string, query url.Values, body io.Reader, headers map[string]string) (*http.Response, error) {
+func (c *Client) Do(method, path string, query url.Values, body io.Reader, headers map[string]string) (*http.Response, error) {
 	return c.doWith(c.http, method, path, query, body, headers)
 }
 
 // doWith : do avec le client donné (c.http, ou c.slow pour la réception d'une archive).
-func (c *syncClient) doWith(hc *http.Client, method, path string, query url.Values, body io.Reader, headers map[string]string) (*http.Response, error) {
+func (c *Client) doWith(hc *http.Client, method, path string, query url.Values, body io.Reader, headers map[string]string) (*http.Response, error) {
 	resp, err := c.raw(hc, method, path, query, body, headers)
 	if err != nil {
 		return nil, err
@@ -264,7 +287,7 @@ func (c *syncClient) doWith(hc *http.Client, method, path string, query url.Valu
 
 // raw : requête authentifiée, réponse rendue telle quelle (tout code de statut). Une machine qui ne
 // répond pas, ou un certificat qui n'a pas l'empreinte du code, sont des erreurs.
-func (c *syncClient) raw(hc *http.Client, method, path string, query url.Values, body io.Reader, headers map[string]string) (*http.Response, error) {
+func (c *Client) raw(hc *http.Client, method, path string, query url.Values, body io.Reader, headers map[string]string) (*http.Response, error) {
 	u := c.peer.URL + path
 	if query != nil {
 		u += "?" + query.Encode()
@@ -280,7 +303,7 @@ func (c *syncClient) raw(hc *http.Client, method, path string, query url.Values,
 	}
 	resp, err := hc.Do(req)
 	if err != nil {
-		if errors.Is(err, errCertPin) {
+		if errors.Is(err, ErrCertPin) {
 			return nil, fmt.Errorf("%s : empreinte du certificat différente (machine réinstallée ? refaire --pair puis --sync wsq://…)", c.label())
 		}
 		return nil, &unreachableError{err: err}
@@ -288,11 +311,11 @@ func (c *syncClient) raw(hc *http.Client, method, path string, query url.Values,
 	return resp, nil
 }
 
-// errPairCode : le code d'association est refusé (expiré, déjà utilisé, ou faux) : 401 de POST /v1/pair.
-var errPairCode = errors.New("code d'association expiré ou déjà utilisé : relancer --pair sur l'autre machine")
+// ErrPairCode : le code d'association est refusé (expiré, déjà utilisé, ou faux) : 401 de POST /v1/pair.
+var ErrPairCode = errors.New("code d'association expiré ou déjà utilisé : relancer --pair sur l'autre machine")
 
-// errPairOld : l'autre machine n'a pas la route d'association : son lanceur est trop ancien.
-var errPairOld = errors.New("lanceur trop ancien sur l'autre machine : --update là-bas, puis --pair")
+// ErrPairOld : l'autre machine n'a pas la route d'association : son lanceur est trop ancien.
+var ErrPairOld = errors.New("lanceur trop ancien sur l'autre machine : --update là-bas, puis --pair")
 
 // pairReply : réponse de POST /v1/pair : le jeton durable de cette machine et le nom d'hôte distant.
 type pairReply struct {
@@ -302,7 +325,7 @@ type pairReply struct {
 
 // pair : échange le code d'association (le secret, dans c.peer.Token) contre un jeton durable propre à
 // cette machine. Le nom d'hôte local est envoyé pour que l'autre machine l'affiche.
-func (c *syncClient) pair() (pairReply, error) {
+func (c *Client) Pair() (pairReply, error) {
 	name, _ := os.Hostname()
 	body, err := json.Marshal(map[string]string{"name": name})
 	if err != nil {
@@ -317,9 +340,9 @@ func (c *syncClient) pair() (pairReply, error) {
 	switch resp.StatusCode {
 	case http.StatusOK:
 	case http.StatusUnauthorized:
-		return pairReply{}, errPairCode
+		return pairReply{}, ErrPairCode
 	case http.StatusNotFound:
-		return pairReply{}, errPairOld
+		return pairReply{}, ErrPairOld
 	default:
 		return pairReply{}, c.statusError(resp)
 	}
@@ -334,7 +357,7 @@ func (c *syncClient) pair() (pairReply, error) {
 }
 
 // statusError : erreur d'une réponse non 200. Le corps est lu puis fermé.
-func (c *syncClient) statusError(resp *http.Response) error {
+func (c *Client) statusError(resp *http.Response) error {
 	defer resp.Body.Close()
 	var body struct {
 		Detail string `json:"detail"`
@@ -344,7 +367,7 @@ func (c *syncClient) statusError(resp *http.Response) error {
 	case resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden:
 		return fmt.Errorf("jeton refusé : refaire --pair sur %s puis --sync wsq://…", c.label())
 	case resp.StatusCode == http.StatusConflict && body.Detail == "jeu en cours":
-		return errSyncBusy
+		return ErrBusy
 	case body.Detail != "":
 		return fmt.Errorf("%s : %s", c.label(), body.Detail)
 	}
@@ -352,8 +375,8 @@ func (c *syncClient) statusError(resp *http.Response) error {
 }
 
 // info : nom de la machine distante (champ host de GET /v1/info).
-func (c *syncClient) info() (string, error) {
-	resp, err := c.do(http.MethodGet, "/v1/info", nil, nil, nil)
+func (c *Client) Info() (string, error) {
+	resp, err := c.Do(http.MethodGet, "/v1/info", nil, nil, nil)
 	if err != nil {
 		return "", err
 	}
@@ -368,14 +391,14 @@ func (c *syncClient) info() (string, error) {
 }
 
 // list : jeux de la machine distante, avec l'état enregistré pour cette machine.
-func (c *syncClient) list() ([]remoteSave, error) {
-	resp, err := c.do(http.MethodGet, "/v1/saves/list", nil, nil, nil)
+func (c *Client) List() ([]RemoteSave, error) {
+	resp, err := c.Do(http.MethodGet, "/v1/saves/list", nil, nil, nil)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 	var v struct {
-		Games []remoteSave `json:"games"`
+		Games []RemoteSave `json:"games"`
 	}
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 16<<20)).Decode(&v); err != nil {
 		return nil, fmt.Errorf("%s : liste illisible", c.label())
@@ -384,10 +407,10 @@ func (c *syncClient) list() ([]remoteSave, error) {
 }
 
 // fetch : reçoit les sauvegardes d'une cible (jeu, dossier, jeu Switch) de la machine distante et
-// les applique ici. L'archive est d'abord copiée dans un fichier temporaire (syncTempFile ; sa taille est annoncée :
+// les applique ici. L'archive est d'abord copiée dans un fichier temporaire (TempFile ; sa taille est annoncée :
 // une coupure est détectée avant toute modification). L'archivage de la version locale est à la
 // charge de l'appelant. Retourne l'empreinte distante.
-func (c *syncClient) fetch(t syncTarget) (string, error) {
+func (c *Client) Fetch(t Target) (string, error) {
 	// L'agent prépare toute l'archive avant de répondre : en-têtes attendus plus longtemps.
 	resp, err := c.doWith(c.slow, http.MethodGet, "/v1/saves/tar", url.Values{"game": {t.Name}}, nil, nil)
 	if err != nil {
@@ -396,7 +419,7 @@ func (c *syncClient) fetch(t syncTarget) (string, error) {
 	defer resp.Body.Close()
 	fp := resp.Header.Get("X-Wsq-Fingerprint")
 	profile := resp.Header.Get("X-Wsq-Profile")
-	tmp, err := syncTempFile("wsq-recu-*.tar.gz")
+	tmp, err := c.s.TempFile("wsq-recu-*.tar.gz")
 	if err != nil {
 		return "", err
 	}
@@ -404,17 +427,17 @@ func (c *syncClient) fetch(t syncTarget) (string, error) {
 	defer tmp.Close()
 	// Même limite que celle de l'agent pour une archive envoyée : une machine distante ne remplit
 	// pas le disque d'ici.
-	n, err := io.Copy(tmp, io.LimitReader(resp.Body, syncMaxBody+1))
+	n, err := io.Copy(tmp, io.LimitReader(resp.Body, c.s.maxBody()+1))
 	if err != nil {
 		return "", fmt.Errorf("%s : transfert interrompu : %w", c.label(), err)
 	}
-	if n > syncMaxBody {
-		return "", fmt.Errorf("%s : archive trop volumineuse (plus de %s)", c.label(), ui.SizeText(syncMaxBody))
+	if n > c.s.maxBody() {
+		return "", fmt.Errorf("%s : archive trop volumineuse (plus de %s)", c.label(), ui.SizeText(c.s.maxBody()))
 	}
 	if _, err := tmp.Seek(0, io.SeekStart); err != nil {
 		return "", err
 	}
-	if err := t.apply(tmp, profile); err != nil {
+	if err := t.Apply(tmp, profile); err != nil {
 		return "", fmt.Errorf("archive reçue refusée : %w", err)
 	}
 	return fp, nil
@@ -423,35 +446,35 @@ func (c *syncClient) fetch(t syncTarget) (string, error) {
 // send : envoie les sauvegardes locales d'une cible à la machine distante, qui remplace les siennes.
 // Retourne l'empreinte distante après remplacement et le chemin de l'archive de la version
 // distante si elle a été mise de côté ("" sinon).
-func (c *syncClient) send(t syncTarget) (string, string, error) {
-	files := t.files()
+func (c *Client) Send(t Target) (string, string, error) {
+	files := t.Files()
 	if len(files) == 0 {
 		return "", "", errors.New("rien à envoyer : aucune sauvegarde locale")
 	}
 	// Empreinte, taille des fichiers et date du plus récent : l'agent les ignore, le manager les garde
 	// (état de synchro, et les valeurs qui départagent un conflit, comme dans la liste d'un agent).
 	headers := map[string]string{
-		"X-Wsq-Fingerprint": t.fingerprint(files),
-		"X-Wsq-Content":     t.content(files),
-		"X-Wsq-Size":        strconv.FormatInt(saveSize(files), 10),
-		"X-Wsq-Newest":      strconv.FormatInt(newestSave(files), 10),
+		"X-Wsq-Fingerprint": t.Fingerprint(files),
+		"X-Wsq-Content":     t.Content(files),
+		"X-Wsq-Size":        strconv.FormatInt(SaveSize(files), 10),
+		"X-Wsq-Newest":      strconv.FormatInt(NewestSave(files), 10),
 	}
 	if !t.Plain {
 		if profs := fileProfiles(files); len(profs) == 1 {
 			headers["X-Wsq-Profile"] = profs[0]
 		}
 	}
-	if rel := t.relDir(); rel != "" {
-		headers[syncDirHeader] = url.PathEscape(rel) // la cible le déclare si elle ne l'a pas
+	if rel := t.RelDir(); rel != "" {
+		headers[DirHeader] = url.PathEscape(rel) // la cible le déclare si elle ne l'a pas
 	}
 	pr, pw := io.Pipe()
 	werrCh := make(chan error, 1)
 	go func() {
-		_, err := t.writeArchive(pw, files)
+		_, err := t.WriteArchive(pw, files)
 		_ = pw.CloseWithError(err)
 		werrCh <- err
 	}()
-	resp, err := c.do(http.MethodPut, "/v1/saves/tar", url.Values{"game": {t.Name}}, pr, headers)
+	resp, err := c.Do(http.MethodPut, "/v1/saves/tar", url.Values{"game": {t.Name}}, pr, headers)
 	// Libère l'écrivain s'il attend encore la lecture (réponse reçue avant la fin du corps).
 	_ = pr.Close()
 	if werr := <-werrCh; werr != nil && !errors.Is(werr, io.ErrClosedPipe) {
@@ -472,12 +495,12 @@ func (c *syncClient) send(t syncTarget) (string, string, error) {
 }
 
 // ack : confirme à la machine distante l'empreinte commune après une réception.
-func (c *syncClient) ack(game, fp string) error {
-	body, err := json.Marshal(syncStateRequest{Game: game, Fingerprint: fp})
+func (c *Client) Ack(game, fp string) error {
+	body, err := json.Marshal(StateRequest{Game: game, Fingerprint: fp})
 	if err != nil {
 		return fmt.Errorf("encodage de l'état de synchro : %w", err)
 	}
-	resp, err := c.do(http.MethodPost, "/v1/saves/state", nil, bytes.NewReader(body),
+	resp, err := c.Do(http.MethodPost, "/v1/saves/state", nil, bytes.NewReader(body),
 		map[string]string{"Content-Type": "application/json"})
 	if err != nil {
 		return err
