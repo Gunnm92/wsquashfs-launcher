@@ -48,8 +48,11 @@ if [[ -n "$local_bin" && -f "$local_bin" ]]; then
     if [[ "$dry_run" == true ]]; then
         echo "[simulation] copie de ${local_bin} vers ${BIN}"
     else
-        mkdir -p "$BIN_DIR" && cp "$local_bin" "${BIN}.new" && chmod 755 "${BIN}.new" \
-            && mv -f "${BIN}.new" "$BIN" || { echo "Erreur : copie de ${local_bin} impossible" >&2; exit 1; }
+        if ! { mkdir -p "$BIN_DIR" && cp "$local_bin" "${BIN}.new" && chmod 755 "${BIN}.new" \
+            && mv -f "${BIN}.new" "$BIN"; }; then
+            echo "Erreur : copie de ${local_bin} impossible" >&2
+            exit 1
+        fi
     fi
 elif [[ ! -x "$BIN" ]]; then
     if [[ "$dry_run" == true ]]; then
@@ -71,7 +74,10 @@ elif [[ ! -x "$BIN" ]]; then
             echo "Erreur : fichier téléchargé invalide (binaire attendu)" >&2
             exit 1
         fi
-        chmod 755 "$tmp" && mv -f "$tmp" "$BIN" || { rm -f "$tmp"; exit 1; }
+        if ! { chmod 755 "$tmp" && mv -f "$tmp" "$BIN"; }; then
+            rm -f "$tmp"
+            exit 1
+        fi
     fi
 fi
 

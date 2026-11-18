@@ -229,7 +229,7 @@ for d in "${path_dirs[@]}"; do
     for f in "$d"/*; do
         name=${f##*/}
         [[ -x "$f" && ! -d "$f" && ! -e "${SYSBIN}/${name}" ]] || continue
-        case "$name" in wine*|proton*|umu-run|winetricks) continue ;; esac
+        case "$name" in wine*|proton*|umu-run) continue ;; esac
         ln -s "$f" "${SYSBIN}/${name}"
     done
 done
@@ -409,6 +409,25 @@ note() {
     echo "## $*" >> "$OUT"
 }
 
+# names_in <dossier> : noms visibles du dossier, un par ligne, triés comme ls
+# (glob plutôt que ls, SC2012) ; rien si le dossier est absent ou vide.
+names_in() {
+    local f
+    for f in "$1"/*; do
+        [[ -e "$f" || -L "$f" ]] && printf '%s\n' "${f##*/}"
+    done
+    return 0
+}
+
+# existing_rel <chemin...> : chemins existants, relatifs à $ROOT, triés comme
+# ls -d et séparés par des espaces (remplace ls -d … | sed "s|$ROOT/||").
+existing_rel() {
+    local p
+    for p in "$@"; do
+        [[ -e "$p" ]] && printf '%s\n' "${p#"$ROOT"/}"
+    done | sort | paste -sd ' '
+}
+
 mounted() {
     if mountpoint -q "$1"; then echo "monté"; else echo "non monté"; fi
 }
@@ -492,13 +511,13 @@ cp -a "$S" "$ROMS/Folder Game.pc"
 before=$(cd "$ROMS/Folder Game.pc" && find . -printf '%p %s\n' | sort | md5sum)
 step folder-pc     env WSQUASHFS_UMU=0 "$L" "$ROMS/Folder Game.pc"
 note "dossier .pc après le lancement : $([[ "$(cd "$ROMS/Folder Game.pc" && find . -printf '%p %s\n' | sort | md5sum)" == "$before" ]] && echo inchangé || echo MODIFIÉ)"
-note "sauvegardes : $(ls -d "$ROOT/saves/Folder Game" 2>/dev/null | sed "s|$ROOT/||")"
+note "sauvegardes : $(existing_rel "$ROOT/saves/Folder Game")"
 step folder-pc-mount "$L" --mount "$ROMS/Folder Game.pc"
 note "Folder Game pendant --mount : $(mounted "${ROOT}/cache/wine/Folder Game")"
 step folder-pc-umount "$L" --umount "$ROMS/Folder Game.pc"
 step folder-pc-show "$L" --show "$ROMS/Folder Game.pc"
 step folder-pc-pack "$L" --pack "$ROMS/Folder Game.pc"
-note "image du dossier .pc : $(ls "$ROMS" | grep '^Folder Game' | paste -sd ' ')"
+note "image du dossier .pc : $(names_in "$ROMS" | grep '^Folder Game' | paste -sd ' ')"
 rm -f "$ROMS/Folder Game.wsquashfs"
 rm -rf "$ROMS/Folder Game.pc" "$ROOT/saves/Folder Game" "$ROOT/saves/.images/Folder Game" \
        "$ROOT/cache/mnt/Folder Game" "$ROOT/cache/wine/Folder Game" "$ROOT/cache/locks/Folder Game.lock"
@@ -512,7 +531,7 @@ printf 'MZ' > "$RG/_CommonRedist/vcredist_x64.exe"
 before=$(cd "$RG" && find . -printf '%p %s\n' | sort | md5sum)
 step raw-one       env WSQUASHFS_UMU=0 "$L" "$RG"
 note "dossier brut après le lancement : $([[ "$(cd "$RG" && find . -printf '%p %s\n' | sort | md5sum)" == "$before" ]] && echo inchangé || echo MODIFIÉ)"
-note "sauvegardes : $(ls -d "$ROOT/saves/Raw Game" "$ROOT/saves/.images/Raw Game" 2>/dev/null | sed "s|$ROOT/||" | paste -sd ' ')"
+note "sauvegardes : $(existing_rel "$ROOT/saves/Raw Game" "$ROOT/saves/.images/Raw Game")"
 note "mémo sans doute : $([[ -e "$RG.autorun" ]] && echo écrit || echo absent)"
 # Deux candidats : doute, mémo écrit à côté (le plus proche du nom), puis relu.
 printf 'MZ' > "$RG/game/other.exe"
@@ -616,13 +635,13 @@ snapshot before-clean
 step clean         "$L" --clean
 snapshot after-clean
 # Noms réels (non normalisés) : c'est le choix des archives gardées qui compte.
-echo "## archives après --clean : $(ls "$BACKUPS" 2>/dev/null | paste -sd ' ')" >> "$OUT"
+echo "## archives après --clean : $(names_in "$BACKUPS" | paste -sd ' ')" >> "$OUT"
 rm -rf "$BACKUPS"
 step clear-one     "$L" --clear "Solo Game"
 step clear-none    "$L" --clear "Unknown"
 step clear-all     "$L" --clear
 snapshot after-clear
-note "archives après --clear : $(ls "$BACKUPS" 2>/dev/null | wc -l)"
+note "archives après --clear : $(names_in "$BACKUPS" | wc -l)"
 step list-after-clear "$L" --list
 step umount-all    "$L" --umount
 
@@ -641,7 +660,7 @@ note "sauvegarde après --clean puis relance : $(cat "$ROOT/cache/wine/Arcade Ga
 touch -d '2030-01-01' "$ROMS/Arcade Game.wsquashfs"
 step copy4         env FAIL_OVERLAY=1 WSQUASHFS_UMU=0 "$L" "$ROMS/Arcade Game.wsquashfs"
 note "sauvegarde après changement d'image : $(cat "$ROOT/cache/wine/Arcade Game/drive_c/users/steamuser/Documents/slot1.sav" 2>&1)"
-note "mises de côté restantes : $(ls "$ROOT/cache/copy-users" 2>/dev/null | wc -l)"
+note "mises de côté restantes : $(names_in "$ROOT/cache/copy-users" | wc -l)"
 
 # Jeu en cours, reconnu par son WINEPREFIX : chemin par défaut
 # (…/wsquashfs/wine) et chemin du CACHE_DIR personnalisé.
@@ -791,7 +810,7 @@ note "contenu de l'archive : $(tar -tf "$BACKUPS"/Arcade\ Game-*.tar.zst 2>&1 | 
 step erase-none    "$L" --erase "Unknown"
 step erase-all     "$L" --erase
 snapshot after-erase
-note "archives après --erase : $(ls "$BACKUPS" 2>/dev/null | normalize | paste -sd ' ')"
+note "archives après --erase : $(names_in "$BACKUPS" | normalize | paste -sd ' ')"
 
 # ── Synchro entre machines (--sync) ────────────────────────────────────
 #
@@ -863,7 +882,7 @@ sync_step sync-unknown A --sync "Inconnu"
 echo partie-B > "$ROOT/syncB/saves/Sync Game/drive_c/users/steamuser/Documents/y.sav"
 sync_step sync-receive A --sync "Sync Game"
 note "A après réception : $(sync_files A)"
-note "archives de conflit : $(ls "$ROOT/syncA/backups" 2>/dev/null | wc -l)"
+note "archives de conflit : $(names_in "$ROOT/syncA/backups" | wc -l)"
 # Les deux jouent sans synchro : la version la plus LOURDE gagne, même plus ancienne. B réécrit
 # y.sav en 4 Ko daté de 2026-01-01 ; A réécrit x.sav (10 octets, maintenant) : B gagne, A archive
 # sa version (sur A) et reçoit celle de B. Sur B, rien n'est archivé.
@@ -872,9 +891,9 @@ touch -d '2026-01-01 12:00' "$ROOT/syncB/saves/Sync Game/drive_c/users/steamuser
 echo partie-A2 > "$ROOT/syncA/saves/Sync Game/drive_c/users/steamuser/Documents/x.sav"
 sync_step sync-conflict A --sync
 note "A après conflit (B doit gagner) : y.sav = $(wc -c < "$ROOT/syncA/saves/Sync Game/drive_c/users/steamuser/Documents/y.sav") octets, x.sav = $(cat "$ROOT/syncA/saves/Sync Game/drive_c/users/steamuser/Documents/x.sav")"
-note "archives sur A après conflit : $(ls "$ROOT/syncA/backups" 2>/dev/null | normalize | paste -sd ' ')"
+note "archives sur A après conflit : $(names_in "$ROOT/syncA/backups" | normalize | paste -sd ' ')"
 note "B après conflit : y.sav = $(wc -c < "$ROOT/syncB/saves/Sync Game/drive_c/users/steamuser/Documents/y.sav") octets, x.sav = $(cat "$ROOT/syncB/saves/Sync Game/drive_c/users/steamuser/Documents/x.sav")"
-note "archives sur B : $(ls "$ROOT/syncB/backups" 2>/dev/null | normalize | paste -sd ' ')"
+note "archives sur B : $(names_in "$ROOT/syncB/backups" | normalize | paste -sd ' ')"
 sync_step sync-forget  A --sync forget "$SYNC_NAME"
 sync_step sync-none    A --sync
 
@@ -947,6 +966,7 @@ if [[ -z "$KERNEL_SKIP" ]]; then
     # Namespace refusé (conteneur sans seccomp ouvert...) : repli, ou erreur
     # si l'overlay noyau est imposé.
     mkdir -p "$ROOT/nons"
+    # shellcheck disable=SC2016  # $1 du faux unshare, pas à développer ici
     printf '#!/bin/bash\n[[ "$1" == --help ]] && exec %s --help\necho "unshare: unshare failed: Operation not permitted" >&2\nexit 1\n' \
         "$(command -v unshare)" > "$ROOT/nons/unshare"
     chmod +x "$ROOT/nons/unshare"
