@@ -470,3 +470,33 @@ func TestSetupOptionsWithoutDashes(t *testing.T) {
 		t.Errorf("--setup help : code %d", code)
 	}
 }
+
+// TestImageRunnerFolderOverlay : dossier .pc en overlay (18/11) — le runner
+// joint (runners/) est cherché dans le dossier lui-même, pas dans cache/mnt
+// (jamais monté pour un dossier) ; sinon le Proton de la machine était pris.
+func TestImageRunnerFolderOverlay(t *testing.T) {
+	isolateSaves(t)
+	pc := filepath.Join(t.TempDir(), "Jeu.pc")
+	writeTree(t, pc, map[string]string{
+		"autorun.cmd":                           "CMD=jeu.exe\r\nPROTON=MonProton-11.0\r\n",
+		"runners/MonProton-11.0/proton":         "#!/bin/sh\n",
+		"runners/MonProton-11.0/files/bin/wine": "#!/bin/sh\n",
+	})
+	if err := os.Chmod(filepath.Join(pc, "runners/MonProton-11.0/files/bin/wine"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	launch.wsquashfsFile = pc
+	launch.folderOverlay = true
+	initGamePaths()
+	launch.mountMode = "overlay"
+	launch.protonVersion = "MonProton-11.0"
+
+	if got := imageRoot(); got != pc {
+		t.Fatalf("imageRoot = %q, attendu le dossier %q", got, pc)
+	}
+	resolveImageRunner()
+	want := filepath.Join(pc, "runners/MonProton-11.0/files/bin/wine")
+	if launch.imageRunner != want {
+		t.Fatalf("imageRunner = %q, attendu %q", launch.imageRunner, want)
+	}
+}

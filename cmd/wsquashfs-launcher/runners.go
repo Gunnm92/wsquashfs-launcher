@@ -333,8 +333,13 @@ func protonDirOf(bin string) string {
 // ── Runner joint à l'image ─────────────────────────────────────────────
 
 // imageRoot : racine de l'image en lecture seule (l'image montée, ou le prefix
-// en mode copy ou dossier).
+// en mode copy ou dossier). Dossier .pc ou brut en overlay (18/11) : le
+// dossier lui-même — cache/mnt n'est jamais monté pour lui, et le runner joint
+// (runners/) n'était pas vu : le Proton de la machine était pris à sa place.
 func imageRoot() string {
+	if launch.folderOverlay {
+		return launch.wsquashfsFile
+	}
 	if launch.mountMode == "overlay" && launch.squashfsPoint != "" {
 		return launch.squashfsPoint
 	}
