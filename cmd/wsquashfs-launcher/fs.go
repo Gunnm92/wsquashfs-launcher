@@ -77,3 +77,35 @@ func squashfsCat(image, file string) string {
 	}
 	return string(out)
 }
+
+// isFile : fichier ordinaire (test -f).
+func isFile(p string) bool {
+	st, err := os.Stat(p)
+	return err == nil && st.Mode().IsRegular()
+}
+
+// isExecutable : fichier ordinaire exécutable (test -x).
+func isExecutable(p string) bool {
+	st, err := os.Stat(p)
+	return err == nil && st.Mode().IsRegular() && st.Mode().Perm()&0o111 != 0
+}
+
+// pathExists : le chemin existe (un lien cassé compte).
+func pathExists(p string) bool {
+	_, err := os.Lstat(p)
+	return err == nil
+}
+
+// runCmd exécute une commande avec le terminal pour sortie et entrée.
+func runCmd(name string, args ...string) error {
+	cmd := exec.Command(name, args...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+// cmdOK : vrai si la commande réussit (sortie ignorée).
+func cmdOK(name string, args ...string) bool {
+	return execQuiet(name, args...) == nil
+}

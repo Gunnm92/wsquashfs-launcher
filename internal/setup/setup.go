@@ -1,8 +1,11 @@
-package main
+// Package setup : installeur intégré (--setup), qui porte install.sh. Paquets
+// système, runners Wine et Proton, DXVK/VKD3D/d7vk, NVAPI, FSR4, lanceur, type
+// MIME, entrée de bureau, PATH, complétion bash et désinstallation. Le paquet
+// n'arrête jamais le processus : Run renvoie le code de sortie.
+package setup
 
-// Installeur intégré (--setup) : porte install.sh. Sections 8 (lanceur, MIME,
-// bureau, PATH), 8b (agent pour wsquashfs-manager), 9 (désinstallation) et
-// 10 (enchaînement).
+// Sections 8 (lanceur, MIME, bureau, PATH), 8b (agent pour wsquashfs-manager),
+// 9 (désinstallation) et 10 (enchaînement) de install.sh.
 
 import (
 	"errors"
@@ -13,8 +16,25 @@ import (
 	"strconv"
 	"strings"
 
+	"wsquashfs-launcher/internal/download"
+	"wsquashfs-launcher/internal/filetree"
 	"wsquashfs-launcher/internal/ui"
 )
+
+// Env : ce que l'installeur reçoit du lanceur.
+type Env struct {
+	AgentDir         string      // dossier de configuration de l'agent (conservé à la désinstallation)
+	TrayAutostart    string      // fichier de lancement automatique de l'icône de notification
+	CoverPath        string      // illustration dans l'image, lue par le fichier de miniatures
+	CompletionScript string      // script de complétion bash
+	RemoveAgentUnits func() bool // retire le démarrage systemd des anciennes versions de l'agent
+}
+
+// ShortName : nom court du lanceur (« ws --update »), lien vers le binaire installé.
+const ShortName = "ws"
+
+// env : réglages de l'exécution en cours (fixés par Run).
+var env Env
 
 // Emplacements (install.sh, section 1).
 var (
@@ -70,7 +90,7 @@ func installRepoFile(rel, dest string) error {
 		return err
 	}
 	tmp := fmt.Sprintf("%s.new.%d", dest, os.Getpid())
-	if err := downloadTo("https://raw.githubusercontent.com/Gunnm92/wsquashfs-launcher/main/"+rel, tmp); err != nil {
+	if err := download.File("https://raw.githubusercontent.com/Gunnm92/wsquashfs-launcher/main/"+rel, tmp); err != nil {
 		os.Remove(tmp)
 		setupErr("Téléchargement de " + rel + " impossible")
 		return err
@@ -97,7 +117,7 @@ func installSelf(dest string) error {
 		return err
 	}
 	tmp := fmt.Sprintf("%s.new.%d", dest, os.Getpid())
-	if err := copyFile(exePath(), tmp, 0o755); err != nil {
+	if err := filetree.CopyFile(exePath(), tmp, 0o755); err != nil {
 		os.Remove(tmp)
 		return err
 	}
@@ -110,9 +130,6 @@ func sameFile(a, b string) bool {
 	sb, errB := os.Stat(b)
 	return errA == nil && errB == nil && os.SameFile(sa, sb)
 }
-
-// shortName : nom court du lanceur (« ws --update »), lien vers le binaire installé.
-const shortName = "ws"
 
 // shortNameTaken : « ws » est déjà une autre commande (fichier, lien étranger
 // dans installDir, ou commande du PATH).
@@ -139,7 +156,7 @@ func isOwnShortName(link, target string) bool {
 // false s'il est déjà notre lien, shortNameTaken s'il est pris par une autre
 // commande (dans installDir ou ailleurs dans le PATH).
 func checkShortName(installDir, target string) (bool, error) {
-	link := filepath.Join(installDir, shortName)
+	link := filepath.Join(installDir, ShortName)
 	if _, err := os.Lstat(link); err == nil {
 		if isOwnShortName(link, target) {
 			return false, nil
@@ -150,7 +167,7 @@ func checkShortName(installDir, target string) (bool, error) {
 		}
 		return false, shortNameTaken{by: by}
 	}
-	if found, err := exec.LookPath(shortName); err == nil && !sameFile(found, target) {
+	if found, err := exec.LookPath(ShortName); err == nil && !sameFile(found, target) {
 		return false, shortNameTaken{by: found}
 	}
 	return true, nil
@@ -168,13 +185,13 @@ func installShortName(installDir, target string) (bool, error) {
 	if filepath.Dir(target) == installDir {
 		dst = filepath.Base(target)
 	}
-	return true, os.Symlink(dst, filepath.Join(installDir, shortName))
+	return true, os.Symlink(dst, filepath.Join(installDir, ShortName))
 }
 
 // installShortNameLink : étape Lanceur, après le binaire. En simulation, rien
 // n'est écrit : seulement ce qui serait fait ou ce qui bloque.
 func installShortNameLink(target string) {
-	link := filepath.Join(installDir, shortName)
+	link := filepath.Join(installDir, ShortName)
 	if dryRun {
 		created, err := checkShortName(installDir, target)
 		var taken shortNameTaken
@@ -217,7 +234,7 @@ func installBridge(dest string) error {
 		return nil
 	}
 	tmp := fmt.Sprintf("%s.new.%d", dest, os.Getpid())
-	if err := copyFile(local, tmp, 0o755); err != nil {
+	if err := filetree.CopyFile(local, tmp, 0o755); err != nil {
 		os.Remove(tmp)
 		return err
 	}
@@ -283,11 +300,6 @@ func createMimeType() {
 	createThumbnailer()
 }
 
-// imageCoverPath : illustration du jeu dans l'image (jaquette ou icône, tout
-// format lu par gdk-pixbuf : PNG, JPEG, ICO, WebP), déposée par --pack (depuis
-// le dossier source) ou par la reconstruction du manager.
-const imageCoverPath = ".wsquashfs/cover"
-
 // thumbnailerFile : miniatures des .wsquashfs (spécification freedesktop, lue
 // par tumbler sous XFCE, Nautilus, Nemo, Caja ; pas par Dolphin).
 func thumbnailerFile() string {
@@ -301,7 +313,7 @@ func thumbnailerFile() string {
 func thumbnailerContent() string {
 	return "[Thumbnailer Entry]\n" +
 		"TryExec=unsquashfs\n" +
-		"Exec=sh -c 'unsquashfs -cat \"$0\" " + imageCoverPath + " > \"$1\"' %i %o\n" +
+		"Exec=sh -c 'unsquashfs -cat \"$0\" " + env.CoverPath + " > \"$1\"' %i %o\n" +
 		"MimeType=application/x-wsquashfs;\n" +
 		"\n" +
 		"[X-Tumbler Settings]\n" +
@@ -433,17 +445,6 @@ func checkPath() {
 
 // ── Agent pour wsquashfs-manager (section 8b) ──────────────────────────
 
-// agentDefaultRoms : premier dossier roms/ usuel qui existe.
-func agentDefaultRoms() string {
-	home := os.Getenv("HOME")
-	for _, d := range []string{"/userdata/roms", filepath.Join(home, "roms"), "/config/userdata/roms", filepath.Join(home, "games/Batocera/roms")} {
-		if st, err := os.Stat(d); err == nil && st.IsDir() {
-			return d
-		}
-	}
-	return filepath.Join(home, "roms")
-}
-
 // removeLegacyAgent : retire le moteur Python de l'ancien agent (ses données
 // et sa commande). Les anciens fichiers de configuration sont laissés en place.
 func removeLegacyAgent() {
@@ -501,7 +502,7 @@ func uninstall() {
 	}
 	ui.Title("Désinstallation de WSquashFS Launcher", sub)
 	launcher := filepath.Join(installDir, "wsquashfs-launcher")
-	short := filepath.Join(installDir, shortName)
+	short := filepath.Join(installDir, ShortName)
 	switch {
 	case isOwnShortName(short, launcher):
 		if removePaths(short) == nil {
@@ -521,7 +522,7 @@ func uninstall() {
 		_ = removePaths(bridge)
 	}
 	if !dryRun {
-		removeAgentUnits()
+		env.RemoveAgentUnits()
 	}
 	removeLegacyAgent()
 	stale := filepath.Join(installDir, "wsquashfs-agent")
@@ -546,8 +547,8 @@ func uninstall() {
 		_ = removePaths(thumbnailerFile())
 		ui.Item(ui.OK, "Miniatures des .wsquashfs supprimées")
 	}
-	if isFile(trayAutostartPath()) {
-		_ = removePaths(trayAutostartPath())
+	if isFile(env.TrayAutostart) {
+		_ = removePaths(env.TrayAutostart)
 		ui.Item(ui.OK, "Icône de zone de notification : lancement à l'ouverture de session supprimé")
 	}
 	mimeFile := filepath.Join(os.Getenv("HOME"), ".local/share/mime/packages/wsquashfs.xml")
@@ -561,8 +562,8 @@ func uninstall() {
 		ui.Item(ui.OK, "Type MIME supprimé")
 	}
 	kept := []string{wsqData + "/ (sauvegardes, runners, DXVK/VKD3D/d7vk, archives)", "~/.cache/wsquashfs/ (cache)"}
-	if pathExists(agentDir()) {
-		kept = append(kept, agentDir()+"/ (machines associées et certificat de l'agent)")
+	if pathExists(env.AgentDir) {
+		kept = append(kept, env.AgentDir+"/ (machines associées et certificat de l'agent)")
 	}
 	kept = append(kept, protonInstallDir+"/ (partagé avec Steam et Heroic)")
 	ui.List("Conservés", kept)
@@ -640,7 +641,7 @@ func installAll() int {
 	if !dryRun {
 		// Restes des anciennes versions de l'agent : démarrage automatique par systemd (port
 		// ouvert à chaque session), moteur Python. L'agent se lance à la main : --pair, --agent.
-		removeAgentUnits()
+		env.RemoveAgentUnits()
 		removeLegacyAgent()
 	}
 	setupStage("PATH du shell")
@@ -695,8 +696,12 @@ func setupEnd(abort string) int {
 	return 0
 }
 
-// runSetup : options de --setup, puis installation ou désinstallation.
-func runSetup(args []string) int {
+// Run : options de --setup (args), puis installation ou désinstallation.
+// Retourne le code de sortie.
+func Run(args []string, e Env) int {
+	env = e
+	dryRun, assumeYes = false, false
+	stageN, stageTotal, setupCount = 0, 0, struct{ installed, present, skipped, failed int }{}
 	action := "install"
 	for _, a := range args {
 		switch a {

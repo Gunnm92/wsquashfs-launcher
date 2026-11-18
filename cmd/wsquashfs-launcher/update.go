@@ -8,6 +8,8 @@ import (
 	"os"
 	"strings"
 
+	"wsquashfs-launcher/internal/download"
+	"wsquashfs-launcher/internal/filetree"
 	"wsquashfs-launcher/internal/ui"
 )
 
@@ -27,7 +29,7 @@ func updateBase() string {
 		return v
 	}
 	raw := "https://raw.githubusercontent.com/" + updateRepo + "/"
-	if body, err := downloadBytes("https://api.github.com/repos/" + updateRepo + "/commits/main"); err == nil {
+	if body, err := download.Bytes("https://api.github.com/repos/" + updateRepo + "/commits/main"); err == nil {
 		if sha := commitSHA(body); sha != "" {
 			return raw + sha
 		}
@@ -54,7 +56,7 @@ func launcherBuild() string {
 	if err != nil {
 		return "inconnue"
 	}
-	cur, err := fileSHA256(self)
+	cur, err := download.SHA256(self)
 	if err != nil {
 		return "inconnue"
 	}
@@ -79,7 +81,7 @@ func cmdUpdate() int {
 	if err != nil {
 		die("chemin du lanceur inconnu")
 	}
-	sum, err := downloadBytes(base + "/wsquashfs-launcher.sha256")
+	sum, err := download.Bytes(base + "/wsquashfs-launcher.sha256")
 	want := ""
 	if fields := strings.Fields(string(sum)); err == nil && len(fields) > 0 {
 		want = strings.ToLower(fields[0])
@@ -87,7 +89,7 @@ func cmdUpdate() int {
 	if len(want) != 64 || strings.Trim(want, "0123456789abcdef") != "" {
 		die("somme de contrôle du lanceur introuvable sur " + base + " : rien n'a été modifié")
 	}
-	cur, curErr := fileSHA256(self)
+	cur, curErr := download.SHA256(self)
 	if curErr != nil {
 		cur = ""
 	}
@@ -103,10 +105,10 @@ func cmdUpdate() int {
 	defer os.RemoveAll(tmp)
 	ui.StatusLine(ui.Info, "Téléchargement depuis "+base+" ...")
 	fresh := tmp + "/wsquashfs-launcher"
-	if err := downloadTo(base+"/wsquashfs-launcher", fresh); err != nil {
+	if err := download.File(base+"/wsquashfs-launcher", fresh); err != nil {
 		die("téléchargement du lanceur impossible")
 	}
-	if got, err := fileSHA256(fresh); err != nil || got != want {
+	if got, err := download.SHA256(fresh); err != nil || got != want {
 		die("somme de contrôle du lanceur téléchargé incorrecte : rien n'a été modifié " +
 			"(cache de GitHub juste après une publication : réessayer dans 5 minutes)")
 	}
@@ -119,7 +121,7 @@ func cmdUpdate() int {
 	}
 	// /tmp peut être un autre système de fichiers : rename échouerait. Copie à
 	// côté du lanceur, puis renommage (le lanceur en cours garde son fichier).
-	if err := copyFile(fresh, self+".new", 0o755); err != nil {
+	if err := filetree.CopyFile(fresh, self+".new", 0o755); err != nil {
 		os.Remove(self + ".new")
 		die("remplacement du lanceur impossible : " + err.Error())
 	}

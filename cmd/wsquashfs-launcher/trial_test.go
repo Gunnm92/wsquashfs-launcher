@@ -5,7 +5,6 @@ package main
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -175,34 +174,6 @@ func TestReadLineKeepsBufferedInput(t *testing.T) {
 	defer func() { os.Stdin, stdinReader = oldIn, oldReader }()
 	if a, b := readLine(), readLine(); a != "o" || b != "n" {
 		t.Errorf("lignes lues %q, %q ; attendu o, n", a, b)
-	}
-}
-
-// installTree : une copie ratée laisse l'ancienne version en place.
-func TestInstallTreeKeepsOldOnFailure(t *testing.T) {
-	dir := t.TempDir()
-	dst := filepath.Join(dir, "runner")
-	if err := os.MkdirAll(dst, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	_ = os.WriteFile(filepath.Join(dst, "v"), []byte("ancien"), 0o644)
-	if installTree(filepath.Join(dir, "absent"), dst) == nil {
-		t.Fatal("copie d'une source absente acceptée")
-	}
-	if data, _ := os.ReadFile(filepath.Join(dst, "v")); !bytes.Equal(data, []byte("ancien")) {
-		t.Fatal("ancienne version perdue après un échec")
-	}
-	src := filepath.Join(dir, "src")
-	_ = os.MkdirAll(src, 0o755)
-	_ = os.WriteFile(filepath.Join(src, "v"), []byte("nouveau"), 0o644)
-	if err := installTree(src, dst); err != nil {
-		t.Fatal(err)
-	}
-	if data, _ := os.ReadFile(filepath.Join(dst, "v")); !bytes.Equal(data, []byte("nouveau")) {
-		t.Fatalf("contenu %q, attendu nouveau", data)
-	}
-	if pathExists(dst+".new") || pathExists(dst+".old") {
-		t.Error("dossiers intermédiaires restés")
 	}
 }
 

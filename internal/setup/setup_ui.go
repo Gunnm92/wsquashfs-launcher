@@ -1,4 +1,4 @@
-package main
+package setup
 
 // Affichage et questions de l'installeur (install.sh, sections 1 et 2). Tout
 // passe par internal/ui : étapes numérotées (ui.Stage), résultats (ui.Item), questions

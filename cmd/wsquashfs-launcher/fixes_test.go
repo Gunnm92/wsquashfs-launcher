@@ -456,23 +456,6 @@ func TestUpdateBaseHonoursOverride(t *testing.T) {
 	}
 }
 
-// TestSetupOptionsWithoutDashes : les options de --setup s'écrivent sans tirets (comme --agent stop,
-// --sync status) ; les anciennes formes (--yes, -y, --agent…) sont refusées sans rien installer.
-func TestSetupOptionsWithoutDashes(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	t.Cleanup(func() { assumeYes, dryRun = false, false })
-	capteUI(t)
-	for _, old := range []string{"--yes", "-y", "--dry-run", "-n", "--uninstall", "-u", "--help", "-h", "--agent", "agent"} {
-		if code := runSetup([]string{old}); code != 1 {
-			t.Errorf("--setup %s : code %d, attendu 1 (option refusée)", old, code)
-		}
-	}
-	if code := runSetup([]string{"help"}); code != 0 {
-		t.Errorf("--setup help : code %d", code)
-	}
-}
-
 // TestImageRunnerFolderOverlay : dossier .pc en overlay (18/11) — le runner
 // joint (runners/) est cherché dans le dossier lui-même, pas dans cache/mnt
 // (jamais monté pour un dossier) ; sinon le Proton de la machine était pris.

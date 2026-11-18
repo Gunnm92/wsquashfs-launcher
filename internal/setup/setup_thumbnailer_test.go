@@ -1,4 +1,4 @@
-package main
+package setup
 
 import (
 	"bytes"
@@ -13,11 +13,14 @@ import (
 // remplacés par des chemins quotés) : l'illustration sort telle quelle ; une
 // image sans illustration échoue (miniature par défaut).
 func TestThumbnailerExtractsCover(t *testing.T) {
+	old := env
+	t.Cleanup(func() { env = old })
+	env = Env{CoverPath: ".wsquashfs/cover"}
 	cover := []byte("\x89PNG\r\n\x1a\njaquette")
 	img := filepath.Join(t.TempDir(), "Jeu d'essai.wsquashfs")
 	src := filepath.Join(t.TempDir(), "src")
 	_ = os.MkdirAll(filepath.Join(src, ".wsquashfs"), 0o755)
-	_ = os.WriteFile(filepath.Join(src, imageCoverPath), cover, 0o644)
+	_ = os.WriteFile(filepath.Join(src, ".wsquashfs", "cover"), cover, 0o644)
 	bare := filepath.Join(t.TempDir(), "nu.wsquashfs")
 	for out, dir := range map[string]string{img: src, bare: t.TempDir()} {
 		if _, err := exec.LookPath("mksquashfs"); err != nil {
@@ -38,7 +41,7 @@ func TestThumbnailerExtractsCover(t *testing.T) {
 	}
 	run := func(in string) ([]byte, error) {
 		out := filepath.Join(t.TempDir(), "thumb.png")
-		cmd := strings.NewReplacer("%i", shQuote(in), "%o", shQuote(out)).Replace(execLine)
+		cmd := strings.NewReplacer("%i", shellQuote(in), "%o", shellQuote(out)).Replace(execLine)
 		if err := exec.Command("sh", "-c", cmd).Run(); err != nil {
 			return nil, err
 		}
@@ -50,4 +53,9 @@ func TestThumbnailerExtractsCover(t *testing.T) {
 	if _, err := run(bare); err == nil {
 		t.Error("image sans illustration : succès inattendu")
 	}
+}
+
+// shellQuote : argument quoté pour /bin/sh (apostrophes internes échappées).
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }

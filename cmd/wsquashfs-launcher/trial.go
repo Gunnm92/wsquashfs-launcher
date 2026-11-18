@@ -17,6 +17,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"wsquashfs-launcher/internal/setup"
 )
 
 // trialReport : résultat d'un essai (JSON sur la sortie standard).
@@ -101,7 +103,7 @@ func launcherRunning() bool {
 		if comm == "umu-run" {
 			return true
 		}
-		if (isLauncherComm(comm) || (comm == shortName && isLauncherExe(pid))) && launchesGame(processArgs(pid)) {
+		if (isLauncherComm(comm) || (comm == setup.ShortName && isLauncherExe(pid))) && launchesGame(processArgs(pid)) {
 			return true
 		}
 	}

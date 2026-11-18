@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"wsquashfs-launcher/internal/filetree"
 	"wsquashfs-launcher/internal/ui"
 )
 
@@ -653,7 +654,7 @@ func moveFile(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	if err := copyFile(src, dst, st.Mode().Perm()); err != nil {
+	if err := filetree.CopyFile(src, dst, st.Mode().Perm()); err != nil {
 		_ = os.Remove(dst)
 		return err
 	}
@@ -682,7 +683,7 @@ func copyTreeNoClobber(src, dst string) error {
 			}
 			return os.Symlink(link, target)
 		case info.Mode().IsRegular():
-			if err := copyFile(p, target, info.Mode().Perm()); err != nil {
+			if err := filetree.CopyFile(p, target, info.Mode().Perm()); err != nil {
 				_ = os.Remove(target)
 				return err
 			}

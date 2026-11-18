@@ -14,6 +14,7 @@ import (
 	"strings"
 	"unicode"
 
+	"wsquashfs-launcher/internal/filetree"
 	"wsquashfs-launcher/internal/ui"
 )
 
@@ -51,7 +52,7 @@ func findAll(roots []string, maxDepth int, match func(string) bool) []string {
 	var out []string
 	for _, root := range roots {
 		for {
-			hit := findIn([]string{root}, maxDepth, func(p string) bool {
+			hit := filetree.Find([]string{root}, maxDepth, func(p string) bool {
 				if !match(p) {
 					return false
 				}

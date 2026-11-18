@@ -14,6 +14,11 @@ import (
 
 // ── --pack / --install ────────────────────────────────────────────────
 
+// imageCoverPath : illustration du jeu dans l'image (jaquette ou icône, tout
+// format lu par gdk-pixbuf : PNG, JPEG, ICO, WebP), déposée par --pack (depuis
+// le dossier source) ou par la reconstruction du manager.
+const imageCoverPath = ".wsquashfs/cover"
+
 // packPrefix : prefix Wine ou jeu seul (dossier) → .wsquashfs (mksquashfs zstd).
 // Sous-option : « cover FICHIER » ajoute une illustration (imageCoverPath) sans
 // rien écrire dans le dossier source.

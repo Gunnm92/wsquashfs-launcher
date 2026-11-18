@@ -1,4 +1,4 @@
-package main
+package setup
 
 import (
 	"errors"
@@ -127,13 +127,14 @@ func TestUninstallShortName(t *testing.T) {
 	for i, p := range saved {
 		vals[i] = *p
 	}
-	savedDry := dryRun
+	savedDry, savedEnv := dryRun, env
 	t.Cleanup(func() {
 		for i, p := range saved {
 			*p = vals[i]
 		}
-		dryRun = savedDry
+		dryRun, env = savedDry, savedEnv
 	})
+	env = Env{RemoveAgentUnits: func() bool { return false }}
 
 	t.Run("lien à nous", func(t *testing.T) {
 		dir, target := shortNameRig(t)

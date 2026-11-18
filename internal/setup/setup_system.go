@@ -1,4 +1,4 @@
-package main
+package setup
 
 // Distribution et paquets système (install.sh, sections 4 et 1 pour
 // detect_distro) : apt pour Debian et dérivés, pacman pour Arch et dérivés.

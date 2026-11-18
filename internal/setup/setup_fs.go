@@ -1,4 +1,4 @@
-package main
+package setup
 
 // Téléchargements, archives, fichiers et commandes système de l'installeur
 // (install.sh, section 3). Stdlib seulement. Les téléchargements passent par
@@ -8,82 +8,22 @@ package main
 
 import (
 	"archive/zip"
-	"bytes"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 
+	"wsquashfs-launcher/internal/download"
 	"wsquashfs-launcher/internal/ui"
 )
-
-// downloader : curl, sinon wget, sinon "" (aucun outil).
-func downloader() string {
-	if _, err := exec.LookPath("curl"); err == nil {
-		return "curl"
-	}
-	if _, err := exec.LookPath("wget"); err == nil {
-		return "wget"
-	}
-	return ""
-}
-
-// downloadTo télécharge url dans dest (affichage de progression sur le terminal).
-func downloadTo(url, dest string) error {
-	var cmd *exec.Cmd
-	switch downloader() {
-	case "curl":
-		cmd = exec.Command("curl", "-fL", "--progress-bar", "-o", dest, url)
-	case "wget":
-		cmd = exec.Command("wget", "--show-progress", "-q", "-O", dest, url)
-	default:
-		return errors.New("curl ou wget requis")
-	}
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
-}
-
-// downloadBytes télécharge url en mémoire (silencieux, échec si HTTP >= 400).
-func downloadBytes(url string) ([]byte, error) {
-	var cmd *exec.Cmd
-	switch downloader() {
-	case "curl":
-		cmd = exec.Command("curl", "-fsSL", "-A", "wsquashfs-launcher-installeur", url)
-	case "wget":
-		cmd = exec.Command("wget", "-qO-", "--user-agent=wsquashfs-launcher-installeur", url)
-	default:
-		return nil, errors.New("curl ou wget requis")
-	}
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("téléchargement de %s : %w", url, err)
-	}
-	return out.Bytes(), nil
-}
-
-// urlExists : vrai si le lien répond (simulation : rien n'est téléchargé).
-func urlExists(url string) bool {
-	switch downloader() {
-	case "curl":
-		return exec.Command("curl", "-fsIL", "-o", "/dev/null", url).Run() == nil
-	case "wget":
-		return exec.Command("wget", "-q", "--spider", url).Run() == nil
-	}
-	return false
-}
 
 // githubLatestTag : dernière version publiée d'un dépôt ; fallback si l'API
 // ne répond pas.
 func githubLatestTag(repo, fallback string) string {
-	body, err := downloadBytes("https://api.github.com/repos/" + repo + "/releases/latest")
+	body, err := download.Bytes("https://api.github.com/repos/" + repo + "/releases/latest")
 	if err != nil {
 		return fallback
 	}
@@ -96,27 +36,13 @@ func githubLatestTag(repo, fallback string) string {
 	return rel.TagName
 }
 
-// fileSHA256 : empreinte SHA-256 d'un fichier, en hexadécimal minuscule.
-func fileSHA256(path string) (string, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return "", err
-	}
-	defer f.Close()
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(h.Sum(nil)), nil
-}
-
 // githubAssetSHA256 : empreinte SHA-256 qu'affiche GitHub pour un fichier
 // d'une version publiée (champ digest de l'API). "" si GitHub n'en publie pas
 // pour ce fichier (version antérieure à leur calcul) ; reachable faux si
 // l'API n'a pas répondu (panne, limite de débit) : l'empreinte est alors
 // inconnue, pas absente.
 func githubAssetSHA256(repo, tag, file string) (digest string, reachable bool) {
-	body, err := downloadBytes("https://api.github.com/repos/" + repo + "/releases/tags/" + tag)
+	body, err := download.Bytes("https://api.github.com/repos/" + repo + "/releases/tags/" + tag)
 	if err != nil {
 		return "", false
 	}
@@ -155,7 +81,7 @@ func verifyGithubAsset(archive, repo, tag, file string) bool {
 		ui.Item(ui.Skip, file+" : empreinte non publiée par GitHub, archive non vérifiée")
 		return true
 	}
-	got, err := fileSHA256(archive)
+	got, err := download.SHA256(archive)
 	if err != nil || got != want {
 		setupErr(file + " : somme de contrôle SHA-256 incorrecte, archive ignorée")
 		return false
@@ -167,7 +93,7 @@ func verifyGithubAsset(archive, repo, tag, file string) bool {
 // le lien est vérifié.
 func fetch(url, dest, label string) error {
 	if dryRun {
-		if urlExists(url) {
+		if download.Exists(url) {
 			simLine("téléchargement de " + label + " : " + url)
 			return nil
 		}
@@ -175,7 +101,7 @@ func fetch(url, dest, label string) error {
 		return fmt.Errorf("lien introuvable : %s", url)
 	}
 	ui.Item(ui.Info, "Téléchargement de "+label+"...")
-	if err := downloadTo(url, dest); err != nil {
+	if err := download.File(url, dest); err != nil {
 		setupErr("Téléchargement échoué : " + url)
 		return err
 	}
@@ -307,27 +233,6 @@ func installTree(src, dst string) error {
 	return os.RemoveAll(old)
 }
 
-// copyFile copie src dans dst avec le mode donné.
-func copyFile(src, dst string, mode os.FileMode) error {
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
-	if err != nil {
-		return err
-	}
-	if _, err := io.Copy(out, in); err != nil {
-		out.Close()
-		return fmt.Errorf("copie de %s : %w", src, err)
-	}
-	if err := out.Close(); err != nil {
-		return err
-	}
-	return os.Chmod(dst, mode)
-}
-
 // isFile : fichier ordinaire (test -f).
 func isFile(p string) bool {
 	st, err := os.Stat(p)
@@ -340,40 +245,12 @@ func isExecutable(p string) bool {
 	return err == nil && st.Mode().IsRegular() && st.Mode().Perm()&0o111 != 0
 }
 
-// findIn : premier chemin (entrées de dossiers et fichiers) accepté par match,
-// parcouru dans chaque racine jusqu'à maxDepth niveaux (find -maxdepth).
-// Équivalent du find | grep du script ; ordre lexical.
-func findIn(roots []string, maxDepth int, match func(path string) bool) string {
-	for _, root := range roots {
-		found := ""
-		_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
-			if err != nil {
-				return nil
-			}
-			rel, _ := filepath.Rel(root, p)
-			if rel == "." {
-				return nil
-			}
-			if strings.Count(rel, string(os.PathSeparator))+1 > maxDepth {
-				if d.IsDir() {
-					return filepath.SkipDir
-				}
-				return nil
-			}
-			if match(p) {
-				found = p
-				return filepath.SkipAll
-			}
-			return nil
-		})
-		if found != "" {
-			return found
-		}
-	}
-	return ""
-}
-
 // mkTempDir : dossier temporaire neuf, vide.
 func mkTempDir() (string, error) {
 	return os.MkdirTemp("", "wsq-setup.")
+}
+
+// execQuiet : exécute la commande, sans afficher sa sortie.
+func execQuiet(name string, args ...string) error {
+	return exec.Command(name, args...).Run()
 }

@@ -14,6 +14,7 @@ import (
 	"sync/atomic"
 	"syscall"
 
+	"wsquashfs-launcher/internal/setup"
 	"wsquashfs-launcher/internal/ui"
 )
 
@@ -50,7 +51,13 @@ func run(args []string) int {
 		ui.Help(usageText)
 		return 0
 	case "setup":
-		return runSetup(opts.cmdArgs)
+		return setup.Run(opts.cmdArgs, setup.Env{
+			AgentDir:         agentDir(),
+			TrayAutostart:    trayAutostartPath(),
+			CoverPath:        imageCoverPath,
+			CompletionScript: completionScript,
+			RemoveAgentUnits: removeAgentUnits,
+		})
 	}
 	applyOptions(opts)
 	return launcherMain()

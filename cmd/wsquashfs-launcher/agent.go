@@ -71,6 +71,17 @@ type agentMachine struct {
 	Paired      time.Time `json:"paired"`
 }
 
+// agentDefaultRoms : premier dossier roms/ usuel qui existe.
+func agentDefaultRoms() string {
+	home := os.Getenv("HOME")
+	for _, d := range []string{"/userdata/roms", filepath.Join(home, "roms"), "/config/userdata/roms", filepath.Join(home, "games/Batocera/roms")} {
+		if st, err := os.Stat(d); err == nil && st.IsDir() {
+			return d
+		}
+	}
+	return filepath.Join(home, "roms")
+}
+
 // agentDir : dossier de configuration de l'agent.
 func agentDir() string {
 	base := configHome()

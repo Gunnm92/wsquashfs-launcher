@@ -1,4 +1,4 @@
-package main
+package setup
 
 // Runners Wine et Proton, umu, DXVK, VKD3D-Proton, d7vk, NVAPI et FSR4
 // (install.sh, sections 5 à 7).
@@ -11,6 +11,8 @@ import (
 	"regexp"
 	"strings"
 
+	"wsquashfs-launcher/internal/download"
+	"wsquashfs-launcher/internal/filetree"
 	"wsquashfs-launcher/internal/ui"
 )
 
@@ -39,7 +41,7 @@ func installWineArchive(repo, tag, file, label, name string) bool {
 			}
 			dest := filepath.Join(wineInstallDir, name)
 			if installTree(top, dest) == nil {
-				wine := findIn([]string{dest}, 2, isWineBin(""))
+				wine := filetree.Find([]string{dest}, 2, isWineBin(""))
 				if isExecutable(wine) {
 					setupDone(label + " installé : " + wine)
 					return true
@@ -77,9 +79,9 @@ var geRe = regexp.MustCompile(`(?i)ge-|lutris|wine-proton`)
 
 // checkWineRunners : Wine de référence des jeux arcade.
 func checkWineRunners() {
-	foundTkg := findIn([]string{wineInstallDir, "/opt", "/usr/wine/wine-tkg"}, 3,
+	foundTkg := filetree.Find([]string{wineInstallDir, "/opt", "/usr/wine/wine-tkg"}, 3,
 		isWineBin("tkg"))
-	foundGE := findIn([]string{wineInstallDir, "/usr/wine/ge-custom", "/usr/wine/wine-proton"}, 3,
+	foundGE := filetree.Find([]string{wineInstallDir, "/usr/wine/ge-custom", "/usr/wine/wine-proton"}, 3,
 		func(p string) bool { return isWineBin("")(p) && geRe.MatchString(p) })
 	needTkg, needGE := foundTkg == "", foundGE == ""
 	if !needTkg {
@@ -170,7 +172,7 @@ func downloadUmu() bool {
 		link := filepath.Join(installDir, "umu-run")
 		target := filepath.Join(umuInstallDir, "umu-run")
 		if os.MkdirAll(umuInstallDir, 0o755) == nil && os.MkdirAll(installDir, 0o755) == nil &&
-			copyFile(filepath.Join(tmp, "umu/umu-run"), target, 0o755) == nil {
+			filetree.CopyFile(filepath.Join(tmp, "umu/umu-run"), target, 0o755) == nil {
 			os.Remove(link)
 			if os.Symlink(target, link) == nil {
 				setupDone("umu-run " + tag + " installé : " + link)
@@ -218,7 +220,7 @@ func downloadProtonRelease(repo, fallbackTag, size string) bool {
 	}
 	base := "https://github.com/" + repo + "/releases/download/" + tag
 	file := tag + ".tar.gz"
-	if urlExists(base + "/" + tag + "-x86_64.tar.gz") {
+	if download.Exists(base + "/" + tag + "-x86_64.tar.gz") {
 		file = tag + "-x86_64.tar.gz"
 	}
 	sum := strings.TrimSuffix(file, ".tar.gz") + ".sha512sum"
@@ -231,7 +233,7 @@ func downloadProtonRelease(repo, fallbackTag, size string) bool {
 		setupDone(tag + " : " + doneWord())
 		return true
 	}
-	if !isFile(filepath.Join(tmp, file)) || downloadTo(base+"/"+sum, filepath.Join(tmp, sum)) != nil {
+	if !isFile(filepath.Join(tmp, file)) || download.File(base+"/"+sum, filepath.Join(tmp, sum)) != nil {
 		return false
 	}
 	check := exec.Command("sha512sum", "-c", "--quiet", sum)
@@ -388,7 +390,7 @@ func findCachyosFSR4() string {
 		if st, err := os.Stat(root); err != nil || !st.IsDir() {
 			continue
 		}
-		if dll := findIn([]string{root}, 4, func(p string) bool {
+		if dll := filetree.Find([]string{root}, 4, func(p string) bool {
 			return strings.EqualFold(filepath.Base(p), "amdxcffx64.dll") && strings.Contains(p, "cachyos")
 		}); dll != "" {
 			return dll
@@ -427,7 +429,7 @@ func checkAMD() {
 		return
 	}
 	dst := filepath.Join(fsr4Dir, "amdxcffx64.dll")
-	if os.MkdirAll(fsr4Dir, 0o755) == nil && copyFile(src, dst, 0o644) == nil {
+	if os.MkdirAll(fsr4Dir, 0o755) == nil && filetree.CopyFile(src, dst, 0o644) == nil {
 		setupDone("FSR4 copié : " + dst)
 	} else {
 		setupFail("Copie de FSR4 échouée")
@@ -478,4 +480,17 @@ func checkRendering() {
 	if d7vk == "" {
 		installDllPack("d7vk", "WinterSnowfall/d7vk", "v2.3", "d7vk-{tag}.zip", d7vkDir, "x32/ddraw.dll")
 	}
+}
+
+// protonRunnerIs : le dossier correspond à cette version (nom ou fichier version).
+func protonRunnerIs(d, want string) bool {
+	if filepath.Base(d) == want {
+		return true
+	}
+	data, err := os.ReadFile(d + "/version")
+	if err != nil {
+		return false
+	}
+	fields := strings.Fields(strings.SplitN(string(data), "\n", 2)[0])
+	return len(fields) > 0 && fields[len(fields)-1] == want
 }

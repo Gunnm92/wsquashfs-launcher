@@ -19,6 +19,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"wsquashfs-launcher/internal/download"
 )
 
 const (
@@ -535,7 +537,7 @@ func (s *agentServer) gamesCommit(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusConflict, map[string]any{"detail": "taille", "part_size": fi.Size()})
 		return
 	}
-	got, err := fileSHA256(part)
+	got, err := download.SHA256(part)
 	if err != nil {
 		writeDetail(w, http.StatusInternalServerError, "lecture de l'envoi impossible")
 		return
