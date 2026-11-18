@@ -1,4 +1,4 @@
-package main
+package imagefs
 
 // Lecture des blocs d'une image squashfs pour imagefs.go : métadonnées
 // (inodes, dossiers, table des fragments), données et fragments, avec caches

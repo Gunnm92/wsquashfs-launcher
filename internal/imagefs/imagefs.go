@@ -1,5 +1,6 @@
-package main
-
+// Package imagefs : lecteur squashfs en Go pur et serveur FUSE en lecture seule
+// d'une image .wsquashfs (format Batocera), sans squashfuse ni mksquashfs.
+//
 // Montage FUSE d'une image squashfs, intégré au lanceur (16/11) : remplace
 // squashfuse et squashfuse_ll, absents de SteamOS (fusermount3, fuse-overlayfs
 // et l'overlay noyau y sont, pas squashfuse). Le lanceur se relance avec
@@ -12,13 +13,14 @@ package main
 // servies en parallèle, entrées et attributs gardés par le noyau (image
 // immuable pendant le montage).
 
+package imagefs
+
 import (
 	"container/list"
 	"context"
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"os/signal"
 	"runtime"
 	"slices"
@@ -36,12 +38,12 @@ import (
 	"github.com/hanwen/go-fuse/v2/fuse"
 )
 
-// imageMountOpts : options de --serve-image (sans tirets, comme les autres
-// sous-options : uid N, gid N, allow_other).
-type imageMountOpts struct {
-	image, point string
-	uid, gid     int // -1 : propriétaires de l'image
-	allowOther   bool
+// Options : paramètres du serveur d'image (sous-options de --serve-image, sans
+// tirets : uid N, gid N, allow_other).
+type Options struct {
+	Image, Point string
+	UID, GID     int // -1 : propriétaires de l'image
+	AllowOther   bool
 }
 
 // imageCacheBlocks : blocs de données et de fragments décompressés (128 Kio
@@ -438,29 +440,24 @@ func (n *sqNode) Read(_ context.Context, _ fs.FileHandle, dest []byte, off int64
 	return fuse.ReadResultData(dest[:got]), 0
 }
 
-// serveImage : --serve-image IMAGE POINT [uid N] [gid N] [allow_other]. Sert
-// l'image jusqu'au démontage ; SIGTERM/SIGINT démontent proprement.
-func serveImage(args []string) int {
-	o, err := parseServeImage(args)
+// Serve : ouvre l'image, la monte sur o.Point et la sert jusqu'au démontage ;
+// SIGTERM/SIGINT/SIGHUP démontent proprement. Les erreurs d'ouverture et de
+// montage sont renvoyées ; l'appelant ajoute son préfixe.
+func Serve(o Options) error {
+	img, err := openSquashImage(o.Image, o.UID, o.GID)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "--serve-image : "+err.Error())
-		return 2
-	}
-	img, err := openSquashImage(o.image, o.uid, o.gid)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "--serve-image : "+o.image+" : "+err.Error())
-		return 1
+		return fmt.Errorf("%s : %w", o.Image, err)
 	}
 	root := &sqNode{img: img, base: img.rdr.Root.FileBase}
 	ttl := imageKernelTTL
-	srv, err := fs.Mount(o.point, root, &fs.Options{
+	srv, err := fs.Mount(o.Point, root, &fs.Options{
 		EntryTimeout:    &ttl,
 		AttrTimeout:     &ttl,
 		NullPermissions: true, // droits de l'image tels quels (0000 compris)
 		MountOptions: fuse.MountOptions{
-			FsName:       o.image,
+			FsName:       o.Image,
 			Name:         "squashfuse",
-			AllowOther:   o.allowOther,
+			AllowOther:   o.AllowOther,
 			DirectMount:  true, // root du namespace : mount(2) sans fusermount
 			MaxReadAhead: 1 << 20,
 			MaxWrite:     1 << 20, // requêtes de lecture de 1 Mio (128 Kio sinon)
@@ -468,23 +465,24 @@ func serveImage(args []string) int {
 		},
 	})
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "--serve-image : montage impossible : "+err.Error())
-		return 1
+		return fmt.Errorf("montage impossible : %w", err)
 	}
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP)
 	go func() {
 		<-sig
 		if srv.Unmount() != nil {
-			_ = syscall.Unmount(o.point, syscall.MNT_DETACH)
+			_ = syscall.Unmount(o.Point, syscall.MNT_DETACH)
 		}
 	}()
 	srv.Wait()
-	return 0
+	return nil
 }
 
-func parseServeImage(args []string) (imageMountOpts, error) {
-	o := imageMountOpts{uid: -1, gid: -1}
+// ParseArgs : arguments de --serve-image, IMAGE POINT [uid N] [gid N]
+// [allow_other].
+func ParseArgs(args []string) (Options, error) {
+	o := Options{UID: -1, GID: -1}
 	var pos []string
 	for i := 0; i < len(args); i++ {
 		switch a := args[i]; a {
@@ -497,13 +495,13 @@ func parseServeImage(args []string) (imageMountOpts, error) {
 				return o, errors.New(a + " invalide : " + args[i+1])
 			}
 			if a == "uid" {
-				o.uid = v
+				o.UID = v
 			} else {
-				o.gid = v
+				o.GID = v
 			}
 			i++
 		case "allow_other":
-			o.allowOther = true
+			o.AllowOther = true
 		default:
 			pos = append(pos, a)
 		}
@@ -511,50 +509,6 @@ func parseServeImage(args []string) (imageMountOpts, error) {
 	if len(pos) != 2 {
 		return o, errors.New("usage : --serve-image IMAGE POINT [uid N] [gid N] [allow_other]")
 	}
-	o.image, o.point = pos[0], pos[1]
+	o.Image, o.Point = pos[0], pos[1]
 	return o, nil
-}
-
-// imageServeCmd : commande du serveur d'image (le lanceur lui-même).
-func imageServeCmd(image, point string, extra ...string) *exec.Cmd {
-	args := append([]string{"--serve-image", image, point}, extra...)
-	return exec.Command(conf.selfPath, args...)
-}
-
-// serveImageBg : monte l'image en arrière-plan (comme squashfuse, qui rend la
-// main une fois monté). Le serveur survit au lanceur jusqu'au démontage.
-func serveImageBg(image, point string, extra ...string) bool {
-	cmd := imageServeCmd(image, point, extra...)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-	if err := cmd.Start(); err != nil {
-		return false
-	}
-	exited := make(chan struct{})
-	go func() { _ = cmd.Wait(); close(exited) }()
-	return waitMounted(point, exited)
-}
-
-// waitMounted : attend le montage (10 s au plus) ou la fin du serveur.
-func waitMounted(point string, exited <-chan struct{}) bool {
-	for i := 0; i < 100; i++ {
-		if isMountPoint(point) {
-			return true
-		}
-		select {
-		case <-exited:
-			return isMountPoint(point)
-		case <-time.After(100 * time.Millisecond):
-		}
-	}
-	return isMountPoint(point)
-}
-
-// fusermountPath : outil setuid de montage FUSE hors namespace ("" si absent).
-func fusermountPath() string {
-	for _, t := range []string{"fusermount3", "fusermount"} {
-		if p, err := exec.LookPath(t); err == nil {
-			return p
-		}
-	}
-	return ""
 }
