@@ -32,20 +32,24 @@ func candidatsRel(cands []exeCandidat) []string {
 func TestDetectExcludesInstallers(t *testing.T) {
 	root := t.TempDir()
 	writeTree(t, root, map[string]string{
-		"Jeu.exe":                          "jeu",
-		"unins000.exe":                     "désinstalleur",
-		"vcredist_x64.exe":                 "redist",
-		"UnityCrashHandler64.exe":          "crash",
-		"_CommonRedist/x.exe":              "redist",
-		"Engine/Binaries/Win64/Tool.exe":   "moteur",
-		"drive_c/windows/system32/cmd.exe": "système",
+		"Jeu.exe":                                          "jeu",
+		"unins000.exe":                                     "désinstalleur",
+		"vcredist_x64.exe":                                 "redist",
+		"UnityCrashHandler64.exe":                          "crash",
+		"_CommonRedist/x.exe":                              "redist",
+		"Engine/Binaries/Win64/Tool.exe":                   "moteur",
+		"drive_c/windows/system32/cmd.exe":                 "système",
+		"CrashSender1404.exe":                              "crash",
+		"Jeu.app/Contents/Data/server/DedicatedServer.exe": "macOS",
+		"Server/DedicatedServer.exe":                       "serveur",
+		"AuraSDK/AuraSdk.exe":                              "rétroéclairage",
 	})
 	cands, exclus := detectExes(root)
 	if got := candidatsRel(cands); len(got) != 1 || got[0] != "Jeu.exe" {
 		t.Errorf("candidats = %v, attendu [Jeu.exe]", got)
 	}
-	if len(exclus) != 6 {
-		t.Errorf("exclus = %v, attendu 6 entrées", exclus)
+	if len(exclus) != 10 {
+		t.Errorf("exclus = %v, attendu 10 entrées", exclus)
 	}
 }
 
@@ -86,23 +90,45 @@ func TestDetectSingleCandidateWritesNoMemo(t *testing.T) {
 	}
 }
 
-// TestDetectRootCandidateWins : plusieurs .exe mais un seul à la racine : pas de mémo.
+// TestDetectRootCandidateWins : un seul .exe à la racine n'est un choix sûr
+// (sans mémo) que si son nom ressemble au jeu, ou s'il lance un jeu Unreal ;
+// sinon mémo (Cyberpunk 2077 : REDprelauncher.exe à la racine, 18/11).
 func TestDetectRootCandidateWins(t *testing.T) {
-	detectIsolate(t)
-	parent := t.TempDir()
-	dossier := filepath.Join(parent, "Jeu")
-	writeTree(t, dossier, map[string]string{"bin/Moteur.exe": "moteur", "Lancer Jeu.exe": "jeu"})
-	launch.wsquashfsFile = dossier
-	launch.folderOverlay = true
-
-	ensureFolderCmd()
-
-	if _, err := os.Stat(dossier + ".autorun"); !os.IsNotExist(err) {
-		t.Errorf("mémo écrit alors qu'un seul exécutable est à la racine : %v", err)
+	cases := []struct {
+		name, dossier string
+		tree          map[string]string
+		memo          bool
+		cmd           string
+	}{
+		{"nom proche", "Jeu", map[string]string{"bin/Moteur.exe": "moteur", "Jeu.exe": "jeu"}, false, "Jeu.exe"},
+		{"lanceur Unreal", "Le petit page", map[string]string{
+			"Storybook.exe": "lanceur",
+			"Storybook/Binaries/Win64/Storybook-Win64-Shipping.exe": strings.Repeat("x", 5000),
+		}, false, "Storybook.exe"},
+		{"prélanceur sans rapport", "Cyberpunk 2077", map[string]string{
+			"REDprelauncher.exe":        "prélanceur",
+			"bin/x64/Cyberpunk2077.exe": "jeu",
+		}, true, "Cyberpunk2077.exe"},
 	}
-	loadLayers("")
-	if cmd := autorunVar("CMD", ""); cmd != `"Lancer Jeu.exe"` {
-		t.Errorf("CMD = %q, attendu le nom entre guillemets", cmd)
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			detectIsolate(t)
+			dossier := filepath.Join(t.TempDir(), c.dossier)
+			writeTree(t, dossier, c.tree)
+			launch.wsquashfsFile = dossier
+			launch.folderOverlay = true
+
+			ensureFolderCmd()
+
+			_, err := os.Stat(dossier + ".autorun")
+			if memo := err == nil; memo != c.memo {
+				t.Errorf("mémo écrit = %v, attendu %v", memo, c.memo)
+			}
+			loadLayers("")
+			if cmd := autorunVar("CMD", ""); cmd != c.cmd {
+				t.Errorf("CMD = %q, attendu %q", cmd, c.cmd)
+			}
+		})
 	}
 }
 

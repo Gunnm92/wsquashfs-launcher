@@ -150,6 +150,15 @@ case "$1" in
              touch "$WINEPREFIX/drive_c/windows/system32/explorer.exe" ;;
   reg|regedit) ;;
   *)
+    # Comme Wine : un exécutable absent du prefix vu par le jeu est une erreur
+    # (18/11 : l'overlay d'un dossier .pc était remonté sans le dossier).
+    for a in "$@"; do
+        if [[ "$a" == /* && "${a,,}" =~ \.(exe|bat)$ && ! -f "$a" ]]; then
+            echo "  INTROUVABLE $a" >> "$FAKELOG"
+            echo "wine: failed to open \"$a\"" >&2
+            exit 53
+        fi
+    done
     # Le jeu : FAKE_LS liste des dossiers du prefix tels que Wine les voit
     # (overlay noyau : depuis le namespace) ; FAKE_SLEEP simule une partie
     # en cours, arrêtée par le faux wineserver -k.
@@ -493,6 +502,30 @@ note "image du dossier .pc : $(ls "$ROMS" | grep '^Folder Game' | paste -sd ' ')
 rm -f "$ROMS/Folder Game.wsquashfs"
 rm -rf "$ROMS/Folder Game.pc" "$ROOT/saves/Folder Game" "$ROOT/saves/.images/Folder Game" \
        "$ROOT/cache/mnt/Folder Game" "$ROOT/cache/wine/Folder Game" "$ROOT/cache/locks/Folder Game.lock"
+# Dossier brut sans autorun.cmd : lancé comme un .pc (overlay, mêmes
+# sauvegardes) ; exécutable détecté, désinstalleur et redistribuable écartés.
+RG="$ROMS/Raw Game"
+mkdir -p "$RG/game" "$RG/_CommonRedist"
+printf 'MZ' > "$RG/game/RawGame.exe"
+printf 'MZ' > "$RG/unins000.exe"
+printf 'MZ' > "$RG/_CommonRedist/vcredist_x64.exe"
+before=$(cd "$RG" && find . -printf '%p %s\n' | sort | md5sum)
+step raw-one       env WSQUASHFS_UMU=0 "$L" "$RG"
+note "dossier brut après le lancement : $([[ "$(cd "$RG" && find . -printf '%p %s\n' | sort | md5sum)" == "$before" ]] && echo inchangé || echo MODIFIÉ)"
+note "sauvegardes : $(ls -d "$ROOT/saves/Raw Game" "$ROOT/saves/.images/Raw Game" 2>/dev/null | sed "s|$ROOT/||" | paste -sd ' ')"
+note "mémo sans doute : $([[ -e "$RG.autorun" ]] && echo écrit || echo absent)"
+# Deux candidats : doute, mémo écrit à côté (le plus proche du nom), puis relu.
+printf 'MZ' > "$RG/game/other.exe"
+step raw-doubt     env WSQUASHFS_UMU=0 "$L" "$RG"
+note "mémo : $(grep -a '^\(CMD\|DIR\)=' "$RG.autorun" 2>/dev/null | tr -d '\r' | paste -sd ' ')"
+step raw-memo      env WSQUASHFS_UMU=0 "$L" "$RG"
+rm -rf "$RG" "$RG.autorun" "$ROOT/saves/Raw Game" "$ROOT/saves/.images/Raw Game" \
+       "$ROOT/cache/mnt/Raw Game" "$ROOT/cache/wine/Raw Game" "$ROOT/cache/locks/Raw Game.lock"
+# Dossier brut sans aucun exécutable : arrêt avec l'indication --set CMD=.
+mkdir -p "$RG" && printf 'MZ' > "$RG/unins000.exe"
+step raw-none      env WSQUASHFS_UMU=0 "$L" "$RG"
+rm -rf "$RG" "$ROOT/saves/Raw Game" "$ROOT/saves/.images/Raw Game" \
+       "$ROOT/cache/mnt/Raw Game" "$ROOT/cache/wine/Raw Game" "$ROOT/cache/locks/Raw Game.lock"
 step proton-umu    "$L" "$ROMS/Proton Game.wsquashfs"
 step proton-nodxvk env WSQUASHFS_DXVK_DIR=/nope "$L" "$ROMS/Proton Game.wsquashfs"
 step win32-hidraw  env WSQUASHFS_UMU=0 HIDRAW_SYSFS="$ROOT/sysfs" "$L" "$ROMS/Old32.wsquashfs"

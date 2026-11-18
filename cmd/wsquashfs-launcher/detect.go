@@ -33,6 +33,9 @@ var detectExcludedDirs = map[string]bool{
 	"prereqs": true, "prerequisites": true, "installers": true, "_redist": true, "_crack": true,
 	"_cracks": true, "crack": true, "cracks": true, "_original files": true, "original files": true,
 	"_original": true, "__macosx": true, "tools": true,
+	// Ajouts du lanceur (essai sur de vrais dossiers Steam/Epic, 18/11) :
+	// outils de rétroéclairage ASUS livrés avec certains jeux.
+	"aurasdk": true,
 }
 
 var detectExcludedNames = []struct{ pattern, reason string }{
@@ -48,6 +51,8 @@ var detectExcludedNames = []struct{ pattern, reason string }{
 	{"*crashreport*", "rapporteur de plantage"}, {"*crack*", "intro de crack"},
 	{"quicksfv*", "outil de vérification"}, {"dxdiag*", "outil système"},
 	{"easyanticheat*", "anti-triche"}, {"eac*launcher*", "anti-triche"},
+	// Ajouts du lanceur (18/11) : CrashSender (DiRT 4, WRC), serveurs dédiés.
+	{"crashsender*", "rapporteur de plantage"}, {"*dedicatedserver*", "serveur dédié"},
 }
 
 // detectExcluded : raison d'exclure un fichier (chemin relatif au dossier du
@@ -61,6 +66,9 @@ func detectExcluded(rel string) string {
 	}
 	parts := strings.Split(low, "/")
 	for _, p := range parts[:len(parts)-1] {
+		if strings.HasSuffix(p, ".app") {
+			return "paquet macOS"
+		}
 		if detectExcludedDirs[p] {
 			return "dossier d'installeurs ou de redistribuables"
 		}
@@ -172,6 +180,26 @@ func detectChoisir(cands []exeCandidat, nomDossier string) exeCandidat {
 	return best
 }
 
+// detectRacineSure : le seul .exe à la racine est un choix sûr si son nom
+// ressemble à celui du dossier, ou s'il est le lanceur racine d'un jeu Unreal
+// (tous les autres dans <Projet>/Binaries/Win64). Sinon (Cyberpunk 2077 :
+// REDprelauncher.exe à la racine, le jeu dans bin/x64), mémo.
+func detectRacineSure(racine exeCandidat, cands []exeCandidat, nomDossier string) bool {
+	if detectSimilarite(nomDossier, strings.TrimSuffix(racine.rel, filepath.Ext(racine.rel))) >= 0.5 {
+		return true
+	}
+	for _, c := range cands {
+		if c.rel == racine.rel {
+			continue
+		}
+		low := strings.ToLower(c.rel)
+		if !strings.Contains(low, "/binaries/win64/") && !strings.Contains(low, "/binaries/win32/") {
+			return false
+		}
+	}
+	return true
+}
+
 // detectValeur : valeur d'une clé, entre guillemets si elle contient un espace.
 func detectValeur(v string) string {
 	if strings.ContainsAny(v, " \t") {
@@ -238,7 +266,7 @@ func ensureFolderCmd() {
 			racine = append(racine, c)
 		}
 	}
-	if len(cands) == 1 || len(racine) == 1 {
+	if len(cands) == 1 || (len(racine) == 1 && detectRacineSure(racine[0], cands, nom)) {
 		choisi := cands[0]
 		if len(cands) > 1 {
 			choisi = racine[0]

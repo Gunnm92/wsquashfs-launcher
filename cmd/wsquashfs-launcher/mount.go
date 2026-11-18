@@ -107,7 +107,13 @@ func reloadOverlay(msg string) {
 	fuseUmount(launch.winePoint)
 	resetWorkdir(launch.workPoint)
 	chownToTarget(launch.workPoint)
-	if !mountOverlay("") {
+	// Dossier essayé en overlay : la couche basse est le dossier lui-même,
+	// pas le point de montage d'image (vide), sinon le jeu disparaît.
+	lower := ""
+	if launch.folderOverlay {
+		lower = launch.wsquashfsFile
+	}
+	if !mountOverlay(lower) {
 		die("échec du rechargement de l'overlay " + msg)
 	}
 }

@@ -59,6 +59,11 @@ Options :
   --wine <runner>   Runner Wine/Proton : nom, chemin d'un wine, ou "system"
   --set CLÉ=valeur  Réglage pour ce lancement seulement (répétable)
 
+Nom court :
+  ws --update  ·  ws --agent  ·  ws Jeu.wsquashfs
+        Même commande, plus courte (lien posé par --setup, sans écraser une
+        autre commande ws).
+
 Le reste (réglages par couches, variables WSQUASHFS_*, autres commandes) :
   https://github.com/Gunnm92/wsquashfs-launcher#readme
 == rc=0
@@ -1847,6 +1852,272 @@ WINESERVER -k
   Version : non renseignée (GAME_VERSION=... dans l'autorun.cmd, voir --info)
 == rc=0
 ## image du dossier .pc : Folder Game.pc Folder Game.wsquashfs
+################ raw-one
+╭────────────────────╮
+│ WSquashFS Launcher │
+│ Raw Game           │
+╰────────────────────╯
+Environnement    : ENV
+Fichier          : ROOT/userdata/roms/windows/Raw Game
+Mode             : overlay (dossier .pc + fuse-overlayfs, dossier non modifié)
+Exécutable       : game/RawGame.exe (trouvé dans le dossier)
+→ Initialisation du préfixe Wine (win64)...
+Préfixe          : mise à jour pour wine-9.0 (fake)
+
+▍Lancement
+  Exécutable   : ROOT/cache/wine/Raw Game/game/RawGame.exe
+  Arguments    : <aucun>
+  Wine         : ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/bin/wine (win64)
+  Version Wine : wine-9.0 (fake)
+  Préfixe      : ROOT/cache/wine/Raw Game
+  Sauvegardes  : ROOT/saves/Raw Game
+  Manettes     : XInput, manette Xbox
+  DXVK         : activé
+  VKD3D        : activé
+  D7VK         : activé (DirectDraw → Vulkan)
+───────────────────────────────────────── sortie du jeu
+─────────────────────────────────────────
+
+✓ Jeu terminé (code : 0)
+-- stderr
+Attention : umu-run absent, prefix créé par wine-tkg-fake au lieu de Proton
+== rc=0
+WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
+  WINEPREFIX=ROOT/cache/wine/Raw Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
+  WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Raw Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
+WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
+  WINEPREFIX=ROOT/cache/wine/Raw Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
+  WINEDEBUG=-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Services\winebus] [/v] [DisableHidraw] [/t] [REG_DWORD] [/d] [1] [/f]
+  WINEPREFIX=ROOT/cache/wine/Raw Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  GAMEID=
+  PROTONPATH=
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
+WINESERVER -k
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Raw Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
+WINE wine-tkg-fake cwd=ROOT/cache/wine/Raw Game/game args: [ROOT/cache/wine/Raw Game/game/RawGame.exe]
+  WINEPREFIX=ROOT/cache/wine/Raw Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
+WINESERVER -w
+WINESERVER -k
+WINESERVER -w
+## dossier brut après le lancement : inchangé
+## sauvegardes : saves/.images/Raw Game saves/Raw Game
+## mémo sans doute : absent
+################ raw-doubt
+╭────────────────────╮
+│ WSquashFS Launcher │
+│ Raw Game           │
+╰────────────────────╯
+Environnement    : ENV
+Fichier          : ROOT/userdata/roms/windows/Raw Game
+Mode             : overlay (dossier .pc + fuse-overlayfs, dossier non modifié)
+Exécutable       : game/RawGame.exe (mémo du lanceur)
+✓ Préfixe Wine détecté (structure Batocera)
+Préfixe          : mise à jour pour wine-9.0 (fake)
+
+▍Lancement
+  Exécutable   : ROOT/cache/wine/Raw Game/game/RawGame.exe
+  Arguments    : <aucun>
+  Wine         : ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/bin/wine (win64)
+  Version Wine : wine-9.0 (fake)
+  Préfixe      : ROOT/cache/wine/Raw Game
+  Sauvegardes  : ROOT/saves/Raw Game
+  Manettes     : XInput, manette Xbox
+  DXVK         : activé
+  VKD3D        : activé
+  D7VK         : activé (DirectDraw → Vulkan)
+───────────────────────────────────────── sortie du jeu
+─────────────────────────────────────────
+
+✓ Jeu terminé (code : 0)
+-- stderr
+Attention : plusieurs exécutables possibles dans ROOT/userdata/roms/windows/Raw Game ; game/RawGame.exe retenu, mémo ROOT/userdata/roms/windows/Raw Game.autorun écrit
+  → vérifier ou modifier ROOT/userdata/roms/windows/Raw Game.autorun (DIR= et CMD=)
+  → ou renommer le dossier en Raw Game.pc et l'analyser dans le manager
+Attention : prefix Wine déjà créé dans les sauvegardes, gardé sous wine-tkg-fake — supprimer ROOT/saves/Raw Game (sauvegardes du jeu comprises) pour passer sous Proton
+== rc=0
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Raw Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
+WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
+  WINEPREFIX=ROOT/cache/wine/Raw Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
+  WINEDEBUG=-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Services\winebus] [/v] [DisableHidraw] [/t] [REG_DWORD] [/d] [1] [/f]
+  WINEPREFIX=ROOT/cache/wine/Raw Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  GAMEID=
+  PROTONPATH=
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
+WINESERVER -k
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Raw Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
+WINE wine-tkg-fake cwd=ROOT/cache/wine/Raw Game/game args: [ROOT/cache/wine/Raw Game/game/RawGame.exe]
+  WINEPREFIX=ROOT/cache/wine/Raw Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
+WINESERVER -w
+WINESERVER -k
+WINESERVER -w
+## mémo : DIR=game CMD=RawGame.exe
+################ raw-memo
+╭────────────────────╮
+│ WSquashFS Launcher │
+│ Raw Game           │
+╰────────────────────╯
+Environnement    : ENV
+Fichier          : ROOT/userdata/roms/windows/Raw Game
+Surcharge        : Raw Game.autorun (DIR CMD)
+Mode             : overlay (dossier .pc + fuse-overlayfs, dossier non modifié)
+✓ Préfixe Wine détecté (structure Batocera)
+Préfixe          : mise à jour pour wine-9.0 (fake)
+
+▍Lancement
+  Exécutable   : ROOT/cache/wine/Raw Game/game/RawGame.exe
+  Arguments    : <aucun>
+  Wine         : ROOT/home/.local/share/wsquashfs/wine/wine-tkg-fake/bin/wine (win64)
+  Version Wine : wine-9.0 (fake)
+  Préfixe      : ROOT/cache/wine/Raw Game
+  Sauvegardes  : ROOT/saves/Raw Game
+  Manettes     : XInput, manette Xbox
+  DXVK         : activé
+  VKD3D        : activé
+  D7VK         : activé (DirectDraw → Vulkan)
+───────────────────────────────────────── sortie du jeu
+─────────────────────────────────────────
+
+✓ Jeu terminé (code : 0)
+-- stderr
+Attention : prefix Wine déjà créé dans les sauvegardes, gardé sous wine-tkg-fake — supprimer ROOT/saves/Raw Game (sauvegardes du jeu comprises) pour passer sous Proton
+== rc=0
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Raw Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
+WINE wine-tkg-fake cwd=ROOT args: [wineboot] [-u]
+  WINEPREFIX=ROOT/cache/wine/Raw Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
+  WINEDEBUG=-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [reg] [add] [HKLM\System\CurrentControlSet\Services\winebus] [/v] [DisableHidraw] [/t] [REG_DWORD] [/d] [1] [/f]
+  WINEPREFIX=ROOT/cache/wine/Raw Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  GAMEID=
+  PROTONPATH=
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
+WINESERVER -k
+WINESERVER -w
+WINE wine-tkg-fake cwd=ROOT args: [--version]
+  WINEPREFIX=ROOT/cache/wine/Raw Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
+WINE wine-tkg-fake cwd=ROOT/cache/wine/Raw Game/game args: [ROOT/cache/wine/Raw Game/game/RawGame.exe]
+  WINEPREFIX=ROOT/cache/wine/Raw Game
+  WINEARCH=win64
+  WINEDLLOVERRIDES=ddraw=n,b;d3d8,d3d9,d3d10core,d3d11,dxgi=n,b;d3d12,d3d12core=n,b;nvapi64,nvapi=;winemenubuilder.exe=d;winebrowser.exe=d
+  WINEDEBUG=fixme-all
+  WINE_FULLSCREEN_FSR=0
+  DXVK_ENABLE_NVAPI=0
+  DXVK_STATE_CACHE_PATH=ROOT/cache/shaders/dxvk
+WINESERVER -w
+WINESERVER -k
+WINESERVER -w
+################ raw-none
+╭────────────────────╮
+│ WSquashFS Launcher │
+│ Raw Game           │
+╰────────────────────╯
+Environnement    : ENV
+Fichier          : ROOT/userdata/roms/windows/Raw Game
+Mode             : overlay (dossier .pc + fuse-overlayfs, dossier non modifié)
+-- stderr
+Erreur : aucun exécutable de jeu dans ROOT/userdata/roms/windows/Raw Game
+  exclu : unins000.exe (désinstalleur)
+  → --set CMD=Jeu.exe (chemin relatif au dossier), ou --exec programme
+  → ou un fichier ROOT/userdata/roms/windows/Raw Game.autorun avec DIR= et CMD=
+== rc=1
+WINESERVER -k
+WINESERVER -w
 ################ proton-umu
 ╭────────────────────╮
 │ WSquashFS Launcher │
@@ -10088,11 +10359,11 @@ Erreur : c'est cette machine : coller le code affiché par --pair sur l'AUTRE ma
 ╰─────────────────────────────────╯
 
 ▍HOTE
-  ✓ Sync Game  conflit : version de HOTE plus lourde gardée (4 Ko contre 19 o) ; celle d'ici archivée dans ROOT/syncA/backups/Sync Game-DATE.tar.zst
+  – Sync Game  conflit avec HOTE (les deux ont changé) : à départager dans le manager
   Réseau local uniquement. Versions écartées en cas de conflit : ROOT/syncA/backups
 == rc=0
-## A après conflit (B doit gagner) : y.sav = 4096 octets, x.sav = partie-A
-## archives sur A après conflit : Sync Game-DATE.tar.zst
+## A après conflit (B doit gagner) : y.sav = 9 octets, x.sav = partie-A2
+## archives sur A après conflit : 
 ## B après conflit : y.sav = 4096 octets, x.sav = partie-A
 ## archives sur B : 
 ################ sync-forget
