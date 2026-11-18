@@ -12,7 +12,7 @@ require (
 	github.com/charmbracelet/x/term v0.2.2
 	github.com/godbus/dbus/v5 v5.1.0
 	github.com/hanwen/go-fuse/v2 v2.12.1
-	github.com/klauspost/compress v1.18.0
+	github.com/klauspost/compress v1.20.2
 	github.com/mikelolasagasti/xz v1.0.1
 	github.com/pierrec/lz4/v4 v4.1.22
 	golang.org/x/sys v0.47.0
@@ -30,7 +30,7 @@ require (
 	github.com/muesli/cancelreader v0.2.2 // indirect
 	github.com/rasky/go-lzo v0.0.0-20200203143853-96a758eda86e // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
-	github.com/ulikunitz/xz v0.5.12 // indirect
+	github.com/ulikunitz/xz v0.5.15 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	golang.org/x/sync v0.22.0 // indirect
 )

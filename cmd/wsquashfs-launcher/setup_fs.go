@@ -12,6 +12,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -41,7 +42,7 @@ func downloadTo(url, dest string) error {
 	case "wget":
 		cmd = exec.Command("wget", "--show-progress", "-q", "-O", dest, url)
 	default:
-		return fmt.Errorf("curl ou wget requis")
+		return errors.New("curl ou wget requis")
 	}
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
@@ -56,7 +57,7 @@ func downloadBytes(url string) ([]byte, error) {
 	case "wget":
 		cmd = exec.Command("wget", "-qO-", "--user-agent=wsquashfs-launcher-installeur", url)
 	default:
-		return nil, fmt.Errorf("curl ou wget requis")
+		return nil, errors.New("curl ou wget requis")
 	}
 	var out bytes.Buffer
 	cmd.Stdout = &out

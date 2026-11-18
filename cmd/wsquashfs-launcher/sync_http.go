@@ -62,11 +62,10 @@ func syncConfigPath() string {
 }
 
 // newSyncID : identifiant aléatoire de cette machine (16 octets, hexadécimal).
+// Depuis Go 1.24, rand.Read ne renvoie jamais d'erreur (le programme s'arrête si le système ne fournit pas d'aléa).
 func newSyncID() string {
 	buf := make([]byte, 16)
-	if _, err := rand.Read(buf); err != nil {
-		panic("identifiant de synchro impossible : " + err.Error())
-	}
+	_, _ = rand.Read(buf)
 	return hex.EncodeToString(buf)
 }
 

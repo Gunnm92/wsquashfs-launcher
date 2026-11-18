@@ -176,10 +176,14 @@ func lastField(s string) string {
 func stageInNamespace() (int, string, bool) {
 	launch.nsDir = filepath.Join(conf.cacheDir, "ns", strconv.Itoa(os.Getpid()))
 	resetWorkdir(launch.nsDir)
-	_ = os.WriteFile(filepath.Join(launch.nsDir, "game"), []byte(launch.gameName+"\n"), 0o644)
-	_ = os.Symlink(launch.squashfsPoint, filepath.Join(launch.nsDir, "lower"))
-	_ = os.Symlink(launch.savePoint, filepath.Join(launch.nsDir, "upper"))
-	_ = os.Symlink(launch.workPoint, filepath.Join(launch.nsDir, "work"))
+	if err := os.WriteFile(filepath.Join(launch.nsDir, "game"), []byte(launch.gameName+"\n"), 0o644); err != nil {
+		warn("dossier d'échange non écrit : " + err.Error())
+	}
+	for _, l := range [][2]string{{launch.squashfsPoint, "lower"}, {launch.savePoint, "upper"}, {launch.workPoint, "work"}} {
+		if err := os.Symlink(l[0], filepath.Join(launch.nsDir, l[1])); err != nil {
+			warn("lien du dossier d'échange non créé : " + err.Error())
+		}
+	}
 
 	cmd := exec.Command("unshare", "--user", "--map-current-user", "--mount", "--keep-caps", "--", conf.selfPath)
 	cmd.Args = append(cmd.Args, launch.origArgs...)
@@ -239,9 +243,13 @@ func mountKernelOverlayLayer() string {
 // (ready ou la cause) va dans NS_DIR/status pour l'hôte.
 func useKernelOverlay() {
 	writeStatus := func(s string) {
-		_ = os.WriteFile(filepath.Join(launch.nsDir, "status"), []byte(s+"\n"), 0o644)
+		if err := os.WriteFile(filepath.Join(launch.nsDir, "status"), []byte(s+"\n"), 0o644); err != nil {
+			warn("statut du montage non écrit : " + err.Error())
+		}
 	}
-	_ = os.WriteFile(filepath.Join(launch.nsDir, "pid"), []byte(strconv.Itoa(os.Getpid())+"\n"), 0o644)
+	if err := os.WriteFile(filepath.Join(launch.nsDir, "pid"), []byte(strconv.Itoa(os.Getpid())+"\n"), 0o644); err != nil {
+		warn("pid non écrit : " + err.Error())
+	}
 	sq := imageServeCmd(launch.wsquashfsFile, launch.squashfsPoint,
 		"uid", strconv.Itoa(conf.wineUID), "gid", strconv.Itoa(conf.wineGID))
 	sq.SysProcAttr = &syscall.SysProcAttr{Pdeathsig: syscall.SIGKILL}

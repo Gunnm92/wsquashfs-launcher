@@ -14,7 +14,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -185,7 +185,7 @@ func detectGamesDir(home string, roms []string) string {
 	for d := range dirs {
 		keys = append(keys, d)
 	}
-	sort.Strings(keys)
+	slices.Sort(keys)
 	preferred := func(d string) bool { return strings.HasSuffix(filepath.ToSlash(d), "/Games/non-steam") }
 	best, bestN := "", 0
 	for _, d := range keys {

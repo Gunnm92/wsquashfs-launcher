@@ -260,9 +260,11 @@ func removeAgentUnits() bool {
 
 // agentSystemctl : systemctl --user <action> <unités> (variable : remplacée dans les tests).
 var agentSystemctl = func(action string, units ...string) error {
-	out, err := exec.Command("systemctl", append([]string{"--user", action}, units...)...).CombinedOutput()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "systemctl", append([]string{"--user", action}, units...)...).CombinedOutput()
 	if err != nil && len(out) > 0 {
-		return fmt.Errorf("%s", strings.TrimSpace(string(out)))
+		return errors.New(strings.TrimSpace(string(out)))
 	}
 	return err
 }

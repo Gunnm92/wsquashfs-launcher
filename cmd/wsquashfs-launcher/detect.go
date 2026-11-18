@@ -6,11 +6,12 @@ package main
 // <dossier>.autorun est écrit pour être relu et corrigé.
 
 import (
+	"cmp"
 	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 	"unicode"
@@ -120,8 +121,8 @@ func detectExes(root string) (cands []exeCandidat, exclus []string) {
 		cands = append(cands, exeCandidat{rel: relSlash, taille: info.Size()})
 		return nil
 	})
-	sort.Slice(cands, func(i, j int) bool { return cands[i].rel < cands[j].rel })
-	sort.Strings(exclus)
+	slices.SortFunc(cands, func(a, b exeCandidat) int { return cmp.Compare(a.rel, b.rel) })
+	slices.Sort(exclus)
 	return cands, exclus
 }
 

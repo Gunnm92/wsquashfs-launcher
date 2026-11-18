@@ -34,6 +34,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"math/big"
 	"net"
@@ -187,7 +188,7 @@ func certFingerprint() (string, error) {
 	}
 	block, _ := pem.Decode(data)
 	if block == nil {
-		return "", fmt.Errorf("certificat illisible")
+		return "", errors.New("certificat illisible")
 	}
 	sum := sha256.Sum256(block.Bytes)
 	return strings.ToUpper(hex.EncodeToString(sum[:])), nil

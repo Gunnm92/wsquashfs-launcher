@@ -4,7 +4,7 @@ package main
 
 import (
 	"os"
-	"sort"
+	"slices"
 	"strings"
 )
 
@@ -47,7 +47,7 @@ func knownGames() []string {
 	for g := range set {
 		out = append(out, g)
 	}
-	sort.Strings(out)
+	slices.Sort(out)
 	return out
 }
 

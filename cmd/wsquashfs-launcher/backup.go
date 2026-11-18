@@ -4,12 +4,13 @@ package main
 // archives, archivage, et retrait des plus anciennes par --clean.
 
 import (
+	"cmp"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 )
@@ -48,18 +49,21 @@ func pruneBackups() (n int, size int64) {
 	}
 	for _, names := range byGame {
 		// L'horodatage du nom donne l'ordre ; à date égale, le suffixe -N.
-		sort.Slice(names, func(i, j int) bool {
-			a, b := backupNameRe.FindStringSubmatch(names[i]), backupNameRe.FindStringSubmatch(names[j])
+		slices.SortFunc(names, func(x, y string) int {
+			a, b := backupNameRe.FindStringSubmatch(x), backupNameRe.FindStringSubmatch(y)
 			if a[2] != b[2] {
-				return a[2] > b[2]
+				return cmp.Compare(b[2], a[2])
 			}
-			return len(a[3]) > len(b[3]) || (len(a[3]) == len(b[3]) && a[3] > b[3])
+			if len(a[3]) != len(b[3]) {
+				return cmp.Compare(len(b[3]), len(a[3]))
+			}
+			return cmp.Compare(b[3], a[3])
 		})
 		if len(names) > backupsKept {
 			doomed = append(doomed, names[backupsKept:]...)
 		}
 	}
-	sort.Strings(doomed)
+	slices.Sort(doomed)
 	for _, name := range doomed {
 		f := filepath.Join(dir, name)
 		if st, err := os.Stat(f); err == nil && os.Remove(f) == nil {

@@ -15,7 +15,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -243,7 +243,7 @@ func completeLine(line string) []string {
 			out = append(out, tail)
 		}
 	}
-	sort.Strings(out)
+	slices.Sort(out)
 	return out
 }
 

@@ -6,7 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 )
 
@@ -160,7 +160,7 @@ func listRunnerDirs(dir string) string {
 			names = append(names, e.Name())
 		}
 	}
-	sort.Strings(names)
+	slices.Sort(names)
 	return strings.Join(names, "\n")
 }
 
@@ -179,7 +179,7 @@ func squashfsRunnerNames(image string) string {
 			names = append(names, parts[2])
 		}
 	}
-	sort.Strings(names)
+	slices.Sort(names)
 	return strings.Join(names, "\n")
 }
 
@@ -250,7 +250,7 @@ func cmdShow(args []string) int {
 			extra = append(extra, k)
 		}
 	}
-	sort.Strings(extra)
+	slices.Sort(extra)
 	extra = uniqueSorted(extra)
 	var reglages [][]string
 	for _, key := range append(append([]string{}, showKeys...), extra...) {

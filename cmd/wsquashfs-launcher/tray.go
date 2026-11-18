@@ -14,6 +14,7 @@ package main
 
 import (
 	"bufio"
+	"cmp"
 	_ "embed"
 	"encoding/json"
 	"errors"
@@ -22,7 +23,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -117,11 +118,14 @@ func byLastLaunch(games []string, when func(string) time.Time) []string {
 	for _, g := range out {
 		at[g] = when(g)
 	}
-	sort.SliceStable(out, func(i, j int) bool {
-		if !at[out[i]].Equal(at[out[j]]) {
-			return at[out[i]].After(at[out[j]])
+	slices.SortStableFunc(out, func(x, y string) int {
+		if !at[x].Equal(at[y]) {
+			if at[x].After(at[y]) {
+				return -1
+			}
+			return 1
 		}
-		return out[i] < out[j]
+		return cmp.Compare(x, y)
 	})
 	return out
 }

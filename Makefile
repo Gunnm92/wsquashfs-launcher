@@ -13,7 +13,7 @@ help:
 	@echo "  make uninstall      Désinstaller wsquashfs-launcher"
 	@echo "  make test           Lancer les tests de non-régression (tests/)"
 	@echo "  make test-update    Réécrire la trace attendue des tests"
-	@echo "  make lint           Analyser le code (go vet, gofmt, shellcheck)"
+	@echo "  make lint           Analyser le code (go vet, gofmt, shellcheck, staticcheck et govulncheck si présents)"
 	@echo "  make deps           Vérifier les dépendances"
 	@echo "  make clean          Supprimer les copies de travail"
 	@echo "  make build-docker   Construire l'image Docker"
@@ -47,6 +47,8 @@ lint:
 	@cd cmd/wsquashfs-launcher && go vet ./... && test -z "`gofmt -l .`" && echo "✓ go vet, gofmt"
 	@command -v shellcheck >/dev/null || { echo "shellcheck absent"; exit 1; }
 	@shellcheck install.sh tests/run-tests.sh && echo "✓ shellcheck"
+	@if command -v staticcheck >/dev/null; then (cd cmd/wsquashfs-launcher && staticcheck ./...) && echo "✓ staticcheck"; else echo "staticcheck absent, ignoré"; fi
+	@if command -v govulncheck >/dev/null; then (cd cmd/wsquashfs-launcher && govulncheck ./...) && echo "✓ govulncheck"; else echo "govulncheck absent, ignoré"; fi
 
 deps:
 	@echo "Vérification des dépendances..."

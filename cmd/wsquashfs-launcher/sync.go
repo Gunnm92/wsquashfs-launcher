@@ -8,6 +8,7 @@ package main
 
 import (
 	"archive/tar"
+	"cmp"
 	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
@@ -19,7 +20,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -54,7 +55,7 @@ func userProfiles(users string) []string {
 			out = append(out, e.Name())
 		}
 	}
-	sort.Strings(out)
+	slices.Sort(out)
 	return out
 }
 
@@ -107,7 +108,7 @@ func collectSaveFiles(users string) []saveFile {
 			})
 		}
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Rel < out[j].Rel })
+	slices.SortFunc(out, func(a, b saveFile) int { return cmp.Compare(a.Rel, b.Rel) })
 	return out
 }
 
@@ -122,7 +123,7 @@ func fileProfiles(files []saveFile) []string {
 			out = append(out, p)
 		}
 	}
-	sort.Strings(out)
+	slices.Sort(out)
 	return out
 }
 
@@ -217,7 +218,7 @@ func contentFingerprint(root string, files []saveFile, game bool) string {
 
 // hashLines : sha256 hexadécimal des lignes, triées.
 func hashLines(lines []string) string {
-	sort.Strings(lines)
+	slices.Sort(lines)
 	h := sha256.New()
 	for _, l := range lines {
 		_, _ = io.WriteString(h, l)
@@ -845,6 +846,6 @@ func syncGames() []string {
 			out = append(out, g)
 		}
 	}
-	sort.Strings(out)
+	slices.Sort(out)
 	return out
 }

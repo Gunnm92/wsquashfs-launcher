@@ -138,7 +138,9 @@ func prepareMountDirs() {
 	}
 	// Image d'origine des sauvegardes, pour --clean (fichiers identiques).
 	imgDir := filepath.Join(conf.savesDir, ".images")
-	_ = os.WriteFile(filepath.Join(imgDir, launch.gameName), []byte(launch.wsquashfsFile+"\n"), 0o644)
+	if err := os.WriteFile(filepath.Join(imgDir, launch.gameName), []byte(launch.wsquashfsFile+"\n"), 0o644); err != nil {
+		warn("image d'origine des sauvegardes non écrite : " + err.Error())
+	}
 	chownToTarget(imgDir)
 	resetWorkdir(launch.workPoint)
 	for _, p := range []string{launch.squashfsPoint, launch.savePoint, launch.winePoint, launch.workPoint} {
@@ -252,7 +254,9 @@ func extractImage() {
 			"  → Ou installer squashfs-tools : apt-get install squashfs-tools")
 	}
 	restoreCopyUsers()
-	_ = os.WriteFile(launch.winePoint+"/.wsquashfs_cache", []byte(imageSignature()), 0o644)
+	if err := os.WriteFile(launch.winePoint+"/.wsquashfs_cache", []byte(imageSignature()), 0o644); err != nil {
+		warn("signature de l'image non écrite : " + err.Error())
+	}
 	chownToTarget(launch.winePoint)
 }
 

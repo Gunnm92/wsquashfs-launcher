@@ -16,11 +16,12 @@ package main
 //                             de sa version la plus récente (agent lancé) ; état sans argument
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 )
 
@@ -385,7 +386,7 @@ func syncRun(cfg syncConfig, game string, dryRun bool) int {
 		local[g] = true
 	}
 	peers := append([]syncPeer{}, cfg.Peers...)
-	sort.Slice(peers, func(i, j int) bool { return peers[i].Name < peers[j].Name })
+	slices.SortFunc(peers, func(a, b syncPeer) int { return cmp.Compare(a.Name, b.Name) })
 	failed := false
 	for _, peer := range peers {
 		uiSection(peer.Name)
@@ -419,7 +420,7 @@ func syncRun(cfg syncConfig, game string, dryRun bool) int {
 		for g := range games {
 			names = append(names, g)
 		}
-		sort.Strings(names)
+		slices.Sort(names)
 		if game != "" {
 			if !games[game] {
 				newUIGames([]string{game}).line(stSkip, game, "aucune sauvegarde ici ni sur "+peer.Name)

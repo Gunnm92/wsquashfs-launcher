@@ -9,7 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"unicode"
@@ -253,7 +253,15 @@ func lastVersion(paths []string, re *regexp.Regexp) string {
 	if len(hits) == 0 {
 		return ""
 	}
-	sort.Slice(hits, func(i, j int) bool { return versionLess(hits[i], hits[j]) })
+	slices.SortFunc(hits, func(a, b string) int {
+		if versionLess(a, b) {
+			return -1
+		}
+		if versionLess(b, a) {
+			return 1
+		}
+		return 0
+	})
 	return hits[len(hits)-1]
 }
 

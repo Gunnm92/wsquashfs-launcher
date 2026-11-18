@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
+	"slices"
 	"strings"
 )
 
@@ -76,7 +76,15 @@ func romsIndex(recorded string) imagesIndex {
 		if err != nil {
 			continue
 		}
-		sort.SliceStable(systems, func(i, j int) bool { return systems[i].Name() == "win" && systems[j].Name() != "win" })
+		slices.SortStableFunc(systems, func(a, b os.DirEntry) int {
+			if a.Name() == "win" && b.Name() != "win" {
+				return -1
+			}
+			if b.Name() == "win" && a.Name() != "win" {
+				return 1
+			}
+			return 0
+		})
 		for _, sys := range systems {
 			if !sys.IsDir() {
 				continue

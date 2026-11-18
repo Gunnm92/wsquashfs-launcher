@@ -5,6 +5,7 @@ package main
 // users/, jamais les caches ni les comptes système.
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,7 +14,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 )
@@ -89,7 +90,7 @@ func (s *agentServer) savesList(w http.ResponseWriter, r *http.Request) {
 		st := loadSyncState(syncStateRoot(), machine, name)
 		games = append(games, remoteSave{Name: name, Label: t.Label, Dir: t.relDir(), Fingerprint: fp, Content: t.content(files), Newest: newestSave(files), Size: saveSize(files), State: st.Fingerprint})
 	}
-	sort.Slice(games, func(i, j int) bool { return games[i].Name < games[j].Name })
+	slices.SortFunc(games, func(a, b remoteSave) int { return cmp.Compare(a.Name, b.Name) })
 	writeJSON(w, http.StatusOK, map[string]any{"games": games})
 }
 

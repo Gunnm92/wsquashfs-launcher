@@ -13,6 +13,7 @@ package main
 // profils Wine) ; les autres sont des dossiers simples, copiés tels quels.
 
 import (
+	"cmp"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -22,7 +23,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -166,7 +167,7 @@ func addSyncDir(cfg syncConfig, name, path string) (syncConfig, error) {
 		}
 	}
 	dirs = append(dirs, syncDir{Name: name, Path: real})
-	sort.Slice(dirs, func(i, j int) bool { return dirs[i].Name < dirs[j].Name })
+	slices.SortFunc(dirs, func(a, b syncDir) int { return cmp.Compare(a.Name, b.Name) })
 	cfg.Dirs = dirs
 	return cfg, nil
 }
@@ -241,7 +242,7 @@ func edenTitlesOf(user string) []string {
 			out = append(out, e.Name())
 		}
 	}
-	sort.Strings(out)
+	slices.Sort(out)
 	return out
 }
 
@@ -474,14 +475,14 @@ func extraSyncNames() []string {
 			}
 		}
 	}
-	sort.Strings(out)
+	slices.Sort(out)
 	return out
 }
 
 // syncNames : tout ce que cette machine peut synchroniser (jeux, dossiers, jeux Switch), trié.
 func syncNames() []string {
 	out := append(syncGames(), extraSyncNames()...)
-	sort.Strings(out)
+	slices.Sort(out)
 	return out
 }
 
@@ -581,7 +582,7 @@ func collectPlainFiles(root string) []saveFile {
 		out = append(out, saveFile{Rel: filepath.ToSlash(rel), Size: info.Size(), MTime: info.ModTime().Unix()})
 		return nil
 	})
-	sort.Slice(out, func(i, j int) bool { return out[i].Rel < out[j].Rel })
+	slices.SortFunc(out, func(a, b saveFile) int { return cmp.Compare(a.Rel, b.Rel) })
 	return out
 }
 

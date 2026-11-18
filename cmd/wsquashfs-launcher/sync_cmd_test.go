@@ -59,24 +59,6 @@ func syncOne(t *testing.T, r *syncRig, local, stateRoot string, dryRun bool) (ui
 	return syncGameWith(r.client, "steambox", rigPeerID(r), stateRoot, syncRigGame, gameTarget(syncRigGame, local), rigRemote(t, r, syncRigGame), dryRun)
 }
 
-// syncArchiveWith : la seule archive de dossier backups qui contient le fichier donné.
-func syncArchiveWith(t *testing.T, dir, file string) string {
-	t.Helper()
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, e := range entries {
-		path := filepath.Join(dir, e.Name())
-		out, err := exec.Command("tar", "-tf", path).CombinedOutput()
-		if err == nil && strings.Contains(string(out), file) {
-			return path
-		}
-	}
-	t.Fatalf("aucune archive de %s dans %s", file, dir)
-	return ""
-}
-
 // TestSyncGameReceiveThenUpToDate : première synchro (pas d'état) = réception ; la suivante est à jour.
 // Les deux états sont enregistrés des deux côtés.
 func TestSyncGameReceiveThenUpToDate(t *testing.T) {
