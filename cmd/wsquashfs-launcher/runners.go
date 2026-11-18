@@ -291,6 +291,21 @@ func protonFamilyLatest(want string) string {
 	return best
 }
 
+// protonFamilyOf : famille d'une version de Proton (GE-Proton11-5 → GE-Proton,
+// UMU-Proton-10.0-4 → UMU-Proton, CachyOS-11.0-100 → proton-cachyos), "" sinon.
+func protonFamilyOf(version string) string {
+	v := strings.ToLower(version)
+	switch {
+	case strings.HasPrefix(v, "ge-proton"):
+		return "GE-Proton"
+	case strings.HasPrefix(v, "umu-proton"):
+		return "UMU-Proton"
+	case strings.Contains(v, "cachyos"):
+		return "proton-cachyos"
+	}
+	return ""
+}
+
 // findProtonRunner : dossier du runner Proton pour une version voulue, sinon le
 // plus récent des proton-cachyos, puis UMU-Proton, GE-Proton, puis n'importe
 // quel Proton (un prefix Proton ne doit pas retomber sur le Wine système).
@@ -304,6 +319,11 @@ func findProtonRunner(want string) string {
 			if protonRunnerIs(d, want) {
 				return d
 			}
+		}
+		// Version disparue (--clean, 18/11) : la plus récente de sa famille
+		// (prefix créé par GE-Proton11-5 → dernier GE-Proton installé).
+		if d := protonFamilyLatest(protonFamilyOf(want)); d != "" {
+			return d
 		}
 	}
 	if d := lastVersion(dirs, reCachyos); d != "" {

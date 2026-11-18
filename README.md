@@ -225,6 +225,11 @@ wsquashfs-launcher --pack MonJeu.pc            # → MonJeu.wsquashfs
 # cours exceptés. Ne garde que les 3 dernières archives de --erase par jeu.
 # Retire aussi les jeux sans image (renommée ou retirée) qui n'ont plus rien
 # d'écrit : overlay vide (dossiers et marqueurs seulement) et chemin mémorisé.
+# Retire enfin les anciennes versions de GE-Proton et UMU-Proton installées par
+# --setup (~/.local/share/Steam/compatibilitytools.d) : la plus récente de
+# chaque famille est gardée, ainsi qu'un Proton en cours d'utilisation ; un
+# prefix créé par une version retirée passe à la plus récente de sa famille.
+# Proton du système, de Steam ou de Heroic : jamais touchés.
 wsquashfs-launcher --clean
 
 # Plus profond : ne garder que drive_c/users (sauvegardes de partie) de tous

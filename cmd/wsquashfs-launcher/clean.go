@@ -268,6 +268,60 @@ func cleanCache() (freed int64) {
 	return freed
 }
 
+// pruneOldProtons : --clean (18/11) — anciennes versions de GE-Proton et
+// UMU-Proton installées par --setup (~/.local/share/Steam/compatibilitytools.d),
+// la plus récente de chaque famille gardée. Un Proton en cours d'utilisation
+// (chemin dans la ligne de commande ou l'environnement d'un processus) est
+// gardé. Les prefixes créés par une version retirée passent à la plus récente
+// de la famille (findProtonRunner). Proton du système, de Steam ou de Heroic :
+// jamais touchés.
+func pruneOldProtons() (removed []string, freed int64) {
+	dir := filepath.Join(os.Getenv("HOME"), ".local/share/Steam/compatibilitytools.d")
+	entries, _ := filepath.Glob(dir + "/*")
+	newest := map[string]string{}
+	var candidates []string
+	for _, d := range entries {
+		if st, err := os.Lstat(d); err != nil || !st.IsDir() || !isExecutable(d+"/proton") {
+			continue
+		}
+		fam := protonFamilyOf(filepath.Base(d))
+		if fam != "GE-Proton" && fam != "UMU-Proton" {
+			continue
+		}
+		candidates = append(candidates, d)
+		if cur := newest[fam]; cur == "" || versionLess(filepath.Base(cur), filepath.Base(d)) {
+			newest[fam] = d
+		}
+	}
+	for _, d := range candidates {
+		if newest[protonFamilyOf(filepath.Base(d))] == d || protonInUse(d) {
+			continue
+		}
+		size := filesSize(d)
+		if os.RemoveAll(d) == nil {
+			removed = append(removed, filepath.Base(d))
+			freed += size
+		}
+	}
+	return removed, freed
+}
+
+// protonInUse : un processus utilise ce Proton (chemin dans sa ligne de
+// commande ou son environnement, PROTONPATH compris).
+func protonInUse(d string) bool {
+	needle := []byte(d + "/")
+	procs, _ := filepath.Glob("/proc/[0-9]*")
+	for _, p := range procs {
+		for _, f := range []string{"/cmdline", "/environ"} {
+			data, err := os.ReadFile(p + f)
+			if err == nil && (bytes.Contains(data, needle) || bytes.Contains(data, []byte(d+"\x00"))) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // filesSize : taille des fichiers ordinaires d'un dossier.
 func filesSize(dir string) (total int64) {
 	_ = filepath.Walk(dir, func(_ string, info os.FileInfo, err error) error {
@@ -287,6 +341,7 @@ func cmdClean() {
 	cacheFreed := cleanCache()
 	archives, archivesFreed := pruneBackups()
 	orphans := pruneOrphanSaves()
+	protons, protonsFreed := pruneOldProtons()
 
 	games := savedGames()
 	var busy, noImage, failed []string
@@ -323,9 +378,10 @@ func cmdClean() {
 	uiList("Image inconnue, doublons non cherchés (lancer le jeu une fois)", noImage)
 	uiList("Doublons non cherchés", failed)
 	uiList("Sans image ni sauvegarde, retirés", orphans)
+	uiList("Anciennes versions de Proton retirées (la plus récente est gardée)", protons)
 
 	uiSection("Bilan")
-	placeLibre := cacheFreed + archivesFreed + freed
+	placeLibre := cacheFreed + archivesFreed + freed + protonsFreed
 	bilan := []kv{{"Copies de travail", sizeText(cacheFreed) + " libérés"}}
 	if archives > 0 {
 		bilan = append(bilan, kv{"Archives", plural(archives, "supprimée", "supprimées") + ", " + sizeText(archivesFreed) + " libérés"})
@@ -340,6 +396,9 @@ func cmdClean() {
 	}
 	if len(orphans) > 0 {
 		bilan = append(bilan, kv{"Sans image ni sauvegarde", plural(len(orphans), "jeu retiré", "jeux retirés")})
+	}
+	if len(protons) > 0 {
+		bilan = append(bilan, kv{"Proton", plural(len(protons), "ancienne version retirée", "anciennes versions retirées") + ", " + sizeText(protonsFreed) + " libérés"})
 	}
 
 	if skipped := len(busy) + len(noImage) + len(failed); skipped > 0 {

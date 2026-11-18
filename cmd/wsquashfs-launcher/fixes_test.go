@@ -535,3 +535,48 @@ func TestProtonFamilyLatest(t *testing.T) {
 		t.Fatalf("aucun proton-cachyos : %q", got)
 	}
 }
+
+// TestPruneOldProtons : --clean retire les anciens GE-Proton et UMU-Proton de
+// compatibilitytools.d, garde le plus récent de chaque famille et ne touche
+// ni aux autres Proton ni à Heroic (18/11).
+func TestPruneOldProtons(t *testing.T) {
+	isolateState(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	mk := func(rel string) string {
+		d := filepath.Join(home, rel)
+		writeTree(t, d, map[string]string{"proton": "#!/bin/sh\n", "files/bin/wine": "#!/bin/sh\n"})
+		for _, f := range []string{"proton", "files/bin/wine"} {
+			if err := os.Chmod(filepath.Join(d, f), 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return d
+	}
+	c := ".local/share/Steam/compatibilitytools.d/"
+	oldGE := mk(c + "GE-Proton11-5")
+	newGE := mk(c + "GE-Proton11-12-x86_64")
+	oldUMU := mk(c + "UMU-Proton-9.0-3")
+	newUMU := mk(c + "UMU-Proton-10.0-4")
+	other := mk(c + "DenuvOwO-cachyos-11.0")
+	heroic := mk(".config/heroic/tools/proton/GE-Proton8-25")
+
+	removed, freed := pruneOldProtons()
+	if strings.Join(removed, ",") != "GE-Proton11-5,UMU-Proton-9.0-3" || freed <= 0 {
+		t.Fatalf("retirés = %v (%d octets)", removed, freed)
+	}
+	for _, gone := range []string{oldGE, oldUMU} {
+		if _, err := os.Stat(gone); err == nil {
+			t.Fatalf("%s devait être retiré", gone)
+		}
+	}
+	for _, kept := range []string{newGE, newUMU, other, heroic} {
+		if _, err := os.Stat(kept); err != nil {
+			t.Fatalf("%s devait être gardé", kept)
+		}
+	}
+	// Prefix créé par la version retirée : le plus récent de la famille.
+	if got := findProtonRunner("GE-Proton11-5"); filepath.Base(got) != "GE-Proton11-12-x86_64" {
+		t.Fatalf("prefix GE-Proton11-5 → %q", got)
+	}
+}

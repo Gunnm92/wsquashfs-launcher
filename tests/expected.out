@@ -34,7 +34,8 @@ Sauvegardes :
   wsquashfs-launcher --save <jeu>  |  --saves
         Copie les sauvegardes de partie dans la ludothèque.
   wsquashfs-launcher --clean
-        Ménage sans risque : cache, doublons, jeux sans image ni sauvegarde.
+        Ménage sans risque : cache, doublons, jeux sans image ni sauvegarde,
+        anciennes versions de GE-Proton et UMU-Proton (la plus récente gardée).
   wsquashfs-launcher --clear [jeu]
         Ne garde que drive_c/users (sans archive, confirmation demandée).
   wsquashfs-launcher --erase [jeu]
