@@ -16,6 +16,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"wsquashfs-launcher/internal/ui"
 )
 
 // syncNoLocalLock : pas de verrou côté client (le serveur, dans le même processus, tient le même
@@ -54,7 +56,7 @@ func rigRemote(t *testing.T, r *syncRig, name string) remoteSave {
 }
 
 // syncOne : synchronise le jeu de test avec le serveur de test, depuis le dossier local donné.
-func syncOne(t *testing.T, r *syncRig, local, stateRoot string, dryRun bool) (uiStatus, string) {
+func syncOne(t *testing.T, r *syncRig, local, stateRoot string, dryRun bool) (ui.Status, string) {
 	t.Helper()
 	return syncGameWith(r.client, "steambox", rigPeerID(r), stateRoot, syncRigGame, gameTarget(syncRigGame, local), rigRemote(t, r, syncRigGame), dryRun)
 }
@@ -69,7 +71,7 @@ func TestSyncGameReceiveThenUpToDate(t *testing.T) {
 	want := saveFingerprint(r.users, collectSaveFiles(r.users))
 
 	st, msg := syncOne(t, r, local, stateRoot, false)
-	if st != stOK || msg != "reçu de steambox" {
+	if st != ui.OK || msg != "reçu de steambox" {
 		t.Fatalf("première synchro : %v %q", st, msg)
 	}
 	if got := saveFingerprint(local, collectSaveFiles(local)); got != want {
@@ -82,7 +84,7 @@ func TestSyncGameReceiveThenUpToDate(t *testing.T) {
 		t.Errorf("état serveur %q, attendu %s", s, want)
 	}
 	st, msg = syncOne(t, r, local, stateRoot, false)
-	if st != stOK || msg != "à jour" {
+	if st != ui.OK || msg != "à jour" {
 		t.Errorf("seconde synchro : %v %q, attendu à jour", st, msg)
 	}
 }
@@ -93,14 +95,14 @@ func TestSyncGameSend(t *testing.T) {
 	syncNoLocalLock(t)
 	local := clientUsers(t)
 	stateRoot := t.TempDir()
-	if st, msg := syncOne(t, r, local, stateRoot, false); st != stOK {
+	if st, msg := syncOne(t, r, local, stateRoot, false); st != ui.OK {
 		t.Fatalf("réception initiale : %v %q", st, msg)
 	}
 	syncTestPut(t, filepath.Join(local, "steamuser", "Documents", "Game", "nouvelle.sav"), "nouveau", syncTestTime.Add(time.Hour))
 	mine := saveFingerprint(local, collectSaveFiles(local))
 
 	st, msg := syncOne(t, r, local, stateRoot, false)
-	if st != stOK || msg != "envoyé à steambox" {
+	if st != ui.OK || msg != "envoyé à steambox" {
 		t.Fatalf("envoi : %v %q", st, msg)
 	}
 	if got := saveFingerprint(r.users, collectSaveFiles(r.users)); got != mine {
@@ -121,7 +123,7 @@ func TestSyncGameConflictKeepsBoth(t *testing.T) {
 	syncNoLocalLock(t)
 	local := clientUsers(t)
 	stateRoot := t.TempDir()
-	if st, msg := syncOne(t, r, local, stateRoot, false); st != stOK {
+	if st, msg := syncOne(t, r, local, stateRoot, false); st != ui.OK {
 		t.Fatalf("réception initiale : %v %q", st, msg)
 	}
 	srvFile := filepath.Join(r.users, "steamuser", "Documents", "Game", "serveur.sav")
@@ -132,7 +134,7 @@ func TestSyncGameConflictKeepsBoth(t *testing.T) {
 	srvFP := saveFingerprint(r.users, collectSaveFiles(r.users))
 
 	st, msg := syncOne(t, r, local, stateRoot, false)
-	if st != stSkip || msg != "conflit avec steambox (les deux ont changé) : à départager dans le manager" {
+	if st != ui.Skip || msg != "conflit avec steambox (les deux ont changé) : à départager dans le manager" {
 		t.Fatalf("conflit : %v %q", st, msg)
 	}
 	if got := saveFingerprint(local, collectSaveFiles(local)); got != localFP {
@@ -160,7 +162,7 @@ func TestSyncGameConflictSendsToManager(t *testing.T) {
 	syncGlobalsSaved(t)
 	local := clientUsers(t)
 	stateRoot := t.TempDir()
-	if st, msg := syncOne(t, r, local, stateRoot, false); st != stOK {
+	if st, msg := syncOne(t, r, local, stateRoot, false); st != ui.OK {
 		t.Fatalf("réception initiale : %v %q", st, msg)
 	}
 	syncTestPut(t, filepath.Join(r.users, "steamuser", "Documents", "Game", "serveur.sav"), "serveur", syncTestTime.Add(3*time.Hour))
@@ -175,7 +177,7 @@ func TestSyncGameConflictSendsToManager(t *testing.T) {
 	}
 
 	st, msg := syncOne(t, r, local, stateRoot, false)
-	if st != stSkip || !strings.HasSuffix(msg, " ; copie d'ici envoyée au manager") {
+	if st != ui.Skip || !strings.HasSuffix(msg, " ; copie d'ici envoyée au manager") {
 		t.Fatalf("conflit : %v %q", st, msg)
 	}
 	if m.puts != 1 || !tarHas(t, m.body, "client.sav") {
@@ -196,7 +198,7 @@ func TestSyncGameDryRunChangesNothing(t *testing.T) {
 	syncNoLocalLock(t)
 	local := clientUsers(t)
 	stateRoot := t.TempDir()
-	if st, msg := syncOne(t, r, local, stateRoot, false); st != stOK {
+	if st, msg := syncOne(t, r, local, stateRoot, false); st != ui.OK {
 		t.Fatalf("réception initiale : %v %q", st, msg)
 	}
 	syncTestPut(t, filepath.Join(local, "steamuser", "Documents", "Game", "nouvelle.sav"), "nouveau", syncTestTime.Add(time.Hour))
@@ -209,7 +211,7 @@ func TestSyncGameDryRunChangesNothing(t *testing.T) {
 	beforeClientState := syncTestTree(t, stateRoot)
 
 	st, msg := syncOne(t, r, local, stateRoot, true)
-	if st != stInfo || msg != "envoi" {
+	if st != ui.Info || msg != "envoi" {
 		t.Errorf("simulation : %v %q, attendu envoi", st, msg)
 	}
 	if !reflect.DeepEqual(beforeLocal, syncTestTree(t, local)) || !reflect.DeepEqual(beforeServer, syncTestTree(t, r.users)) {
@@ -226,7 +228,7 @@ func TestSyncGameLockedOnServer(t *testing.T) {
 	syncNoLocalLock(t)
 	local := clientUsers(t)
 	stateRoot := t.TempDir()
-	if st, msg := syncOne(t, r, local, stateRoot, false); st != stOK {
+	if st, msg := syncOne(t, r, local, stateRoot, false); st != ui.OK {
 		t.Fatalf("réception initiale : %v %q", st, msg)
 	}
 	syncTestPut(t, filepath.Join(local, "steamuser", "Documents", "Game", "nouvelle.sav"), "nouveau", syncTestTime.Add(time.Hour))
@@ -243,7 +245,7 @@ func TestSyncGameLockedOnServer(t *testing.T) {
 		t.Fatal(err)
 	}
 	st, msg := syncOne(t, r, local, stateRoot, false)
-	if st != stSkip || msg != "en cours sur steambox, ignoré" {
+	if st != ui.Skip || msg != "en cours sur steambox, ignoré" {
 		t.Errorf("jeu verrouillé là-bas : %v %q", st, msg)
 	}
 }
@@ -256,7 +258,7 @@ func TestSyncGameLockedHere(t *testing.T) {
 	defer func() { syncLockGame = old }()
 	before := syncTestTree(t, r.users)
 	st, msg := syncOne(t, r, clientUsers(t), t.TempDir(), false)
-	if st != stSkip || msg != "en cours ici, ignoré" {
+	if st != ui.Skip || msg != "en cours ici, ignoré" {
 		t.Errorf("jeu en cours ici : %v %q", st, msg)
 	}
 	if !reflect.DeepEqual(before, syncTestTree(t, r.users)) {
@@ -277,7 +279,7 @@ func TestSyncGameSaveDirIgnored(t *testing.T) {
 		t.Fatal("SAVEDIR non détecté")
 	}
 	st, msg := syncOne(t, r, clientUsers(t), t.TempDir(), false)
-	if st != stSkip || !strings.Contains(msg, "SAVEDIR/SAVEFILES") {
+	if st != ui.Skip || !strings.Contains(msg, "SAVEDIR/SAVEFILES") {
 		t.Errorf("jeu à SAVEDIR : %v %q", st, msg)
 	}
 }
@@ -333,7 +335,7 @@ func TestSyncTwoMachinesSequence(t *testing.T) {
 
 	// A joue : B reçoit.
 	syncTestPut(t, filepath.Join(a, save), "partie A", syncTestTime.Add(time.Hour))
-	if st, msg := syncOne(t, r, a, stateA, false); st != stOK || msg != "envoyé à steambox" {
+	if st, msg := syncOne(t, r, a, stateA, false); st != ui.OK || msg != "envoyé à steambox" {
 		t.Fatalf("A envoie : %v %q", st, msg)
 	}
 	if data, _ := os.ReadFile(filepath.Join(r.users, save)); string(data) != "partie A" {
@@ -341,14 +343,14 @@ func TestSyncTwoMachinesSequence(t *testing.T) {
 	}
 	// B joue (sur B, après la synchro) : A reçoit.
 	syncTestPut(t, filepath.Join(r.users, save), "partie B", syncTestTime.Add(2*time.Hour))
-	if st, msg := syncOne(t, r, a, stateA, false); st != stOK || msg != "reçu de steambox" {
+	if st, msg := syncOne(t, r, a, stateA, false); st != ui.OK || msg != "reçu de steambox" {
 		t.Fatalf("A reçoit : %v %q", st, msg)
 	}
 	if data, _ := os.ReadFile(filepath.Join(a, save)); string(data) != "partie B" {
 		t.Fatalf("A n'a pas reçu la partie de B : %q", data)
 	}
 	// Rien à faire ensuite.
-	if st, msg := syncOne(t, r, a, stateA, false); st != stOK || msg != "à jour" {
+	if st, msg := syncOne(t, r, a, stateA, false); st != ui.OK || msg != "à jour" {
 		t.Errorf("seconde synchro : %v %q, attendu à jour", st, msg)
 	}
 }
@@ -402,7 +404,7 @@ func TestCopyGameSavesNewerSource(t *testing.T) {
 	out, _ := capteUI(t)
 	run := func() string {
 		out.Reset()
-		copyGameSaves(game, newUIGames([]string{game}))
+		copyGameSaves(game, ui.NewGames([]string{game}))
 		return out.String()
 	}
 	if got := run(); !strings.Contains(got, "1 fichier(s) copié(s)") {
@@ -558,7 +560,7 @@ func TestSyncGameNothingAnywhere(t *testing.T) {
 		t.Fatal(err)
 	}
 	st, msg := syncOne(t, r, clientUsers(t), t.TempDir(), false)
-	if st != stSkip || msg != "aucune sauvegarde ici ni sur steambox" {
+	if st != ui.Skip || msg != "aucune sauvegarde ici ni sur steambox" {
 		t.Errorf("rien de part et d'autre : %v %q", st, msg)
 	}
 }

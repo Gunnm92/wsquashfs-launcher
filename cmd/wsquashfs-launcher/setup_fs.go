@@ -20,6 +20,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"wsquashfs-launcher/internal/ui"
 )
 
 // downloader : curl, sinon wget, sinon "" (aucun outil).
@@ -150,7 +152,7 @@ func verifyGithubAsset(archive, repo, tag, file string) bool {
 		return true
 	}
 	if want == "" {
-		uiItem(stSkip, file+" : empreinte non publiée par GitHub, archive non vérifiée")
+		ui.Item(ui.Skip, file+" : empreinte non publiée par GitHub, archive non vérifiée")
 		return true
 	}
 	got, err := fileSHA256(archive)
@@ -172,7 +174,7 @@ func fetch(url, dest, label string) error {
 		setupErr(label + " introuvable : " + url)
 		return fmt.Errorf("lien introuvable : %s", url)
 	}
-	uiItem(stInfo, "Téléchargement de "+label+"...")
+	ui.Item(ui.Info, "Téléchargement de "+label+"...")
 	if err := downloadTo(url, dest); err != nil {
 		setupErr("Téléchargement échoué : " + url)
 		return err

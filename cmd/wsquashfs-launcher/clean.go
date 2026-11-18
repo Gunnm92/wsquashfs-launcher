@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"wsquashfs-launcher/internal/ui"
 )
 
 // ── --clean (01/10) ────────────────────────────────────────────────────
@@ -258,14 +260,14 @@ func cleanCache() (freed int64) {
 			freed += filesSize(d)
 			_ = os.RemoveAll(d)
 		} else {
-			warn(g + " : sauvegardes de la copie de travail impossibles à mettre de côté, copie gardée")
+			ui.Warn(g + " : sauvegardes de la copie de travail impossibles à mettre de côté, copie gardée")
 		}
 		if lock != nil {
 			lock.Close()
 		}
 	}
 	freed += pruneSyncTemp()
-	uiStatusLine(stOK, "Copies de travail supprimées")
+	ui.StatusLine(ui.OK, "Copies de travail supprimées")
 	return freed
 }
 
@@ -338,7 +340,7 @@ func filesSize(dir string) (total int64) {
 // certains des sauvegardes, archives les plus anciennes de --erase. Les jeux
 // sont regroupés par rubrique : doublons retirés (tableau), puis bilan.
 func cmdClean() {
-	uiTitle("Nettoyage", "copies de travail et doublons des sauvegardes")
+	ui.Title("Nettoyage", "copies de travail et doublons des sauvegardes")
 	cacheFreed := cleanCache()
 	archives, archivesFreed := pruneBackups()
 	orphans := pruneOrphanSaves()
@@ -360,56 +362,56 @@ func cmdClean() {
 		case r.n == 0:
 			untouched++
 		default:
-			rows = append(rows, []string{truncate(g, uiNameMax), strconv.Itoa(r.n), sizeText(r.bytes)})
+			rows = append(rows, []string{ui.Truncate(g, ui.NameMax), strconv.Itoa(r.n), ui.SizeText(r.bytes)})
 			cleaned++
 			files += r.n
 			freed += r.bytes
 		}
 	}
 	if cleaned > 0 {
-		uiSection("Doublons retirés")
-		var total uiCell
+		ui.Section("Doublons retirés")
+		var total ui.Cell
 		if cleaned > 1 {
-			rows = append(rows, []string{"Total", strconv.Itoa(files), sizeText(freed)})
-			total = uiBoldRow(len(rows) - 1)
+			rows = append(rows, []string{"Total", strconv.Itoa(files), ui.SizeText(freed)})
+			total = ui.BoldRow(len(rows) - 1)
 		}
-		uiTable([]string{"Jeu", "Fichiers", "Libéré"}, rows, []int{1, 2}, total)
+		ui.Table([]string{"Jeu", "Fichiers", "Libéré"}, rows, []int{1, 2}, total)
 	}
-	uiList("En cours ou montés, ignorés", busy)
-	uiList("Image inconnue, doublons non cherchés (lancer le jeu une fois)", noImage)
-	uiList("Doublons non cherchés", failed)
-	uiList("Sans image ni sauvegarde, retirés", orphans)
-	uiList("Anciennes versions de Proton retirées (la plus récente est gardée)", protons)
+	ui.List("En cours ou montés, ignorés", busy)
+	ui.List("Image inconnue, doublons non cherchés (lancer le jeu une fois)", noImage)
+	ui.List("Doublons non cherchés", failed)
+	ui.List("Sans image ni sauvegarde, retirés", orphans)
+	ui.List("Anciennes versions de Proton retirées (la plus récente est gardée)", protons)
 
-	uiSection("Bilan")
+	ui.Section("Bilan")
 	placeLibre := cacheFreed + archivesFreed + freed + protonsFreed
-	bilan := []kv{{"Copies de travail", sizeText(cacheFreed) + " libérés"}}
+	bilan := []ui.Pair{{"Copies de travail", ui.SizeText(cacheFreed) + " libérés"}}
 	if archives > 0 {
-		bilan = append(bilan, kv{"Archives", plural(archives, "supprimée", "supprimées") + ", " + sizeText(archivesFreed) + " libérés"})
+		bilan = append(bilan, ui.Pair{"Archives", ui.Plural(archives, "supprimée", "supprimées") + ", " + ui.SizeText(archivesFreed) + " libérés"})
 	}
 	if cleaned > 0 {
-		bilan = append(bilan, kv{"Doublons", plural(files, "fichier", "fichiers") + " dans " + plural(cleaned, "jeu", "jeux") + ", " + sizeText(freed) + " libérés"})
+		bilan = append(bilan, ui.Pair{"Doublons", ui.Plural(files, "fichier", "fichiers") + " dans " + ui.Plural(cleaned, "jeu", "jeux") + ", " + ui.SizeText(freed) + " libérés"})
 	} else {
-		bilan = append(bilan, kv{"Doublons", "aucun à retirer"})
+		bilan = append(bilan, ui.Pair{"Doublons", "aucun à retirer"})
 	}
 	if untouched > 0 {
-		bilan = append(bilan, kv{"Sans doublon", plural(untouched, "jeu", "jeux")})
+		bilan = append(bilan, ui.Pair{"Sans doublon", ui.Plural(untouched, "jeu", "jeux")})
 	}
 	if len(orphans) > 0 {
-		bilan = append(bilan, kv{"Sans image ni sauvegarde", plural(len(orphans), "jeu retiré", "jeux retirés")})
+		bilan = append(bilan, ui.Pair{"Sans image ni sauvegarde", ui.Plural(len(orphans), "jeu retiré", "jeux retirés")})
 	}
 	if len(protons) > 0 {
-		bilan = append(bilan, kv{"Proton", plural(len(protons), "ancienne version retirée", "anciennes versions retirées") + ", " + sizeText(protonsFreed) + " libérés"})
+		bilan = append(bilan, ui.Pair{"Proton", ui.Plural(len(protons), "ancienne version retirée", "anciennes versions retirées") + ", " + ui.SizeText(protonsFreed) + " libérés"})
 	}
 
 	if skipped := len(busy) + len(noImage) + len(failed); skipped > 0 {
-		bilan = append(bilan, kv{"Non traités", plural(skipped, "jeu", "jeux") + " (voir ci-dessus)"})
+		bilan = append(bilan, ui.Pair{"Non traités", ui.Plural(skipped, "jeu", "jeux") + " (voir ci-dessus)"})
 	}
 	bilan = append(bilan,
-		kv{"Place libérée", sizeText(placeLibre)},
-		kv{"Sauvegardes", conf.savesDir + " (" + duHuman(conf.savesDir) + " au total)"})
-	uiKV(2, bilan...)
-	uiVerdict(true, "Nettoyage terminé : "+sizeText(placeLibre)+" libérés")
+		ui.Pair{"Place libérée", ui.SizeText(placeLibre)},
+		ui.Pair{"Sauvegardes", conf.savesDir + " (" + duHuman(conf.savesDir) + " au total)"})
+	ui.KV(2, bilan...)
+	ui.Verdict(true, "Nettoyage terminé : "+ui.SizeText(placeLibre)+" libérés")
 }
 
 // ── --clear (01/10) et --erase (12/11) ─────────────────────────────────
@@ -417,31 +419,31 @@ func cmdClean() {
 // clearSaves : --clear pour un jeu. Ne garde que drive_c/users (les
 // sauvegardes de partie) : prefix, registre et fichiers écrits ailleurs sont
 // retirés et recréés au lancement suivant.
-func clearSaves(name string, g uiGames) {
+func clearSaves(name string, g ui.Games) {
 	saves := conf.savesDir + "/" + name
 	lock, idle := lockIdleGame(name)
 	if !idle {
-		g.line(stSkip, name, "monté ou en cours, ignoré")
+		g.Line(ui.Skip, name, "monté ou en cours, ignoré")
 		return
 	}
 	if lock != nil {
 		defer lock.Close()
 	}
 	if keepOnlyUsers(saves) {
-		g.line(stOK, name, "gardé "+duHuman(saves)+" (drive_c/users)")
+		g.Line(ui.OK, name, "gardé "+duHuman(saves)+" (drive_c/users)")
 	} else {
-		g.line(stOK, name, "rien à garder, supprimé")
+		g.Line(ui.OK, name, "rien à garder, supprimé")
 	}
 }
 
 // eraseSaves : --erase pour un jeu. Archive drive_c/users, puis supprime
 // toute la couche de sauvegardes : le jeu repart de son image. Rien n'est
 // supprimé si l'archive échoue.
-func eraseSaves(name string, g uiGames) {
+func eraseSaves(name string, g ui.Games) {
 	saves := conf.savesDir + "/" + name
 	lock, idle := lockIdleGame(name)
 	if !idle {
-		g.line(stSkip, name, "monté ou en cours, ignoré")
+		g.Line(ui.Skip, name, "monté ou en cours, ignoré")
 		return
 	}
 	if lock != nil {
@@ -460,15 +462,15 @@ func eraseSaves(name string, g uiGames) {
 	if parent != "" {
 		var err error
 		if archive, err = archiveUsers(name, parent, member); err != nil {
-			g.line(stFail, name, "archive impossible ("+err.Error()+"), sauvegardes gardées")
+			g.Line(ui.Fail, name, "archive impossible ("+err.Error()+"), sauvegardes gardées")
 			return
 		}
 	}
 	forgetGameSaves(name)
 	if archive != "" {
-		g.line(stOK, name, "supprimé, archive : "+filepath.Base(archive)+" ("+duHuman(archive)+")")
+		g.Line(ui.OK, name, "supprimé, archive : "+filepath.Base(archive)+" ("+duHuman(archive)+")")
 	} else {
-		g.line(stOK, name, "supprimé (pas de drive_c/users à archiver)")
+		g.Line(ui.OK, name, "supprimé (pas de drive_c/users à archiver)")
 	}
 }
 
@@ -489,7 +491,7 @@ func saveTargetsOf(args []string) ([]string, bool) {
 	}
 	name := gameNameOf(args[0])
 	if !isDirPath(conf.savesDir+"/"+name) && !isDirPath(copyUsersStash(name)) {
-		uiStatusLine(stSkip, "Aucune sauvegarde pour "+name)
+		ui.StatusLine(ui.Skip, "Aucune sauvegarde pour "+name)
 		return nil, false
 	}
 	return []string{name}, true
@@ -501,17 +503,17 @@ func cmdClear(args []string) int {
 	if !ok {
 		return 0
 	}
-	uiTitle("Sauvegardes réduites à drive_c/users", plural(len(targets), "jeu", "jeux"))
-	uiNote("Scores et réglages enregistrés ailleurs (jeux arcade, dossier du jeu,",
+	ui.Title("Sauvegardes réduites à drive_c/users", ui.Plural(len(targets), "jeu", "jeux"))
+	ui.Note("Scores et réglages enregistrés ailleurs (jeux arcade, dossier du jeu,",
 		"registre) seront perdus. Aucune archive n'est faite (tout effacer, avec",
 		"archive : --erase).")
 	if isTerminal() && !confirm("Continuer ?") {
-		uiStatusLine(stSkip, "Abandon : rien n'a été modifié")
+		ui.StatusLine(ui.Skip, "Abandon : rien n'a été modifié")
 		return 1
 	}
-	uiOut("")
+	ui.Out("")
 	cleanCache()
-	g := newUIGames(targets)
+	g := ui.NewGames(targets)
 	for _, name := range targets {
 		clearSaves(name, g)
 	}
@@ -524,17 +526,17 @@ func cmdErase(args []string) int {
 	if !ok {
 		return 0
 	}
-	uiTitle("Effacement des sauvegardes", plural(len(targets), "jeu", "jeux"))
-	uiNote("Chaque jeu repart de son image. drive_c/users est archivé avant dans", backupDir())
-	uiNote("Restauration :")
-	uiCode("tar -xf <archive> -C " + conf.savesDir + "/<jeu>/")
+	ui.Title("Effacement des sauvegardes", ui.Plural(len(targets), "jeu", "jeux"))
+	ui.Note("Chaque jeu repart de son image. drive_c/users est archivé avant dans", backupDir())
+	ui.Note("Restauration :")
+	ui.Code("tar -xf <archive> -C " + conf.savesDir + "/<jeu>/")
 	if isTerminal() && !confirm("Continuer ?") {
-		uiStatusLine(stSkip, "Abandon : rien n'a été modifié")
+		ui.StatusLine(ui.Skip, "Abandon : rien n'a été modifié")
 		return 1
 	}
-	uiOut("")
+	ui.Out("")
 	cleanCache()
-	g := newUIGames(targets)
+	g := ui.NewGames(targets)
 	for _, name := range targets {
 		eraseSaves(name, g)
 	}

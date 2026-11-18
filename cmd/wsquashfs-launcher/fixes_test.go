@@ -14,6 +14,8 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+
+	"wsquashfs-launcher/internal/ui"
 )
 
 // otherFilesystem : dossier sur un autre système de fichiers que t.TempDir()
@@ -301,7 +303,7 @@ func TestEraseSavesArchivesThenRemoves(t *testing.T) {
 	_ = os.MkdirAll(filepath.Dir(save), 0o755)
 	_ = os.WriteFile(save, []byte("PARTIE"), 0o644)
 	_ = os.WriteFile(conf.savesDir+"/Jeu/system.reg", []byte("reg"), 0o644)
-	eraseSaves("Jeu", newUIGames([]string{"Jeu"}))
+	eraseSaves("Jeu", ui.NewGames([]string{"Jeu"}))
 
 	if pathExists(conf.savesDir + "/Jeu") {
 		t.Error("sauvegardes non supprimées")
@@ -339,7 +341,7 @@ func TestEraseSavesKeepsSavesWhenArchiveFails(t *testing.T) {
 	save := conf.savesDir + "/Jeu/drive_c/users/u/slot.sav"
 	_ = os.MkdirAll(filepath.Dir(save), 0o755)
 	_ = os.WriteFile(save, []byte("PARTIE"), 0o644)
-	eraseSaves("Jeu", newUIGames([]string{"Jeu"}))
+	eraseSaves("Jeu", ui.NewGames([]string{"Jeu"}))
 	if data, _ := os.ReadFile(save); string(data) != "PARTIE" {
 		t.Error("sauvegardes supprimées alors que l'archive a échoué")
 	}

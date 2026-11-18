@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"wsquashfs-launcher/internal/ui"
 )
 
 // ── --info (29/09) et --show (06/11) ───────────────────────────────────
@@ -109,25 +111,25 @@ func showInfo(args []string) int {
 	default:
 		typ = "jeu seul (prefix créé au premier lancement)"
 	}
-	uiTitle(gameNameOf(src))
+	ui.Title(gameNameOf(src))
 	if version == "" {
 		version = "non renseignée (GAME_VERSION= dans l'autorun.cmd)"
 	}
-	pairs := []kv{{"Version", version}, {"Type", typ}}
+	pairs := []ui.Pair{{"Version", version}, {"Type", typ}}
 	if cmdLine, ok := overrideVar(strings.TrimSuffix(src, "/")+".autorun", "CMD"); ok {
-		pairs = append(pairs, kv{"Commande", cmdLine})
+		pairs = append(pairs, ui.Pair{"Commande", cmdLine})
 	} else if autorun != "" {
-		pairs = append(pairs, kv{"Commande", keyLine(autorun, "CMD")})
+		pairs = append(pairs, ui.Pair{"Commande", keyLine(autorun, "CMD")})
 	} else {
-		pairs = append(pairs, kv{"Commande", "aucun autorun.cmd"})
+		pairs = append(pairs, ui.Pair{"Commande", "aucun autorun.cmd"})
 	}
-	pairs = append(pairs, kv{"Runner", infoRunner(autorun, joined)})
+	pairs = append(pairs, ui.Pair{"Runner", infoRunner(autorun, joined)})
 	if isFile(strings.TrimSuffix(src, "/") + ".autorun") {
 		override := strings.TrimSuffix(src, "/") + ".autorun"
-		pairs = append(pairs, kv{"Surcharge", filepath.Base(override) + " (" + overrideKeys(override) + ") — non lue par Batocera"})
+		pairs = append(pairs, ui.Pair{"Surcharge", filepath.Base(override) + " (" + overrideKeys(override) + ") — non lue par Batocera"})
 	}
-	pairs = append(pairs, kv{"Taille", duHuman(src)})
-	uiKV(0, pairs...)
+	pairs = append(pairs, ui.Pair{"Taille", duHuman(src)})
+	ui.KV(0, pairs...)
 	return 0
 }
 
@@ -215,7 +217,7 @@ func cmdShow(args []string) int {
 	}
 	loadLayers(imageAutorun(src))
 
-	uiTitle(launch.gameName)
+	ui.Title(launch.gameName)
 	machine := launch.machineLayer
 	if machine == "" {
 		machine = machineLayerFile() + " (absent)"
@@ -228,12 +230,12 @@ func cmdShow(args []string) int {
 	if launch.autorunOverride == "" {
 		surcharge += " (absent)"
 	}
-	couches := []kv{{"machine", machine}, {"dossier", folder}, {"image", "autorun.cmd"}, {"surcharge", surcharge}}
+	couches := []ui.Pair{{"machine", machine}, {"dossier", folder}, {"image", "autorun.cmd"}, {"surcharge", surcharge}}
 	if len(launch.setArgs) > 0 {
-		couches = append(couches, kv{"--set", strings.Join(launch.setArgs, " ")})
+		couches = append(couches, ui.Pair{"--set", strings.Join(launch.setArgs, " ")})
 	}
-	uiSection("Couches (de la plus faible à la plus forte)")
-	uiKV(2, couches...)
+	ui.Section("Couches (de la plus faible à la plus forte)")
+	ui.KV(2, couches...)
 
 	shown := map[string]bool{}
 	for _, k := range showKeys {
@@ -260,13 +262,13 @@ func cmdShow(args []string) int {
 		}
 		reglages = append(reglages, []string{key, layers.lookupVal, layers.lookupSrc})
 	}
-	uiSection("Réglages")
-	uiTable([]string{"Réglage", "Valeur", "Couche"}, reglages, nil, nil)
+	ui.Section("Réglages")
+	ui.Table([]string{"Réglage", "Valeur", "Couche"}, reglages, nil, nil)
 
 	if layers.envLayers > 0 {
-		uiSection("ENV")
+		ui.Section("ENV")
 		if mergedEnv() == "" {
-			uiNote("aucune variable : ENV= vide")
+			ui.Note("aucune variable : ENV= vide")
 		}
 		var env [][]string
 		seen := map[string]bool{}
@@ -278,7 +280,7 @@ func cmdShow(args []string) int {
 			env = append(env, []string{layers.envVal[n], layers.envSrc[n]})
 		}
 		if len(env) > 0 {
-			uiTable([]string{"Variable", "Couche"}, env, nil, nil)
+			ui.Table([]string{"Variable", "Couche"}, env, nil, nil)
 		}
 	}
 
@@ -286,16 +288,16 @@ func cmdShow(args []string) int {
 	key := layers.lookupVal
 	layerLookup("SAVEFILES", "")
 	sysdir, ok := batoceraSavesDir()
-	overlay := kv{"Overlay", conf.savesDir + "/" + launch.gameName}
-	sauvegardes := kv{"Sauvegardes", "dans l'overlay ; --save <jeu> les copie dans " + sysdir}
+	overlay := ui.Pair{"Overlay", conf.savesDir + "/" + launch.gameName}
+	sauvegardes := ui.Pair{"Sauvegardes", "dans l'overlay ; --save <jeu> les copie dans " + sysdir}
 	switch {
 	case !ok:
-		sauvegardes.v = "hors d'un dossier roms/<système>/ (WSQUASHFS_BATOCERA_SAVES)"
+		sauvegardes[1] = "hors d'un dossier roms/<système>/ (WSQUASHFS_BATOCERA_SAVES)"
 	case key+layers.lookupVal != "":
-		sauvegardes.v = sysdir + " (SAVEDIR/SAVEFILES)"
+		sauvegardes[1] = sysdir + " (SAVEDIR/SAVEFILES)"
 	}
-	uiSection("Sauvegardes")
-	uiKV(2, overlay, sauvegardes)
+	ui.Section("Sauvegardes")
+	ui.KV(2, overlay, sauvegardes)
 	return 0
 }
 

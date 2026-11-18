@@ -10,6 +10,8 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+
+	"wsquashfs-launcher/internal/ui"
 )
 
 // cleanupHook : cleanup() du lanceur, appelé une fois avant la sortie. Fixé
@@ -32,9 +34,9 @@ func exitNow(code int) {
 }
 
 // confirm : vrai si l'utilisateur répond oui (o/y). Question au terminal
-// (forme commune, voir uiPrompt), réponse lue sur l'entrée standard.
+// (forme commune, voir ui.Prompt), réponse lue sur l'entrée standard.
 func confirm(question string) bool {
-	uiPrompt(question, uiYesNo(false))
+	ui.Prompt(question, ui.YesNo(false))
 	reply := strings.ToLower(readLine())
 	return strings.HasPrefix(reply, "o") || strings.HasPrefix(reply, "y")
 }

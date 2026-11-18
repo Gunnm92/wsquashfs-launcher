@@ -771,7 +771,8 @@ chaque montage noyau.
 wsquashfs-launcher/
 ├── wsquashfs-launcher          # Binaire principal (Go, versionné)
 ├── go.mod, go.sum              # Module Go (racine du dépôt)
-├── cmd/wsquashfs-launcher/     # Sources Go (affichage : ui.go, lipgloss) et tests unitaires
+├── cmd/wsquashfs-launcher/     # Sources Go de l'exécutable et tests unitaires
+├── internal/                   # Paquets Go : imagefs (lecteur squashfs, FUSE), ui (affichage, lipgloss)
 ├── autorun.cmd.example         # Exemple de configuration
 ├── install.sh                  # Installation (Debian/Ubuntu, Arch/CachyOS)
 ├── Dockerfile                  # Image Docker (wine-tkg, DXVK, VKD3D, d7vk)

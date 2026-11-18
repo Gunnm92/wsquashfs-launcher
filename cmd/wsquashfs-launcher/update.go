@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"os"
 	"strings"
+
+	"wsquashfs-launcher/internal/ui"
 )
 
 // ── --update ───────────────────────────────────────────────────────────
@@ -89,9 +91,9 @@ func cmdUpdate() int {
 	if curErr != nil {
 		cur = ""
 	}
-	uiKV(0, kv{"Version installée", shortBuild(cur)}, kv{"Version distribuée", shortBuild(want)})
+	ui.KV(0, ui.Pair{"Version installée", shortBuild(cur)}, ui.Pair{"Version distribuée", shortBuild(want)})
 	if cur == want {
-		uiStatusLine(stOK, "Lanceur déjà à jour : "+self)
+		ui.StatusLine(ui.OK, "Lanceur déjà à jour : "+self)
 		return 0
 	}
 	tmp, err := os.MkdirTemp("", "wsq-update.")
@@ -99,7 +101,7 @@ func cmdUpdate() int {
 		die("dossier temporaire impossible")
 	}
 	defer os.RemoveAll(tmp)
-	uiStatusLine(stInfo, "Téléchargement depuis "+base+" ...")
+	ui.StatusLine(ui.Info, "Téléchargement depuis "+base+" ...")
 	fresh := tmp + "/wsquashfs-launcher"
 	if err := downloadTo(base+"/wsquashfs-launcher", fresh); err != nil {
 		die("téléchargement du lanceur impossible")
@@ -125,8 +127,8 @@ func cmdUpdate() int {
 		os.Remove(self + ".new")
 		die("remplacement du lanceur impossible : " + err.Error())
 	}
-	uiStatusLine(stOK, "Lanceur mis à jour : "+self+" (version "+shortBuild(want)+")")
+	ui.StatusLine(ui.OK, "Lanceur mis à jour : "+self+" (version "+shortBuild(want)+")")
 	removeAgentUnits() // démarrage automatique par systemd des anciennes versions
-	uiKV(0, kv{"Vérification", os.Args[0] + " --help"})
+	ui.KV(0, ui.Pair{"Vérification", os.Args[0] + " --help"})
 	return 0
 }

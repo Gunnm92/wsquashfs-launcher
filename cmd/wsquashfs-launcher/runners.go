@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+
+	"wsquashfs-launcher/internal/ui"
 )
 
 // sysPath : chemin sous SYSROOT (vide en usage normal ; les tests le font
@@ -467,7 +469,7 @@ func resolveImageRunner() {
 		name := singleImageRunner()
 		if name == "" {
 			if st, err := os.Stat(imageRoot() + "/runners"); err == nil && st.IsDir() {
-				warn("runners/ de l'image sans runner unique, aucun désigné (PROTON=/WINE=) : runner par défaut")
+				ui.Warn("runners/ de l'image sans runner unique, aucun désigné (PROTON=/WINE=) : runner par défaut")
 			}
 			return
 		}
@@ -506,9 +508,9 @@ func chooseProtonDefault() {
 		if !isFile(launch.winePoint + "/system.reg") {
 			launch.autoProton = true
 		} else if launch.dirMode {
-			warn("prefix Wine déjà créé dans " + launch.winePoint + ", gardé sous " + runnerName(launch.wineBinary) + " (Proton ne sait pas le convertir)")
+			ui.Warn("prefix Wine déjà créé dans " + launch.winePoint + ", gardé sous " + runnerName(launch.wineBinary) + " (Proton ne sait pas le convertir)")
 		} else {
-			warn("prefix Wine déjà créé dans les sauvegardes, gardé sous " + runnerName(launch.wineBinary) +
+			ui.Warn("prefix Wine déjà créé dans les sauvegardes, gardé sous " + runnerName(launch.wineBinary) +
 				" — supprimer " + launch.savePoint + " (sauvegardes du jeu comprises) pour passer sous Proton")
 		}
 	}
@@ -521,13 +523,13 @@ func chooseProtonDefault() {
 	if found := findProtonRunner(launch.prefixProton); found != "" {
 		launch.wineBinary = found + "/files/bin/wine"
 		if launch.prefixProton != "" && !protonRunnerIs(found, launch.prefixProton) {
-			warn("prefix créé par " + launch.prefixProton + " (absent), utilisation de " + filepath.Base(found))
+			ui.Warn("prefix créé par " + launch.prefixProton + " (absent), utilisation de " + filepath.Base(found))
 		}
 	} else {
 		if launch.prefixProton != "" {
-			warn("prefix Proton (" + launch.prefixProton + ") voulu, aucun Proton installé, utilisation de " + runnerName(launch.wineBinary))
+			ui.Warn("prefix Proton (" + launch.prefixProton + ") voulu, aucun Proton installé, utilisation de " + runnerName(launch.wineBinary))
 		} else {
-			warn("prefix Proton voulu, aucun Proton installé, utilisation de " + runnerName(launch.wineBinary))
+			ui.Warn("prefix Proton voulu, aucun Proton installé, utilisation de " + runnerName(launch.wineBinary))
 		}
 		launch.autoProton = false
 	}
@@ -605,7 +607,7 @@ func applyWineOption() {
 		wineAbs = "absent"
 	}
 	details = append(details, "    system ("+wineAbs+")")
-	uiError("runner Wine introuvable : "+launch.wineOverride, details...)
+	ui.Error("runner Wine introuvable : "+launch.wineOverride, details...)
 	exitNow(1)
 }
 
@@ -615,7 +617,7 @@ func setupUmu() {
 	if (launch.prefixProton+launch.protonVersion+launch.overrideProton != "" || launch.autoProton) && launch.forcedWine == "" {
 		if launch.prefixProton == "" && isFile(launch.winePoint+"/system.reg") {
 			launch.wineBinary = findWineBinary()
-			warn("PROTON=" + launch.protonVersion + " ignoré, prefix Wine existant — Proton ne sait pas le convertir")
+			ui.Warn("PROTON=" + launch.protonVersion + " ignoré, prefix Wine existant — Proton ne sait pas le convertir")
 		} else if dir := protonDirOf(launch.wineBinary); dir != "" && findUmuRunLookup() != "" {
 			launch.umuRun = findUmuRunLookup()
 			launch.protonDir = dir
@@ -629,10 +631,10 @@ func setupUmu() {
 		} else if launch.autoProton {
 			launch.umuRun = ""
 			launch.wineBinary = findWineBinary()
-			warn("umu-run absent, prefix créé par " + runnerName(launch.wineBinary) + " au lieu de Proton")
+			ui.Warn("umu-run absent, prefix créé par " + runnerName(launch.wineBinary) + " au lieu de Proton")
 		} else {
 			launch.umuRun = ""
-			warn("prefix Proton lancé directement par Wine (umu-run ou Proton absent) — rendu ou stabilité possiblement dégradés")
+			ui.Warn("prefix Proton lancé directement par Wine (umu-run ou Proton absent) — rendu ou stabilité possiblement dégradés")
 		}
 	}
 }

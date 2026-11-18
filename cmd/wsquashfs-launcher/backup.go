@@ -13,6 +13,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"wsquashfs-launcher/internal/ui"
 )
 
 // backupDir : archives de --erase.
@@ -72,7 +74,7 @@ func pruneBackups() (n int, size int64) {
 		}
 	}
 	if n > 0 {
-		uiStatusLine(stOK, fmt.Sprintf("Anciennes archives supprimées : %d (%s)", n, dir))
+		ui.StatusLine(ui.OK, fmt.Sprintf("Anciennes archives supprimées : %d (%s)", n, dir))
 	}
 	return n, size
 }

@@ -19,6 +19,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"wsquashfs-launcher/internal/ui"
 )
 
 // agentListening : un agent (ou une socket systemd) accepte les connexions.
@@ -116,11 +118,11 @@ var agentStartWait = 3 * time.Second
 func cmdAgentStart() int {
 	if !agentConfigured() {
 		if _, err := agentInit(nil, 0); err != nil {
-			uiError("agent non initialisé : " + err.Error())
+			ui.Error("agent non initialisé : " + err.Error())
 			return 1
 		}
-		uiStatusLine(stOK, "Agent initialisé (certificat dans "+agentDir()+")")
-		uiNote("Code d'association : wsquashfs-launcher --pair")
+		ui.StatusLine(ui.OK, "Agent initialisé (certificat dans "+agentDir()+")")
+		ui.Note("Code d'association : wsquashfs-launcher --pair")
 	}
 	removeAgentUnits()
 	cfg := loadAgentConfig()
@@ -129,27 +131,27 @@ func cmdAgentStart() int {
 		if pid, ok := runningAgentPid(); ok {
 			msg += fmt.Sprintf(" (pid %d)", pid)
 		}
-		uiStatusLine(stSkip, msg)
+		ui.StatusLine(ui.Skip, msg)
 		return 0
 	}
 	before := agentLogSize()
 	pid, err := startAgentDetached()
 	if err != nil {
-		uiStatusLine(stFail, "Agent : lancement impossible : "+err.Error())
+		ui.StatusLine(ui.Fail, "Agent : lancement impossible : "+err.Error())
 		return 1
 	}
 	if !waitAgentUp(cfg.Port, pid, agentStartWait) {
-		uiStatusLine(stFail, fmt.Sprintf("Agent (pid %d) : pas en écoute sur le port %d après %s, fin du journal :",
+		ui.StatusLine(ui.Fail, fmt.Sprintf("Agent (pid %d) : pas en écoute sur le port %d après %s, fin du journal :",
 			pid, cfg.Port, durationText(agentStartWait)))
 		tail := agentLogSince(before)
 		if len(tail) == 0 {
 			tail = []string{"(journal vide)"}
 		}
-		uiNote(tail...)
+		ui.Note(tail...)
 		return 1
 	}
-	uiStatusLine(stOK, fmt.Sprintf("Agent lancé (pid %d, port %d), journal : %s", pid, cfg.Port, agentLogPath()))
-	uiNote("Arrêter : wsquashfs-launcher --agent stop")
+	ui.StatusLine(ui.OK, fmt.Sprintf("Agent lancé (pid %d, port %d), journal : %s", pid, cfg.Port, agentLogPath()))
+	ui.Note("Arrêter : wsquashfs-launcher --agent stop")
 	return 0
 }
 
@@ -166,31 +168,31 @@ func runningAgentPid() (int, bool) {
 // cmdAgentStatus : --agent status. Code 0 dans tous les cas.
 func cmdAgentStatus() int {
 	if !agentConfigured() {
-		uiStatusLine(stSkip, "Agent : non configuré (« wsquashfs-launcher --agent » l'initialise)")
+		ui.StatusLine(ui.Skip, "Agent : non configuré (« wsquashfs-launcher --agent » l'initialise)")
 		return 0
 	}
 	cfg := loadAgentConfig()
 	if pid, ok := runningAgentPid(); ok {
-		uiStatusLine(stOK, fmt.Sprintf("Agent en marche (pid %d, port %d)", pid, cfg.Port))
+		ui.StatusLine(ui.OK, fmt.Sprintf("Agent en marche (pid %d, port %d)", pid, cfg.Port))
 	} else if agentListening(cfg.Port) {
-		uiStatusLine(stInfo, fmt.Sprintf("Agent : port %d occupé par un autre processus (--pair en cours ?)", cfg.Port))
+		ui.StatusLine(ui.Info, fmt.Sprintf("Agent : port %d occupé par un autre processus (--pair en cours ?)", cfg.Port))
 	} else {
-		uiStatusLine(stSkip, fmt.Sprintf("Agent : non lancé (port %d fermé)", cfg.Port))
+		ui.StatusLine(ui.Skip, fmt.Sprintf("Agent : non lancé (port %d fermé)", cfg.Port))
 	}
 	if isFile(agentSocketUnit()) {
-		uiNote("Démarrage automatique par systemd d'une ancienne installation encore présent (port ouvert",
+		ui.Note("Démarrage automatique par systemd d'une ancienne installation encore présent (port ouvert",
 			"à chaque session) : « wsquashfs-launcher --agent stop » le retire.")
 	}
 	if len(cfg.Machines) == 0 {
-		uiKV(0, kv{"Machines", "aucune machine associée"})
+		ui.KV(0, ui.Pair{"Machines", "aucune machine associée"})
 	} else {
 		items := make([]string, 0, len(cfg.Machines))
 		for _, m := range cfg.Machines {
 			items = append(items, fmt.Sprintf("%s (associée le %s)", m.Name, m.Paired.Local().Format("2006-01-02 15:04")))
 		}
-		uiList("Machines associées", items)
+		ui.List("Machines associées", items)
 	}
-	uiKV(0, kv{"Journal", agentLogPath()})
+	ui.KV(0, ui.Pair{"Journal", agentLogPath()})
 	return 0
 }
 
@@ -210,30 +212,30 @@ func cmdAgentStop() int {
 	removeAgentUnits()
 	data, err := os.ReadFile(agentPidFile())
 	if err != nil {
-		uiStatusLine(stSkip, "Agent : non lancé")
+		ui.StatusLine(ui.Skip, "Agent : non lancé")
 		return 0
 	}
 	pid, _ := strconv.Atoi(strings.TrimSpace(string(data)))
 	if pid <= 0 || !isAgentProcess(pid) {
 		_ = os.Remove(agentPidFile())
-		uiStatusLine(stSkip, "Agent : non lancé (fichier de PID périmé, retiré)")
+		ui.StatusLine(ui.Skip, "Agent : non lancé (fichier de PID périmé, retiré)")
 		return 0
 	}
 	if err := syscall.Kill(pid, syscall.SIGTERM); err != nil {
-		uiStatusLine(stFail, fmt.Sprintf("Agent (pid %d) : arrêt impossible (%v)", pid, err))
+		ui.StatusLine(ui.Fail, fmt.Sprintf("Agent (pid %d) : arrêt impossible (%v)", pid, err))
 		return 1
 	}
 	for deadline := time.Now().Add(agentStopWait); ; time.Sleep(100 * time.Millisecond) {
 		if syscall.Kill(pid, 0) != nil {
 			_ = os.Remove(agentPidFile())
-			uiStatusLine(stOK, fmt.Sprintf("Agent arrêté (pid %d)", pid))
+			ui.StatusLine(ui.OK, fmt.Sprintf("Agent arrêté (pid %d)", pid))
 			return 0
 		}
 		if time.Now().After(deadline) {
 			break
 		}
 	}
-	uiStatusLine(stFail, fmt.Sprintf("Agent (pid %d) toujours en cours après %s", pid, durationText(agentStopWait)))
+	ui.StatusLine(ui.Fail, fmt.Sprintf("Agent (pid %d) toujours en cours après %s", pid, durationText(agentStopWait)))
 	return 1
 }
 
@@ -254,7 +256,7 @@ func removeAgentUnits() bool {
 	}
 	_ = os.Remove(service)
 	_ = agentSystemctl("daemon-reload")
-	uiStatusLine(stOK, "Démarrage automatique par systemd retiré : le port n'est plus ouvert en dehors de --agent")
+	ui.StatusLine(ui.OK, "Démarrage automatique par systemd retiré : le port n'est plus ouvert en dehors de --agent")
 	return true
 }
 
@@ -330,15 +332,15 @@ func serveAgent(logOn bool) int {
 	cfg := loadAgentConfig()
 	ag, tlsConf, err := prepareAgent(cfg, logOn)
 	if err != nil {
-		uiError(err.Error())
+		ui.Error(err.Error())
 		return 1
 	}
 	ln, err := agentListener(cfg.Port)
 	if err != nil {
-		uiError("écoute impossible : " + err.Error())
+		ui.Error("écoute impossible : " + err.Error())
 		return 1
 	}
-	uiErr(stOK.mark() + fmt.Sprintf(" wsquashfs-agent en écoute sur le port %d", cfg.Port))
+	ui.Err(ui.OK.Mark() + fmt.Sprintf(" wsquashfs-agent en écoute sur le port %d", cfg.Port))
 	httpSrv := ag.httpServer()
 	// Pour « --agent stop » : le PID de cet agent (retiré à l'arrêt propre).
 	if err := os.WriteFile(agentPidFile(), []byte(strconv.Itoa(os.Getpid())+"\n"), 0o600); err == nil {
@@ -349,7 +351,7 @@ func serveAgent(logOn bool) int {
 	select {
 	case err := <-served:
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
-			uiError("arrêt : " + err.Error())
+			ui.Error("arrêt : " + err.Error())
 			return 1
 		}
 	case <-stop:
@@ -359,7 +361,7 @@ func serveAgent(logOn bool) int {
 			_ = httpSrv.Close()
 		}
 		<-served
-		uiErr(stOK.mark() + " wsquashfs-agent arrêté")
+		ui.Err(ui.OK.Mark() + " wsquashfs-agent arrêté")
 	}
 	return 0
 }

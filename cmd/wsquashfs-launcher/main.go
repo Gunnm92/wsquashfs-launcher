@@ -13,6 +13,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"syscall"
+
+	"wsquashfs-launcher/internal/ui"
 )
 
 //go:embed usage.txt
@@ -35,17 +37,17 @@ func run(args []string) int {
 	if err != nil {
 		var ae *argError
 		if errors.As(err, &ae) && ae.usage {
-			uiUsage(ae.msg)
+			ui.Usage(ae.msg)
 		} else {
-			uiError(err.Error())
+			ui.Error(err.Error())
 		}
 		return 1
 	}
 	switch opts.action {
 	case "help":
-		uiKV(0, kv{"Version", launcherBuild()})
-		uiOut("")
-		uiHelp(usageText)
+		ui.KV(0, ui.Pair{"Version", launcherBuild()})
+		ui.Out("")
+		ui.Help(usageText)
 		return 0
 	case "setup":
 		return runSetup(opts.cmdArgs)

@@ -131,7 +131,7 @@ func TestAgentStartAlreadyRunning(t *testing.T) {
 	}
 }
 
-// TestAgentStartFailsWithLogTail : le lancement n'écoute pas : stFail, fin du journal, code 1 ; et
+// TestAgentStartFailsWithLogTail : le lancement n'écoute pas : ui.Fail, fin du journal, code 1 ; et
 // sans configuration, --agent l'initialise (comme --pair).
 func TestAgentStartFailsWithLogTail(t *testing.T) {
 	agentEnv(t)

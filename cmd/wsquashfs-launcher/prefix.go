@@ -13,6 +13,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"wsquashfs-launcher/internal/ui"
 )
 
 // asWineUser : commande lancée en utilisateur Wine. Overlay noyau : sans les
@@ -330,11 +332,11 @@ func resolveNvapi() {
 	}
 	if launch.hasNvidia != "1" {
 		if want == "1" {
-			warn("NVAPI=1 ignoré : aucune carte NVIDIA détectée")
+			ui.Warn("NVAPI=1 ignoré : aucune carte NVIDIA détectée")
 		}
 	} else if findNvapiDir() == "" {
 		if want == "1" {
-			warn("NVAPI=1 ignoré : dxvk-nvapi introuvable (/usr/share/dxvk-nvapi)")
+			ui.Warn("NVAPI=1 ignoré : dxvk-nvapi introuvable (/usr/share/dxvk-nvapi)")
 		}
 	} else {
 		launch.nvapiOn = "1"
@@ -351,7 +353,7 @@ func resolveVkreflex() {
 	if isFile(nvDir + "/layer/VkLayer_DXVK_NVAPI_reflex.json") {
 		launch.vkreflexOn = "1"
 	} else if launch.vkreflex == "1" {
-		warn("VKREFLEX=1 ignoré : couche Reflex absente (" + nvDir + "/layer)")
+		ui.Warn("VKREFLEX=1 ignoré : couche Reflex absente (" + nvDir + "/layer)")
 	}
 }
 
@@ -419,9 +421,9 @@ func resolveFsr4() {
 		return
 	}
 	if launch.hasAMD != "1" {
-		warn("FSR4=1 ignoré : aucune carte AMD détectée")
+		ui.Warn("FSR4=1 ignoré : aucune carte AMD détectée")
 	} else if findFsr4Dll() == "" {
-		warn("FSR4=1 ignoré : amdxcffx64.dll introuvable (--setup propose de la copier depuis proton-cachyos)")
+		ui.Warn("FSR4=1 ignoré : amdxcffx64.dll introuvable (--setup propose de la copier depuis proton-cachyos)")
 	} else {
 		launch.fsr4On = "1"
 	}
@@ -576,7 +578,7 @@ func updatePrefixIfNeeded() {
 	if version == "" {
 		version = filepath.Base(wineRoot)
 	}
-	uiKVLine("Préfixe", "mise à jour pour "+version)
+	ui.KVLine("Préfixe", "mise à jour pour "+version)
 	for _, d := range []string{"system32", "syswow64"} {
 		links, _ := filepath.Glob(launch.winePoint + "/drive_c/windows/" + d + "/*")
 		for _, l := range links {
@@ -698,7 +700,7 @@ func applySavedir(savedir, savefiles string) {
 	}
 	sysdir, ok := batoceraSavesDir()
 	if !ok {
-		warn("SAVEDIR/SAVEFILES ignorés (jeu hors d'un dossier roms/<système>/ ;",
+		ui.Warn("SAVEDIR/SAVEFILES ignorés (jeu hors d'un dossier roms/<système>/ ;",
 			"  définir WSQUASHFS_BATOCERA_SAVES)")
 		return
 	}
@@ -706,7 +708,7 @@ func applySavedir(savedir, savefiles string) {
 	// de la machine, qui serait déplacé vers la ludothèque puis remplacé par un lien.
 	savedir = strings.ReplaceAll(savedir, `\`, "/")
 	if savedir != "" && !filepath.IsLocal(savedir) {
-		warn("SAVEDIR ignoré : " + savedir + " sort du prefix (chemin relatif au prefix attendu)")
+		ui.Warn("SAVEDIR ignoré : " + savedir + " sort du prefix (chemin relatif au prefix attendu)")
 		return
 	}
 	_ = os.MkdirAll(sysdir, 0o755)
@@ -718,7 +720,7 @@ func applySavedir(savedir, savefiles string) {
 		if st, err := os.Lstat(p); err == nil && st.IsDir() {
 			// Le dossier n'est retiré qu'une fois tout son contenu copié.
 			if err := copyTreeNoClobber(p, sysdir); err != nil {
-				warn("SAVEDIR : copie de "+p+" vers "+sysdir+" impossible ("+err.Error()+"),",
+				ui.Warn("SAVEDIR : copie de "+p+" vers "+sysdir+" impossible ("+err.Error()+"),",
 					"  dossier laissé en place, sauvegardes non déplacées")
 				return
 			}
@@ -733,7 +735,7 @@ func applySavedir(savedir, savefiles string) {
 				continue
 			}
 			if !filepath.IsLocal(f) {
-				warn("SAVEFILES : " + f + " ignoré, il sort du prefix (chemin relatif au prefix attendu)")
+				ui.Warn("SAVEFILES : " + f + " ignoré, il sort du prefix (chemin relatif au prefix attendu)")
 				continue
 			}
 			_ = os.MkdirAll(filepath.Dir(sysdir+"/"+f), 0o755)
@@ -743,7 +745,7 @@ func applySavedir(savedir, savefiles string) {
 				if _, err := os.Lstat(sysdir + "/" + f); err != nil {
 					// Le fichier n'est retiré du prefix qu'une fois arrivé.
 					if err := moveFile(target, sysdir+"/"+f); err != nil {
-						warn("SAVEFILES : " + f + " non déplacé vers " + sysdir + " (" + err.Error() + "), fichier laissé en place")
+						ui.Warn("SAVEFILES : " + f + " non déplacé vers " + sysdir + " (" + err.Error() + "), fichier laissé en place")
 						continue
 					}
 				}
@@ -753,5 +755,5 @@ func applySavedir(savedir, savefiles string) {
 		}
 	}
 	chownToTarget(sysdir)
-	uiKVLine("Sauvegardes", sysdir+" (SAVEDIR/SAVEFILES)")
+	ui.KVLine("Sauvegardes", sysdir+" (SAVEDIR/SAVEFILES)")
 }

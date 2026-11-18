@@ -12,6 +12,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"wsquashfs-launcher/internal/ui"
 )
 
 // ── 9.2 En-tête et chemins ─────────────────────────────────────────────
@@ -47,7 +49,7 @@ func gameNameOf(p string) string {
 // message si le chemin est invalide.
 func resolveGamePath() {
 	if launch.gameArg == "" {
-		uiError("fichier .wsquashfs ou dossier de jeu requis")
+		ui.Error("fichier .wsquashfs ou dossier de jeu requis")
 		usageError(os.Args[0] + " <fichier.wsquashfs | dossier du jeu>  |  " + os.Args[0] + " --help")
 	}
 	abs, err := filepath.Abs(launch.gameArg)
@@ -128,7 +130,7 @@ func useInstalledDir() {
 		_ = os.Remove(m)
 	}
 	launch.mountMode = "dir"
-	uiKVLine("Mode", "dossier (jeu installé, sans FUSE)")
+	ui.KVLine("Mode", "dossier (jeu installé, sans FUSE)")
 }
 
 // prepareMountDirs : dossiers de montage vides et au bon propriétaire.
@@ -139,7 +141,7 @@ func prepareMountDirs() {
 	// Image d'origine des sauvegardes, pour --clean (fichiers identiques).
 	imgDir := filepath.Join(conf.savesDir, ".images")
 	if err := os.WriteFile(filepath.Join(imgDir, launch.gameName), []byte(launch.wsquashfsFile+"\n"), 0o644); err != nil {
-		warn("image d'origine des sauvegardes non écrite : " + err.Error())
+		ui.Warn("image d'origine des sauvegardes non écrite : " + err.Error())
 	}
 	chownToTarget(imgDir)
 	resetWorkdir(launch.workPoint)
@@ -204,7 +206,7 @@ func tryOverlayMount() bool {
 		launch.mountMode = "overlay"
 		launch.overlayKind = "fuse"
 		mounted.Store(true)
-		uiKVLine("Mode", "overlay (dossier .pc + fuse-overlayfs, dossier non modifié)")
+		ui.KVLine("Mode", "overlay (dossier .pc + fuse-overlayfs, dossier non modifié)")
 		return true
 	}
 	if !mountSquashfs(launch.wsquashfsFile, launch.squashfsPoint) {
@@ -214,7 +216,7 @@ func tryOverlayMount() bool {
 		launch.mountMode = "overlay"
 		launch.overlayKind = "fuse"
 		mounted.Store(true)
-		uiKVLine("Mode", "overlay (image + fuse-overlayfs)")
+		ui.KVLine("Mode", "overlay (image + fuse-overlayfs)")
 		return true
 	}
 	fuseUmount(launch.squashfsPoint)
@@ -235,7 +237,7 @@ func imageSignature() string {
 // unsquashfs sans FUSE).
 func extractImage() {
 	if mountSquashfs(launch.wsquashfsFile, launch.squashfsPoint) {
-		uiKVLine("Mode", "copy (image montée)")
+		ui.KVLine("Mode", "copy (image montée)")
 		removeCopy()
 		_ = os.MkdirAll(launch.winePoint, 0o755)
 		if err := runCmd("cp", "-a", launch.squashfsPoint+"/.", launch.winePoint+"/"); err != nil {
@@ -243,7 +245,7 @@ func extractImage() {
 		}
 		fuseUmount(launch.squashfsPoint)
 	} else if _, err := exec.LookPath("unsquashfs"); err == nil {
-		uiKVLine("Mode", "copy (unsquashfs)")
+		ui.KVLine("Mode", "copy (unsquashfs)")
 		removeCopy()
 		if err := runCmd("unsquashfs", "-d", launch.winePoint, launch.wsquashfsFile); err != nil {
 			die("échec de l'extraction unsquashfs")
@@ -255,7 +257,7 @@ func extractImage() {
 	}
 	restoreCopyUsers()
 	if err := os.WriteFile(launch.winePoint+"/.wsquashfs_cache", []byte(imageSignature()), 0o644); err != nil {
-		warn("signature de l'image non écrite : " + err.Error())
+		ui.Warn("signature de l'image non écrite : " + err.Error())
 	}
 	chownToTarget(launch.winePoint)
 }
@@ -298,10 +300,10 @@ func restoreCopyUsers() {
 	}
 	users := launch.winePoint + "/drive_c/users"
 	if os.MkdirAll(filepath.Dir(users), 0o755) != nil || os.RemoveAll(users) != nil || os.Rename(stash, users) != nil {
-		warn("sauvegardes de la copie non remises en place, gardées dans " + stash)
+		ui.Warn("sauvegardes de la copie non remises en place, gardées dans " + stash)
 		return
 	}
-	uiKVLine("Sauvegardes", "drive_c/users repris de la copie précédente")
+	ui.KVLine("Sauvegardes", "drive_c/users repris de la copie précédente")
 }
 
 // removeCopy : supprime l'ancienne copie de travail (drive_c/users mis de
@@ -328,7 +330,7 @@ func useCopyMode() {
 	cacheInfo := launch.winePoint + "/.wsquashfs_cache"
 	if data, err := os.ReadFile(cacheInfo); err == nil && string(data) == imageSignature() {
 		if st, err := os.Stat(launch.winePoint); err == nil && st.IsDir() {
-			uiKVLine("Mode", "copy (cache valide, extraction ignorée)")
+			ui.KVLine("Mode", "copy (cache valide, extraction ignorée)")
 			launch.mountMode = "copy"
 			mounted.Store(true)
 			return
@@ -374,19 +376,19 @@ func tryOverlayMountGated() bool {
 // main.
 func reportMountAndExit() {
 	mounted.Store(false)
-	uiSection("Montage")
-	pairs := []kv{{"Monté dans", launch.winePoint}}
+	ui.Section("Montage")
+	pairs := []ui.Pair{{"Monté dans", launch.winePoint}}
 	if launch.mountMode == "overlay" {
 		kind := "le .wsquashfs"
 		if launch.folderOverlay {
 			kind = "le dossier"
 		}
-		pairs = append(pairs, kv{"Modifications", "enregistrées dans " + launch.savePoint + " (" + kind + " n'est jamais modifié)"})
+		pairs = append(pairs, ui.Pair{"Modifications", "enregistrées dans " + launch.savePoint + " (" + kind + " n'est jamais modifié)"})
 	}
-	pairs = append(pairs, kv{"Démontage", ""})
-	uiKV(2, pairs...)
-	uiCode(os.Args[0] + " --umount \"" + launch.wsquashfsFile + "\"")
-	uiNote("(tout lancement d'un autre jeu démonte aussi les montages inutilisés)")
+	pairs = append(pairs, ui.Pair{"Démontage", ""})
+	ui.KV(2, pairs...)
+	ui.Code(os.Args[0] + " --umount \"" + launch.wsquashfsFile + "\"")
+	ui.Note("(tout lancement d'un autre jeu démonte aussi les montages inutilisés)")
 	exitNow(0)
 }
 
@@ -533,12 +535,12 @@ func umountGame(name string) {
 		_ = syscall.Kill(pid, syscall.SIGTERM)
 		for i := 0; i < 30; i++ {
 			if syscall.Kill(pid, 0) != nil {
-				uiStatusLine(stOK, "Arrêté et démonté : "+name)
+				ui.StatusLine(ui.OK, "Arrêté et démonté : "+name)
 				return
 			}
 			time.Sleep(500 * time.Millisecond)
 		}
-		warn(fmt.Sprintf("%s toujours en cours après 15 s (lanceur %d), non démonté", name, pid))
+		ui.Warn(fmt.Sprintf("%s toujours en cours après 15 s (lanceur %d), non démonté", name, pid))
 		exitNow(1)
 	}
 	prefix := filepath.Join(conf.cacheDir, "wine", name)
@@ -548,5 +550,5 @@ func umountGame(name string) {
 	runWineserver(prefix, "-k")
 	umountRetry(prefix)
 	umountRetry(filepath.Join(conf.cacheDir, "mnt", name))
-	uiStatusLine(stOK, "Démonté : "+name)
+	ui.StatusLine(ui.OK, "Démonté : "+name)
 }

@@ -18,6 +18,8 @@ import (
 	"time"
 
 	"golang.org/x/sys/unix"
+
+	"wsquashfs-launcher/internal/ui"
 )
 
 // fuseUmount : démontage FUSE (fusermount, puis umount).
@@ -70,7 +72,7 @@ func mountOverlay(lower string) bool {
 	}
 	for _, p := range []string{lower, launch.savePoint, launch.workPoint} {
 		if strings.ContainsAny(p, ",:") {
-			warn("virgule ou deux-points dans " + p + " : fuse-overlayfs impossible")
+			ui.Warn("virgule ou deux-points dans " + p + " : fuse-overlayfs impossible")
 			return false
 		}
 	}

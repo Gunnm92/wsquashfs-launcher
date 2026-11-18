@@ -15,6 +15,8 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+
+	"wsquashfs-launcher/internal/ui"
 )
 
 // nsCommand : unshare vers un namespace utilisateur, mapping de l'UID courant.
@@ -137,7 +139,7 @@ func runInKernelOverlay() {
 			die("overlay noyau impossible : " + reason)
 		}
 		if conf.overlayPref != "fuse" {
-			uiKVLine("Overlay noyau", "indisponible, "+reason)
+			ui.KVLine("Overlay noyau", "indisponible, "+reason)
 		}
 		return
 	}
@@ -157,7 +159,7 @@ func runInKernelOverlay() {
 	if conf.overlayPref == "kernel" {
 		die("overlay noyau impossible : " + reason)
 	}
-	uiKVLine("Overlay noyau", "échec, "+reason)
+	ui.KVLine("Overlay noyau", "échec, "+reason)
 }
 
 // lastField : dernier élément après « : » d'un message d'erreur, première ligne.
@@ -178,11 +180,11 @@ func stageInNamespace() (int, string, bool) {
 	launch.nsDir = filepath.Join(conf.cacheDir, "ns", strconv.Itoa(os.Getpid()))
 	resetWorkdir(launch.nsDir)
 	if err := os.WriteFile(filepath.Join(launch.nsDir, "game"), []byte(launch.gameName+"\n"), 0o644); err != nil {
-		warn("dossier d'échange non écrit : " + err.Error())
+		ui.Warn("dossier d'échange non écrit : " + err.Error())
 	}
 	for _, l := range [][2]string{{launch.squashfsPoint, "lower"}, {launch.savePoint, "upper"}, {launch.workPoint, "work"}} {
 		if err := os.Symlink(l[0], filepath.Join(launch.nsDir, l[1])); err != nil {
-			warn("lien du dossier d'échange non créé : " + err.Error())
+			ui.Warn("lien du dossier d'échange non créé : " + err.Error())
 		}
 	}
 
@@ -246,11 +248,11 @@ func mountKernelOverlayLayer() string {
 func useKernelOverlay() {
 	writeStatus := func(s string) {
 		if err := os.WriteFile(filepath.Join(launch.nsDir, "status"), []byte(s+"\n"), 0o644); err != nil {
-			warn("statut du montage non écrit : " + err.Error())
+			ui.Warn("statut du montage non écrit : " + err.Error())
 		}
 	}
 	if err := os.WriteFile(filepath.Join(launch.nsDir, "pid"), []byte(strconv.Itoa(os.Getpid())+"\n"), 0o644); err != nil {
-		warn("pid non écrit : " + err.Error())
+		ui.Warn("pid non écrit : " + err.Error())
 	}
 	sq := imageServeCmd(launch.wsquashfsFile, launch.squashfsPoint,
 		"uid", strconv.Itoa(conf.wineUID), "gid", strconv.Itoa(conf.wineGID))
@@ -274,7 +276,7 @@ func useKernelOverlay() {
 	launch.overlayKind = "kernel"
 	mounted.Store(true)
 	detectImagePrefix()
-	uiKVLine("Mode", "overlay noyau (image + overlayfs, namespace utilisateur)")
+	ui.KVLine("Mode", "overlay noyau (image + overlayfs, namespace utilisateur)")
 }
 
 // nsLauncherPID : PID du lanceur d'un jeu dans son namespace, pour --umount.

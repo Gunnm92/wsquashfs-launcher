@@ -8,6 +8,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"wsquashfs-launcher/internal/ui"
 )
 
 // ── --pack / --install ────────────────────────────────────────────────
@@ -66,7 +68,7 @@ func packPrefix(args []string) int {
 		}
 		st, _ := os.Stat(out)
 		if !confirm(fmt.Sprintf("%s existe déjà (%s, %s). L'écraser ?", out, duHuman(out), st.ModTime().Format("02/01 15:04"))) {
-			uiStatusLine(stSkip, "Abandon : rien n'a été modifié")
+			ui.StatusLine(ui.Skip, "Abandon : rien n'a été modifié")
 			return 1
 		}
 		if isDirPath(saves) && confirm("Réinitialiser aussi ses sauvegardes ("+saves+") ?") {
@@ -74,11 +76,11 @@ func packPrefix(args []string) int {
 		}
 	}
 	if !isFile(src + "/autorun.cmd") {
-		warn("pas d'autorun.cmd dans " + src + " (lançable seulement via --exec)")
+		ui.Warn("pas d'autorun.cmd dans " + src + " (lançable seulement via --exec)")
 	}
 	tmp := out + ".part"
 	_ = os.Remove(tmp)
-	uiStatusLine(stInfo, "Création de "+out+" depuis "+src+"...")
+	ui.StatusLine(ui.Info, "Création de "+out+" depuis "+src+"...")
 	mkArgs := append([]string{src, tmp, "-comp", "zstd", "-noappend", "-quiet"}, coverArgs...)
 	if err := runCmd("mksquashfs", mkArgs...); err != nil {
 		_ = os.Remove(tmp)
@@ -90,17 +92,17 @@ func packPrefix(args []string) int {
 	}
 	if resetSaves {
 		if os.RemoveAll(saves) == nil {
-			uiStatusLine(stOK, "Sauvegardes réinitialisées : "+saves)
+			ui.StatusLine(ui.OK, "Sauvegardes réinitialisées : "+saves)
 		}
 	}
-	uiStatusLine(stOK, out+" ("+duHuman(out)+")")
+	ui.StatusLine(ui.OK, out+" ("+duHuman(out)+")")
 	if hasCover {
-		uiKV(2, kv{"Illustration", mustAbs(cover)})
+		ui.KV(2, ui.Pair{"Illustration", mustAbs(cover)})
 	}
 	if v := gameVersion(src); v != "" {
-		uiKV(2, kv{"Version", v})
+		ui.KV(2, ui.Pair{"Version", v})
 	} else if isFile(src + "/autorun.cmd") {
-		uiKV(2, kv{"Version", "non renseignée (GAME_VERSION=... dans l'autorun.cmd, voir --info)"})
+		ui.KV(2, ui.Pair{"Version", "non renseignée (GAME_VERSION=... dans l'autorun.cmd, voir --info)"})
 	}
 	return 0
 }
@@ -153,7 +155,7 @@ func installGame(args []string) int {
 	}
 	tmp := dest + ".part"
 	_ = os.RemoveAll(tmp)
-	uiStatusLine(stInfo, "Installation de "+name+" dans "+dest+"...")
+	ui.StatusLine(ui.Info, "Installation de "+name+" dans "+dest+"...")
 	if err := runCmd("unsquashfs", "-no-xattrs", "-d", tmp, img); err != nil {
 		_ = os.RemoveAll(tmp)
 		die("échec de l'extraction, rien n'a été installé")
@@ -165,12 +167,12 @@ func installGame(args []string) int {
 	if dropsToTargetUser() {
 		_ = runCmd("chown", "-R", fmt.Sprintf("%d:%d", conf.wineUID, conf.wineGID), dest)
 	}
-	uiStatusLine(stOK, dest+" ("+duHuman(dest)+")")
-	pairs := []kv{}
+	ui.StatusLine(ui.OK, dest+" ("+duHuman(dest)+")")
+	pairs := []ui.Pair{}
 	if v := gameVersion(dest); v != "" {
-		pairs = append(pairs, kv{"Version", v})
+		pairs = append(pairs, ui.Pair{"Version", v})
 	}
-	pairs = append(pairs, kv{"Lancement", os.Args[0] + " \"" + dest + "\""})
-	uiKV(2, pairs...)
+	pairs = append(pairs, ui.Pair{"Lancement", os.Args[0] + " \"" + dest + "\""})
+	ui.KV(2, pairs...)
 	return 0
 }

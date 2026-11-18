@@ -1,42 +1,43 @@
-package main
-
-// ui.go : règles et fonctions d'affichage du lanceur. Tout ce qui s'affiche
-// pour un humain passe par ce fichier.
+// Package ui : règles et fonctions d'affichage du lanceur. Tout ce qui s'affiche
+// pour un humain passe par ce paquet.
 //
 // Règles
 //  1. Le texte fait foi : symboles, mots et structure disent tout ; couleur
 //     et gras ne font que les souligner. Hors terminal (tube, fichier,
 //     frontend, agent, tests, NO_COLOR, TERM=dumb), aucun code de couleur :
 //     le texte seul, identique.
-//  2. Tout s'écrit par uiOut / uiErr (lipgloss.Fprintln : codes retirés quand
+//  2. Tout s'écrit par Out / Err (lipgloss.Fprintln : codes retirés quand
 //     la sortie n'est pas un terminal). Jamais de fmt.Print d'un texte stylé,
 //     jamais de style stocké dans une donnée réutilisée (JSON, comparaison).
 //  3. 16 couleurs de base seulement (le thème du terminal les adapte) ; pas de
 //     couleur adaptative qui interroge le terminal.
 //  4. Un même type d'information a toujours le même rendu, dans toutes les
 //     commandes :
-//       uiTitle    titre de la commande, encadré (un par commande)
-//       uiStage    étape numérotée d'un parcours (--setup)
-//       uiSection  groupe d'éléments sous le titre
-//       uiKV       « Clé : valeur » alignés (uiKVLine au fil de l'eau)
-//       uiStatus   action globale : ✓ fait, ✗ échec, – ignoré, → en cours
-//       uiItem     élément d'une section, même symboles, détails en dessous
-//       uiGames    une ligne par jeu, noms en colonne
-//       uiList     rubrique suivie de noms
-//       uiTable    tableau encadré, en-tête en gras
-//       uiNote     explication, simulation, astuce (discrète)
-//       uiCode     texte à copier, seul sur sa ligne
-//       uiRule     séparateur (sortie du jeu seulement)
-//       uiVerdict  dernière ligne d'un rapport
-//       uiAsk*     questions, une seule forme
-//       warn       « Attention : » sur stderr, la commande continue
-//       die        « Erreur : » sur stderr, la commande s'arrête (code 1)
+//     Title    titre de la commande, encadré (un par commande)
+//     Stage    étape numérotée d'un parcours (--setup)
+//     Section  groupe d'éléments sous le titre
+//     KV       « Clé : valeur » alignés (KVLine au fil de l'eau)
+//     StatusLine  action globale : ✓ fait, ✗ échec, – ignoré, → en cours
+//     Item     élément d'une section, même symboles, détails en dessous
+//     Games    une ligne par jeu, noms en colonne
+//     List     rubrique suivie de noms
+//     Table    tableau encadré, en-tête en gras
+//     Note     explication, simulation, astuce (discrète)
+//     Code     texte à copier, seul sur sa ligne
+//     Rule     séparateur (sortie du jeu seulement)
+//     Verdict  dernière ligne d'un rapport
+//     Prompt   questions (avec Auto, Menu), une seule forme
+//     Warn     « Attention : » sur stderr, la commande continue
+//     Error    « Erreur : » sur stderr ; « die » (main) s'y ajoute : sortie, code 1
 //  5. Sorties machine hors charte : JSON (--doctor json, --trial, agent
 //     HTTP) et journal de l'agent passent par encoding/json ou fmt directement.
 //  6. Retraits : 0 pour titres, sections, statuts globaux, clés-valeurs au fil
 //     de l'eau et verdicts ; 2 pour les éléments, listes, notes et lignes de
 //     jeu (le manager filtre les lignes de --saves qui commencent par deux
 //     espaces) ; 6 pour les détails d'un élément.
+//  7. Ce paquet n'appelle jamais os.Exit : « die » (Error puis sortie avec
+//     cleanup) vit dans le paquet main.
+package ui
 
 import (
 	"fmt"
@@ -74,23 +75,31 @@ var (
 
 // ── Écriture ───────────────────────────────────────────────────────────
 
-// uiStdout, uiStderr : destinations (remplacées par les tests).
+// stdout, stderr : destinations (remplacées par les tests).
 var (
-	uiStdout io.Writer = os.Stdout
-	uiStderr io.Writer = os.Stderr
+	stdout io.Writer = os.Stdout
+	stderr io.Writer = os.Stderr
 )
 
-// uiOut : une ligne sur la sortie standard (codes retirés hors terminal).
+// SetOutput : remplace les destinations de Out et Err (tests des paquets qui
+// affichent) ; la fonction rendue rétablit les anciennes.
+func SetOutput(out, errs io.Writer) (restore func()) {
+	oldOut, oldErr := stdout, stderr
+	stdout, stderr = out, errs
+	return func() { stdout, stderr = oldOut, oldErr }
+}
+
+// Out : une ligne sur la sortie standard (codes retirés hors terminal).
 // Les espaces de fin de ligne sont retirés (tableaux, encadrés).
-func uiOut(s string) { uiWrite(uiStdout, trimLines(s)+"\n") }
+func Out(s string) { write(stdout, trimLines(s)+"\n") }
 
-// uiErr : une ligne sur la sortie d'erreur.
-func uiErr(s string) { uiWrite(uiStderr, trimLines(s)+"\n") }
+// Err : une ligne sur la sortie d'erreur.
+func Err(s string) { write(stderr, trimLines(s)+"\n") }
 
-// uiWrite : écriture par lipgloss (codes retirés hors terminal). NO_COLOR
+// write : écriture par lipgloss (codes retirés hors terminal). NO_COLOR
 // l'emporte sur tout, CLICOLOR_FORCE compris (no-color.org) : colorprofile
 // v0.4.3 garde les couleurs hors terminal quand les deux sont posés.
-func uiWrite(w io.Writer, s string) {
+func write(w io.Writer, s string) {
 	if os.Getenv("NO_COLOR") != "" {
 		s = ansi.Strip(s)
 	}
@@ -111,138 +120,141 @@ func trimLines(s string) string {
 
 // ── Statuts ────────────────────────────────────────────────────────────
 
-type uiStatus int
+type Status int
 
 const (
-	stOK   uiStatus = iota // ✓ fait, présent
-	stFail                 // ✗ échec d'un élément (la commande continue)
-	stSkip                 // – ignoré, optionnel, non bloquant
-	stInfo                 // → étape en cours, information neutre
+	OK   Status = iota // ✓ fait, présent
+	Fail               // ✗ échec d'un élément (la commande continue)
+	Skip               // – ignoré, optionnel, non bloquant
+	Info               // → étape en cours, information neutre
 )
 
-// mark : symbole coloré d'un statut.
-func (st uiStatus) mark() string {
+// Mark : symbole coloré du statut.
+func (st Status) Mark() string {
 	switch st {
-	case stOK:
+	case OK:
 		return sOK.Render("✓")
-	case stFail:
+	case Fail:
 		return sErr.Render("✗")
-	case stSkip:
+	case Skip:
 		return sWarn.Render("–")
 	}
 	return sCode.Render("→")
 }
 
-// uiStatusLine : action globale (retrait 0). Un message stInfo se termine
+// StatusLine : action globale (retrait 0). Un message Info se termine
 // par « ... » s'il décrit une action en cours (à la charge de l'appelant).
-func uiStatusLine(st uiStatus, msg string) { uiOut(st.mark() + " " + msg) }
+func StatusLine(st Status, msg string) { Out(st.Mark() + " " + msg) }
 
-// uiItem : élément d'une section (retrait 2), détails à 6 espaces.
-func uiItem(st uiStatus, msg string, details ...string) {
-	uiOut("  " + st.mark() + " " + msg)
+// Item : élément d'une section (retrait 2), détails à 6 espaces.
+func Item(st Status, msg string, details ...string) {
+	Out("  " + st.Mark() + " " + msg)
 	for _, d := range details {
-		uiOut("      " + sMuted.Render(d))
+		Out("      " + sMuted.Render(d))
 	}
 }
 
 // ── Titres ─────────────────────────────────────────────────────────────
 
-// uiTitle : titre de la commande, encadré ; sous-titre en dessous, discret.
-func uiTitle(text string, subtitle ...string) {
+// Title : titre de la commande, encadré ; sous-titre en dessous, discret.
+func Title(text string, subtitle ...string) {
 	body := sBold.Render(text)
 	for _, s := range subtitle {
 		if s != "" {
 			body += "\n" + sMuted.Render(s)
 		}
 	}
-	uiOut(sTitle.Render(body))
+	Out(sTitle.Render(body))
 }
 
-// uiSection : groupe d'éléments, précédé d'une ligne vide.
-func uiSection(text string) {
-	uiOut("")
-	uiOut(sSection.Render("▍" + text))
+// Section : groupe d'éléments, précédé d'une ligne vide.
+func Section(text string) {
+	Out("")
+	Out(sSection.Render("▍" + text))
 }
 
-// uiStage : étape numérotée d'un parcours (--setup), précédée d'une ligne vide.
-func uiStage(n, total int, text string) {
-	uiOut("")
-	uiOut(sSection.Render(fmt.Sprintf("▍%d/%d  %s", n, total, text)))
+// Stage : étape numérotée d'un parcours (--setup), précédée d'une ligne vide.
+func Stage(n, total int, text string) {
+	Out("")
+	Out(sSection.Render(fmt.Sprintf("▍%d/%d  %s", n, total, text)))
 }
 
 // ── Clés-valeurs ───────────────────────────────────────────────────────
 
-// uiKeyWidth : colonne des clés émises au fil de l'eau (uiKVLine) ; la plus
+// keyWidth : colonne des clés émises au fil de l'eau (KVLine) ; la plus
 // longue clé du lancement (« Réglages machine ») y tient.
-const uiKeyWidth = 16
+const keyWidth = 16
 
-type kv struct{ k, v string }
+// Pair : une paire {clé, valeur} pour KV (tableau : littéraux sans champs
+// nommés, utilisables depuis les autres paquets).
+type Pair [2]string
 
-// uiKVLine : une paire, clé sur uiKeyWidth colonnes (retrait 0).
-func uiKVLine(key, value string) {
-	uiOut(sMuted.Render(padRight(key, uiKeyWidth)+" :") + " " + value)
+// KVLine : une paire, clé sur keyWidth colonnes (retrait 0).
+func KVLine(key, value string) {
+	Out(sMuted.Render(padRight(key, keyWidth)+" :") + " " + value)
 }
 
-// uiKV : bloc de paires alignées sur la plus longue clé.
-func uiKV(indent int, pairs ...kv) {
+// KV : bloc de paires alignées sur la plus longue clé.
+func KV(indent int, pairs ...Pair) {
 	w := 0
 	for _, p := range pairs {
-		w = max(w, textWidth(p.k))
+		w = max(w, textWidth(p[0]))
 	}
 	for _, p := range pairs {
-		uiOut(strings.Repeat(" ", indent) + sMuted.Render(padRight(p.k, w)+" :") + " " + p.v)
+		Out(strings.Repeat(" ", indent) + sMuted.Render(padRight(p[0], w)+" :") + " " + p[1])
 	}
 }
 
 // ── Jeux, listes, tableaux ─────────────────────────────────────────────
 
-// uiNameMax : au-delà, un nom de jeu est abrégé (« … »).
-const uiNameMax = 48
+// NameMax : au-delà, un nom de jeu est abrégé (« … »).
+const NameMax = 48
 
-// uiGames : lignes par jeu, noms alignés sur la colonne la plus large.
-type uiGames struct{ width int }
+// Games : lignes par jeu, noms alignés sur la colonne la plus large.
+type Games struct{ width int }
 
-func newUIGames(names []string) uiGames {
+// NewGames : mise en colonnes pour les noms donnés.
+func NewGames(names []string) Games {
 	w := 3
 	for _, n := range names {
-		w = max(w, textWidth(truncate(n, uiNameMax)))
+		w = max(w, textWidth(Truncate(n, NameMax)))
 	}
-	return uiGames{w}
+	return Games{w}
 }
 
-// line : « ␣␣✓ Nom   message » (retrait 2, contrat du manager pour --saves).
-func (g uiGames) line(st uiStatus, name, msg string) {
-	uiOut("  " + st.mark() + " " + padRight(truncate(name, uiNameMax), g.width) + "  " + msg)
+// Line : « ␣␣✓ Nom   message » (retrait 2, contrat du manager pour --saves).
+func (g Games) Line(st Status, name, msg string) {
+	Out("  " + st.Mark() + " " + padRight(Truncate(name, NameMax), g.width) + "  " + msg)
 }
 
-// uiList : rubrique en gras avec le nombre d'éléments, puis un nom par ligne
+// List : rubrique en gras avec le nombre d'éléments, puis un nom par ligne
 // (retrait 2). Rien si la liste est vide.
-func uiList(heading string, names []string) {
+func List(heading string, names []string) {
 	if len(names) == 0 {
 		return
 	}
-	uiOut("")
-	uiOut(sBold.Render(fmt.Sprintf("%s (%d)", heading, len(names))))
+	Out("")
+	Out(sBold.Render(fmt.Sprintf("%s (%d)", heading, len(names))))
 	for _, n := range names {
-		uiOut("  " + sMuted.Render("·") + " " + n)
+		Out("  " + sMuted.Render("·") + " " + n)
 	}
 }
 
-// uiCell : style d'une cellule de tableau selon sa valeur (nil : aucun).
-type uiCell func(row, col int, value string) lipgloss.Style
+// Cell : style d'une cellule de tableau selon sa valeur (nil : aucun).
+type Cell func(row, col int, value string) lipgloss.Style
 
-// uiTable : tableau encadré, en-tête en gras ; right : colonnes alignées à
+// Table : tableau encadré, en-tête en gras ; right : colonnes alignées à
 // droite (nombres, tailles).
 //
 // Plus large que le terminal : les colonnes de texte les plus larges sont
 // rognées (« … » ; un chemin garde son début et sa fin). Hors terminal, rien
 // n'est rogné : la sortie ne dépend pas de la machine.
-func uiTable(headers []string, rows [][]string, right []int, cell uiCell) {
+func Table(headers []string, rows [][]string, right []int, cell Cell) {
 	isRight := map[int]bool{}
 	for _, c := range right {
 		isRight[c] = true
 	}
-	rows = fitColumns(headers, rows, isRight, uiTermWidth())
+	rows = fitColumns(headers, rows, isRight, termWidth())
 	t := table.New().
 		Border(lipgloss.RoundedBorder()).
 		BorderStyle(sMuted).
@@ -263,12 +275,12 @@ func uiTable(headers []string, rows [][]string, right []int, cell uiCell) {
 			}
 			return s
 		})
-	uiOut(t.Render())
+	Out(t.Render())
 }
 
-// uiTermWidth : largeur du terminal de la sortie standard, 0 hors terminal.
-var uiTermWidth = func() int {
-	f, ok := uiStdout.(*os.File)
+// termWidth : largeur du terminal de la sortie standard, 0 hors terminal.
+var termWidth = func() int {
+	f, ok := stdout.(*os.File)
 	if !ok || !term.IsTerminal(f.Fd()) {
 		return 0
 	}
@@ -279,8 +291,8 @@ var uiTermWidth = func() int {
 	return w
 }
 
-// uiMinColumn : largeur en dessous de laquelle une colonne n'est plus rognée.
-const uiMinColumn = 12
+// minColumn : largeur en dessous de laquelle une colonne n'est plus rognée.
+const minColumn = 12
 
 // fitColumns : cellules rognées pour que le tableau tienne dans width
 // colonnes (0 : aucune limite). Les colonnes alignées à droite (nombres,
@@ -309,7 +321,7 @@ func fitColumns(headers []string, rows [][]string, right map[int]bool, width int
 	for over := total - width; over > 0; over-- {
 		best := -1
 		for c := range w {
-			if right[c] || w[c] <= max(uiMinColumn, textWidth(headers[c])) {
+			if right[c] || w[c] <= max(minColumn, textWidth(headers[c])) {
 				continue
 			}
 			if best < 0 || w[c] > w[best] {
@@ -329,7 +341,7 @@ func fitColumns(headers []string, rows [][]string, right map[int]bool, width int
 				if strings.Contains(v, "/") {
 					v = truncateMiddle(v, w[c])
 				} else {
-					v = truncate(v, w[c])
+					v = Truncate(v, w[c])
 				}
 			}
 			out[i][c] = v
@@ -347,9 +359,9 @@ var (
 	cellPlain = lipgloss.NewStyle()
 )
 
-// uiStateCell : colonne d'état de --list (en cours, monté ou verrouillé, -)
+// StateCell : colonne d'état de --list (en cours, monté ou verrouillé, -)
 // et colonne d'image introuvable, colorées selon la valeur.
-func uiStateCell(stateCol, imageCol int) uiCell {
+func StateCell(stateCol, imageCol int) Cell {
 	return func(_, col int, v string) lipgloss.Style {
 		switch {
 		case col == stateCol:
@@ -368,8 +380,8 @@ func uiStateCell(stateCol, imageCol int) uiCell {
 	}
 }
 
-// uiBoldRow : ligne de total (row, indice de données) en gras.
-func uiBoldRow(row int) uiCell {
+// BoldRow : ligne de total (row, indice de données) en gras.
+func BoldRow(row int) Cell {
 	return func(r, _ int, _ string) lipgloss.Style {
 		if r == row {
 			return sBold
@@ -380,126 +392,114 @@ func uiBoldRow(row int) uiCell {
 
 // ── Texte ──────────────────────────────────────────────────────────────
 
-// uiNote : explication, simulation, astuce (retrait 2, discrète). Les
+// Note : explication, simulation, astuce (retrait 2, discrète). Les
 // lignes sont coupées par l'appelant (sortie identique sur toutes les largeurs).
-func uiNote(lines ...string) {
+func Note(lines ...string) {
 	for _, l := range lines {
-		uiOut("  " + sMuted.Render(l))
+		Out("  " + sMuted.Render(l))
 	}
 }
 
-// uiCode : texte à copier (code d'association, commande), seul sur sa ligne.
-func uiCode(text string) { uiOut("  " + sCode.Render(text)) }
+// Code : texte à copier (code d'association, commande), seul sur sa ligne.
+func Code(text string) { Out("  " + sCode.Render(text)) }
 
-// uiRule : séparateur, avec une étiquette facultative (sortie du jeu).
-func uiRule(label string) {
+// Rule : séparateur, avec une étiquette facultative (sortie du jeu).
+func Rule(label string) {
 	line := strings.Repeat("─", 41)
 	if label != "" {
 		line += " " + label
 	}
-	uiOut(sMuted.Render(line))
+	Out(sMuted.Render(line))
 }
 
-// uiVerdict : dernière ligne d'un rapport, précédée d'une ligne vide.
-func uiVerdict(ok bool, msg string) {
-	uiOut("")
+// Verdict : dernière ligne d'un rapport, précédée d'une ligne vide.
+func Verdict(ok bool, msg string) {
+	Out("")
 	if ok {
-		uiOut(sOK.Render("✓ " + msg))
+		Out(sOK.Render("✓ " + msg))
 	} else {
-		uiOut(sErr.Render("✗ " + msg))
+		Out(sErr.Render("✗ " + msg))
 	}
 }
 
-// uiHelp : texte d'aide fixe (usage.txt) ; rubriques (ligne en colonne 0
+// Help : texte d'aide fixe (usage.txt) ; rubriques (ligne en colonne 0
 // finissant par « : ») en gras, commandes en couleur. Hors terminal, le texte
 // est rendu à l'identique.
-func uiHelp(text string) {
+func Help(text string) {
 	for _, l := range strings.Split(strings.TrimSuffix(text, "\n"), "\n") {
 		switch t := strings.TrimSpace(l); {
 		case l != "" && l[0] != ' ' && strings.HasSuffix(l, ":"):
-			uiOut(sBold.Render(l))
+			Out(sBold.Render(l))
 		case strings.HasPrefix(t, "wsquashfs-launcher"):
 			indent := l[:len(l)-len(strings.TrimLeft(l, " "))]
-			uiOut(indent + sCode.Render(t))
+			Out(indent + sCode.Render(t))
 		default:
-			uiOut(l)
+			Out(l)
 		}
 	}
 }
 
 // ── Messages d'erreur (stderr) ─────────────────────────────────────────
 
-// warn : avertissement, la commande continue.
-func warn(msg string, details ...string) {
-	uiErr(sWarn.Render("Attention :") + " " + msg)
+// Warn : avertissement, la commande continue.
+func Warn(msg string, details ...string) {
+	Err(sWarn.Render("Attention :") + " " + msg)
 	for _, d := range details {
-		uiErr(d) // retrait à la charge de l'appelant (« ␣␣→ … »)
+		Err(d) // retrait à la charge de l'appelant (« ␣␣→ … »)
 	}
 }
 
-// uiError : « Erreur : » et ses détails, sans quitter.
-func uiError(msg string, details ...string) {
-	uiErr(sErr.Render("Erreur :") + " " + msg)
+// Error : « Erreur : » et ses détails, sans quitter.
+func Error(msg string, details ...string) {
+	Err(sErr.Render("Erreur :") + " " + msg)
 	for _, d := range details {
-		uiErr(d) // retrait à la charge de l'appelant (« ␣␣→ … »)
+		Err(d) // retrait à la charge de l'appelant (« ␣␣→ … »)
 	}
 }
 
-// die : erreur, puis sortie (code 1, cleanup compris).
-func die(msg string, details ...string) {
-	uiError(msg, details...)
-	exitNow(1)
-}
-
-// uiUsage : rappel de syntaxe, sans quitter.
-func uiUsage(syntax string) { uiErr(sErr.Render("Usage :") + " " + syntax) }
-
-// usageError : rappel de syntaxe, puis code 1.
-func usageError(syntax string) {
-	uiUsage(syntax)
-	exitNow(1)
-}
+// Usage : rappel de syntaxe, sans quitter.
+func Usage(syntax string) { Err(sErr.Render("Usage :") + " " + syntax) }
 
 // ── Questions ──────────────────────────────────────────────────────────
 //
 // Une seule forme : « ␣␣? Question [o/n] (défaut : non) » ; toujours
 // « o/n » dans cet ordre, la réponse par défaut écrite en toutes lettres
-// (uiYesNo). Réponse automatique affichée
+// (YesNo). Réponse automatique affichée
 // en clair : « o (yes) », « n (pas de terminal) ».
 
-func uiQuestion(q, hint string) string {
+func question(q, hint string) string {
 	return "  " + sCode.Render("?") + " " + q + " " + sMuted.Render(hint)
 }
 
-// uiYesNo : indication d'une question oui/non, identique partout.
-func uiYesNo(def bool) string {
+// YesNo : indication d'une question oui/non, identique partout.
+func YesNo(def bool) string {
 	if def {
 		return "[o/n] (défaut : oui)"
 	}
 	return "[o/n] (défaut : non)"
 }
 
-// uiMenu : choix numérotés (« ␣␣1  libellé »), le choix par défaut marqué ;
+// Menu : choix numérotés (« ␣␣1  libellé »), le choix par défaut marqué ;
 // suivi d'une question askChoice. def : numéro par défaut (« 2 »).
-func uiMenu(options []string, def string) {
+func Menu(options []string, def string) {
 	for i, o := range options {
 		n := fmt.Sprint(i + 1)
 		line := "  " + sCode.Render(n) + "  " + o
 		if n == def {
 			line += "  " + sMuted.Render("(défaut)")
 		}
-		uiOut(line)
+		Out(line)
 	}
 }
 
-// uiPrompt : question sans fin de ligne (la réponse est saisie à la suite).
-func uiPrompt(q, hint string) {
-	uiWrite(uiStdout, uiQuestion(q, hint)+" ")
+// Prompt : question sans fin de ligne (la réponse est saisie à la suite).
+func Prompt(q, hint string) {
+	write(stdout, question(q, hint)+" ")
 }
 
-// uiAuto : question à réponse automatique, affichée avec sa raison.
-func uiAuto(q, hint, answer, reason string) {
-	uiOut(uiQuestion(q, hint) + " " + answer + " " + sMuted.Render("("+reason+")"))
+// Auto : question à réponse automatique, affichée avec sa raison.
+func Auto(q, hint, answer, reason string) {
+	Out(question(q, hint) + " " + answer + " " + sMuted.Render("("+reason+")"))
 }
 
 // ── Mesures de texte ───────────────────────────────────────────────────
@@ -515,9 +515,9 @@ func padRight(s string, width int) string {
 	return s
 }
 
-// truncate : texte abrégé à max caractères (« … » compris), jamais au milieu
+// Truncate : texte abrégé à max caractères (« … » compris), jamais au milieu
 // d'un caractère UTF-8.
-func truncate(s string, max int) string {
+func Truncate(s string, max int) string {
 	if utf8.RuneCountInString(s) <= max {
 		return s
 	}
@@ -533,15 +533,15 @@ func truncateMiddle(s string, max int) string {
 		return s
 	}
 	if max < 3 {
-		return truncate(s, max)
+		return Truncate(s, max)
 	}
 	tail := (max - 1) * 2 / 3
 	head := max - 1 - tail
 	return string(r[:head]) + "…" + string(r[len(r)-tail:])
 }
 
-// sizeText : taille lisible (o, Ko, Mo à l'unité ; Go au dixième).
-func sizeText(n int64) string {
+// SizeText : taille lisible (o, Ko, Mo à l'unité ; Go au dixième).
+func SizeText(n int64) string {
 	switch {
 	case n < 1024:
 		return fmt.Sprintf("%d o", n)
@@ -553,8 +553,8 @@ func sizeText(n int64) string {
 	return strings.Replace(fmt.Sprintf("%.1f Go", float64(n)/(1024*1024*1024)), ".", ",", 1)
 }
 
-// plural : « 1 jeu », « 3 jeux ».
-func plural(n int, one, many string) string {
+// Plural : « 1 jeu », « 3 jeux ».
+func Plural(n int, one, many string) string {
 	if n > 1 {
 		return fmt.Sprintf("%d %s", n, many)
 	}

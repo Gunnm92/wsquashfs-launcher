@@ -17,6 +17,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"wsquashfs-launcher/internal/ui"
 )
 
 // pairCode : code d'association wsq://SECRET@HÔTE:PORT#EMPREINTE. Le secret est celui du code
@@ -65,9 +67,9 @@ func cmdPair(args []string) int {
 			die("configuration impossible : " + err.Error())
 		}
 		if len(names) == 0 {
-			uiStatusLine(stSkip, "Reset : aucune machine associée à retirer")
+			ui.StatusLine(ui.Skip, "Reset : aucune machine associée à retirer")
 		} else {
-			uiStatusLine(stOK, "Reset : toutes les machines associées sont retirées ("+strings.Join(names, ", ")+")")
+			ui.StatusLine(ui.OK, "Reset : toutes les machines associées sont retirées ("+strings.Join(names, ", ")+")")
 		}
 	}
 	cfg, err := agentInit(roms, port)
@@ -96,14 +98,14 @@ func cmdPair(args []string) int {
 	if err := beginPairing(secret, pairTimeout); err != nil {
 		die("code d'association impossible : " + err.Error())
 	}
-	uiTitle("Association avec wsquashfs-manager")
-	uiNote("Colle ce code sur l'autre machine (wsquashfs-launcher --sync wsq://…)",
+	ui.Title("Association avec wsquashfs-manager")
+	ui.Note("Colle ce code sur l'autre machine (wsquashfs-launcher --sync wsq://…)",
 		"ou dans wsquashfs-manager (Réglages → Machine de jeu, ou onglet Sauvegardes) :")
-	uiOut("")
-	uiCode(code)
-	uiOut("")
-	uiNote("Usage unique : ce code ne sert qu'une fois, et seulement pendant " + durationText(pairTimeout) + ".")
-	uiKV(0, kv{"Autres adresses", strings.Join(localAddresses(), ", ")}, kv{"Dossiers roms/", strings.Join(cfg.Roms, ", ")}, kv{"Agent", state})
+	ui.Out("")
+	ui.Code(code)
+	ui.Out("")
+	ui.Note("Usage unique : ce code ne sert qu'une fois, et seulement pendant " + durationText(pairTimeout) + ".")
+	ui.KV(0, ui.Pair{"Autres adresses", strings.Join(localAddresses(), ", ")}, ui.Pair{"Dossiers roms/", strings.Join(cfg.Roms, ", ")}, ui.Pair{"Agent", state})
 	// Ctrl-C : annulation propre (installSignals appelle ce crochet, sans sortir).
 	cancel := make(chan struct{})
 	var once sync.Once
@@ -142,16 +144,16 @@ func cmdPairForget(name string) int {
 		kept = append(kept, m)
 	}
 	if len(gone) == 0 {
-		uiError("aucune machine associée nommée ou d'identifiant « " + name + " » (machines : " + agentMachineNames(cfg) + ")")
+		ui.Error("aucune machine associée nommée ou d'identifiant « " + name + " » (machines : " + agentMachineNames(cfg) + ")")
 		return 1
 	}
 	cfg.Machines = kept
 	if err := saveAgentConfig(cfg); err != nil {
-		uiError("configuration impossible : " + err.Error())
+		ui.Error("configuration impossible : " + err.Error())
 		return 1
 	}
-	uiTitle("Machines associées")
-	uiStatusLine(stOK, strings.Join(gone, ", ")+" retirée")
+	ui.Title("Machines associées")
+	ui.StatusLine(ui.OK, strings.Join(gone, ", ")+" retirée")
 	return 0
 }
 
@@ -205,25 +207,25 @@ func pairRun(cfg agentConfig, ln net.Listener, timeout time.Duration, cancel <-c
 		s, err := serveTempAgent(cfg, ln)
 		if err != nil {
 			_ = ln.Close()
-			uiStatusLine(stFail, "Agent temporaire impossible : "+err.Error())
+			ui.StatusLine(ui.Fail, "Agent temporaire impossible : "+err.Error())
 			return 1
 		}
 		stop = s
 	}
-	uiStatusLine(stInfo, "En attente de l'association… (Ctrl-C pour annuler)")
+	ui.StatusLine(ui.Info, "En attente de l'association… (Ctrl-C pour annuler)")
 	last, res := waitAssociation(since, timeout, cancel)
 	stop()
 	switch res {
 	case pairCancelled:
-		uiStatusLine(stSkip, "Association annulée")
+		ui.StatusLine(ui.Skip, "Association annulée")
 		return 130
 	case pairTimedOut:
-		uiStatusLine(stFail, "Association : aucune association en "+durationText(timeout))
+		ui.StatusLine(ui.Fail, "Association : aucune association en "+durationText(timeout))
 		return 1
 	}
-	uiStatusLine(stOK, "Associé : "+last.Name+" ("+last.Addr+")")
+	ui.StatusLine(ui.OK, "Associé : "+last.Name+" ("+last.Addr+")")
 	if ln != nil {
-		uiNote("Pour les synchros suivantes, l'agent doit tourner sur cette machine :",
+		ui.Note("Pour les synchros suivantes, l'agent doit tourner sur cette machine :",
 			"wsquashfs-launcher --agent (arrêt : --agent stop)")
 	}
 	return 0

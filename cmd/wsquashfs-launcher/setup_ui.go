@@ -1,13 +1,15 @@
 package main
 
 // Affichage et questions de l'installeur (install.sh, sections 1 et 2). Tout
-// passe par ui.go : étapes numérotées (uiStage), résultats (uiItem), questions
-// (uiPrompt / uiAuto) et bilan.
+// passe par internal/ui : étapes numérotées (ui.Stage), résultats (ui.Item), questions
+// (ui.Prompt / ui.Auto) et bilan.
 
 import (
 	"bufio"
 	"os"
 	"strings"
+
+	"wsquashfs-launcher/internal/ui"
 )
 
 // État de l'installeur (install.sh, section 1).
@@ -45,42 +47,42 @@ func setupPlanTotal() int {
 // setupStage : étape suivante du parcours.
 func setupStage(title string) {
 	stageN++
-	uiStage(stageN, stageTotal, title)
+	ui.Stage(stageN, stageTotal, title)
 }
 
 // setupDone : élément installé (ou à installer en simulation).
 func setupDone(msg string, details ...string) {
 	setupCount.installed++
-	uiItem(stOK, msg, details...)
+	ui.Item(ui.OK, msg, details...)
 }
 
 // setupHave : élément déjà présent.
 func setupHave(msg string, details ...string) {
 	setupCount.present++
-	uiItem(stOK, msg, details...)
+	ui.Item(ui.OK, msg, details...)
 }
 
 // setupSkip : élément ignoré (choix, facultatif absent).
 func setupSkip(msg string, details ...string) {
 	setupCount.skipped++
-	uiItem(stSkip, msg, details...)
+	ui.Item(ui.Skip, msg, details...)
 }
 
 // setupFail : échec d'un élément. Un échec secondaire (un téléchargement qui
 // rate, suivi de l'échec de l'élément) s'affiche avec setupErr, sans compte.
 func setupFail(msg string, details ...string) {
 	setupCount.failed++
-	uiItem(stFail, msg, details...)
+	ui.Item(ui.Fail, msg, details...)
 }
 
 // setupErr : constat d'échec sans compte (voir setupFail).
-func setupErr(msg string, details ...string) { uiItem(stFail, msg, details...) }
+func setupErr(msg string, details ...string) { ui.Item(ui.Fail, msg, details...) }
 
 // setupTodo : élément manquant, à installer.
-func setupTodo(msg string, details ...string) { uiItem(stInfo, msg, details...) }
+func setupTodo(msg string, details ...string) { ui.Item(ui.Info, msg, details...) }
 
 // simLine : ligne de simulation (rien n'est fait).
-func simLine(text string) { uiNote("[simulation] " + text) }
+func simLine(text string) { ui.Note("[simulation] " + text) }
 
 // doneWord : « installé(s) », ou « à installer » en simulation.
 func doneWord() string {
@@ -122,20 +124,20 @@ func autoReason() string {
 
 // askYesNo : vrai pour oui. yes : oui ; sans terminal : la réponse par défaut.
 func askYesNo(question string, def bool) bool {
-	hint := uiYesNo(def)
+	hint := ui.YesNo(def)
 	defWord := "n"
 	if def {
 		defWord = "o"
 	}
 	if assumeYes {
-		uiAuto(question, hint, "o", "yes")
+		ui.Auto(question, hint, "o", "yes")
 		return true
 	}
 	if !hasTTY() {
-		uiAuto(question, hint, defWord, "pas de terminal")
+		ui.Auto(question, hint, defWord, "pas de terminal")
 		return def
 	}
-	uiPrompt(question, hint)
+	ui.Prompt(question, hint)
 	reply := strings.ToLower(strings.TrimSpace(readTTY()))
 	if reply == "" {
 		return def
@@ -146,10 +148,10 @@ func askYesNo(question string, def bool) bool {
 // askChoice : une réponse ; yes ou sans terminal : le défaut.
 func askChoice(question, hint, def string) string {
 	if assumeYes || !hasTTY() {
-		uiAuto(question, hint, def, autoReason())
+		ui.Auto(question, hint, def, autoReason())
 		return def
 	}
-	uiPrompt(question, hint)
+	ui.Prompt(question, hint)
 	reply := strings.TrimSpace(readTTY())
 	if reply == "" {
 		return def

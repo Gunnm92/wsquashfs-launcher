@@ -44,6 +44,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+
+	"wsquashfs-launcher/internal/ui"
 )
 
 const (
@@ -298,7 +300,7 @@ func parseAgentArgs(args []string) (agentCmd, error) {
 func cmdAgentMain(args []string) int {
 	c, err := parseAgentArgs(args)
 	if err != nil {
-		uiError(err.Error())
+		ui.Error(err.Error())
 		return 1
 	}
 	switch c.mode {

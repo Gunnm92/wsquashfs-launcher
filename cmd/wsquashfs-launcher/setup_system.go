@@ -8,6 +8,8 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+
+	"wsquashfs-launcher/internal/ui"
 )
 
 // readOSRelease : fichier os-release (KEY=VALUE, guillemets retirés).
@@ -73,7 +75,7 @@ func needSudo() bool {
 		setupFail("sudo absent — relancez en root : sudo " + exePath() + " --setup")
 		return false
 	}
-	uiItem(stInfo, "Non-root : sudo utilisé pour les paquets système")
+	ui.Item(ui.Info, "Non-root : sudo utilisé pour les paquets système")
 	return true
 }
 
@@ -121,7 +123,7 @@ func aptEnsure(label string, pkgs ...string) error {
 		setupHave(label + " : déjà installé (" + strings.Join(pkgs, " ") + ")")
 		return nil
 	}
-	uiItem(stInfo, label+" : installation de "+strings.Join(missing, " ")+"...")
+	ui.Item(ui.Info, label+" : installation de "+strings.Join(missing, " ")+"...")
 	if err := runRoot(append([]string{"apt-get", "install", "-y"}, missing...)...); err != nil {
 		setupFail(label + " : échec de l'installation de " + strings.Join(missing, " "))
 		return err
@@ -218,7 +220,7 @@ func pacmanEnsure(label string, pkgs ...string) error {
 		}
 		return nil
 	}
-	uiItem(stInfo, label+" : installation de "+strings.Join(missing, " ")+"...")
+	ui.Item(ui.Info, label+" : installation de "+strings.Join(missing, " ")+"...")
 	args := []string{"pacman", "-S", "--needed"}
 	if assumeYes || !hasTTY() {
 		args = append(args, "--noconfirm")
@@ -273,7 +275,7 @@ func depsArch() bool {
 		_ = pacmanEnsure("MangoHud (facultatif)", "mangohud", "lib32-mangohud")
 	} else {
 		setupFail("Dépôt [multilib] désactivé : les jeux 32 bits (arcade Batocera) ne se lanceront pas.")
-		uiNote("Activez-le dans /etc/pacman.conf (section [multilib]), puis relancez l'installation.")
+		ui.Note("Activez-le dans /etc/pacman.conf (section [multilib]), puis relancez l'installation.")
 		ok = false
 		_ = pacmanEnsure("MangoHud (facultatif)", "mangohud")
 	}
@@ -287,7 +289,7 @@ func depsArch() bool {
 // ce que le lanceur demande y est déjà, bibliothèques 32 bits comprises
 // (Steam) : SteamOS 3.9, vérifié le 16/11. On vérifie seulement.
 func depsSteamOS() bool {
-	uiItem(stInfo, "SteamOS : système en lecture seule, aucun paquet installé (vérification seulement)")
+	ui.Item(ui.Info, "SteamOS : système en lecture seule, aucun paquet installé (vérification seulement)")
 	ok := true
 	check := func(label string, required bool, pkgs ...string) {
 		var missing []string
@@ -323,7 +325,7 @@ func depsSteamOS() bool {
 	}
 	check("MangoHud (facultatif)", false, "mangohud", "lib32-mangohud")
 	if !ok {
-		uiNote("SteamOS : un paquet système manquant ne s'installe pas durablement (racine en lecture seule,",
+		ui.Note("SteamOS : un paquet système manquant ne s'installe pas durablement (racine en lecture seule,",
 			"remplacée aux mises à jour) ; le lanceur passe au mode copy si FUSE manque.")
 	}
 	return ok
@@ -331,7 +333,7 @@ func depsSteamOS() bool {
 
 func depsOther() bool {
 	setupFail("Distribution non prise en charge pour les paquets système (" + distroName + ").")
-	uiNote("Installez à la main : fuse3, squashfs-tools, fuse-overlayfs, attr,",
+	ui.Note("Installez à la main : fuse3, squashfs-tools, fuse-overlayfs, attr,",
 		"zstd, unzip, et les bibliothèques 32 bits de Wine (jeux arcade 32 bits) ;",
 		"pour --tray : wl-clipboard ou xclip.")
 	return askYesNo("Continuer (runners, DXVK, lanceur) ?", false)

@@ -24,6 +24,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"wsquashfs-launcher/internal/ui"
 )
 
 // syncProfileToken : nom neutre du profil dans les archives quand la source n'a qu'un profil
@@ -596,7 +598,7 @@ func replaceFromArchive(r io.Reader, root string, entry func(*tar.Header) (strin
 		if !isDir {
 			unpacked += hdr.Size
 			if unpacked > syncMaxUnpacked {
-				return fmt.Errorf("archive trop volumineuse : plus de %s décompressés", sizeText(syncMaxUnpacked))
+				return fmt.Errorf("archive trop volumineuse : plus de %s décompressés", ui.SizeText(syncMaxUnpacked))
 			}
 		}
 		p := filepath.Join(tmp, filepath.FromSlash(rel))

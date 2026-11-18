@@ -10,6 +10,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"syscall"
+
+	"wsquashfs-launcher/internal/ui"
 )
 
 // Rapport de --doctor : construit une fois, rendu en texte ou en JSON (agent).
@@ -243,33 +245,33 @@ func cmdDoctor() int {
 	return 0
 }
 
-// printDoctorText : rendu texte du rapport (sortie humaine, charte de ui.go).
+// printDoctorText : rendu texte du rapport (sortie humaine, charte de internal/ui).
 func printDoctorText(fatal bool) {
-	uiTitle("Diagnostic")
+	ui.Title("Diagnostic")
 	for _, sec := range docSections {
 		if sec.Title != "" {
-			uiSection(sec.Title)
+			ui.Section(sec.Title)
 		}
 		for _, it := range sec.Items {
-			st := map[string]uiStatus{"ok": stOK, "missing": stFail, "optional": stSkip}[it.Status]
+			st := map[string]ui.Status{"ok": ui.OK, "missing": ui.Fail, "optional": ui.Skip}[it.Status]
 			if len(it.Details) == 0 {
-				uiItem(st, it.Text)
+				ui.Item(st, it.Text)
 				continue
 			}
 			// Seul le point « runners installés » porte des détails : tableau.
-			uiItem(st, it.Text)
+			ui.Item(st, it.Text)
 			var rows [][]string
 			for _, r := range docRunners {
 				rows = append(rows, []string{r.Name, r.Path})
 			}
-			uiTable([]string{"Runner", "Chemin"}, rows, nil, nil)
+			ui.Table([]string{"Runner", "Chemin"}, rows, nil, nil)
 		}
 	}
 	if fatal {
-		uiVerdict(false, "Aucun jeu ne peut être lancé : voir les points ✗ ci-dessus")
+		ui.Verdict(false, "Aucun jeu ne peut être lancé : voir les points ✗ ci-dessus")
 		return
 	}
-	uiVerdict(true, "Prêt à lancer des jeux")
+	ui.Verdict(true, "Prêt à lancer des jeux")
 }
 
 // doctorJSON : rapport structuré (--doctor json, route /v1/doctor de l'agent).

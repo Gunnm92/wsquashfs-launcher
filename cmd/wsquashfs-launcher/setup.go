@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"wsquashfs-launcher/internal/ui"
 )
 
 // Emplacements (install.sh, section 1).
@@ -404,8 +406,8 @@ func checkPath() {
 	// Par défaut oui : sans cela, le lanceur n'est pas trouvé par son nom
 	if !askYesNo("Ajouter "+installDir+" au PATH (dans "+rc+") ?", true) {
 		setupSkip("PATH non modifié")
-		uiNote("À ajouter à votre shell :")
-		uiCode(line)
+		ui.Note("À ajouter à votre shell :")
+		ui.Code(line)
 		return
 	}
 	if dryRun {
@@ -447,11 +449,11 @@ func agentDefaultRoms() string {
 func removeLegacyAgent() {
 	legacy := filepath.Join(wsqData, "agent")
 	if pathExists(legacy) && os.RemoveAll(legacy) == nil {
-		uiItem(stOK, "Ancien moteur Python de l'agent retiré : "+legacy)
+		ui.Item(ui.OK, "Ancien moteur Python de l'agent retiré : "+legacy)
 	}
 	stale := filepath.Join(installDir, "wsquashfs-agent")
 	if strings.Contains(readHead(stale, 40), "python3") && os.Remove(stale) == nil {
-		uiItem(stOK, "Ancienne commande wsquashfs-agent retirée")
+		ui.Item(ui.OK, "Ancienne commande wsquashfs-agent retirée")
 	}
 }
 
@@ -497,23 +499,23 @@ func uninstall() {
 	if dryRun {
 		sub = "simulation : rien n'est supprimé"
 	}
-	uiTitle("Désinstallation de WSquashFS Launcher", sub)
+	ui.Title("Désinstallation de WSquashFS Launcher", sub)
 	launcher := filepath.Join(installDir, "wsquashfs-launcher")
 	short := filepath.Join(installDir, shortName)
 	switch {
 	case isOwnShortName(short, launcher):
 		if removePaths(short) == nil {
-			uiItem(stOK, "Nom court ws retiré")
+			ui.Item(ui.OK, "Nom court ws retiré")
 		}
 	case pathExists(short):
-		uiItem(stSkip, "ws laissé : autre commande que ce lanceur")
+		ui.Item(ui.Skip, "ws laissé : autre commande que ce lanceur")
 	}
 	if isFile(launcher) {
 		if removePaths(launcher) == nil {
-			uiItem(stOK, "Lanceur supprimé")
+			ui.Item(ui.OK, "Lanceur supprimé")
 		}
 	} else {
-		uiItem(stSkip, "Lanceur absent de "+installDir)
+		ui.Item(ui.Skip, "Lanceur absent de "+installDir)
 	}
 	if bridge := filepath.Join(installDir, "dualsense-usb-bridge"); pathExists(bridge) {
 		_ = removePaths(bridge)
@@ -529,24 +531,24 @@ func uninstall() {
 	umuLink := filepath.Join(installDir, "umu-run")
 	if target, err := os.Readlink(umuLink); err == nil && target == filepath.Join(umuInstallDir, "umu-run") {
 		if removePaths(umuLink, umuInstallDir) == nil {
-			uiItem(stOK, "umu-run supprimé")
+			ui.Item(ui.OK, "umu-run supprimé")
 		}
 	}
 	if !dryRun && removeCompletion() {
-		uiItem(stOK, "Complétion bash supprimée")
+		ui.Item(ui.OK, "Complétion bash supprimée")
 	}
 	if isFile(desktopFile) {
 		_ = removePaths(desktopFile)
 		updateMimeAndDesktopDatabases()
-		uiItem(stOK, "Entrée du bureau supprimée")
+		ui.Item(ui.OK, "Entrée du bureau supprimée")
 	}
 	if isFile(thumbnailerFile()) {
 		_ = removePaths(thumbnailerFile())
-		uiItem(stOK, "Miniatures des .wsquashfs supprimées")
+		ui.Item(ui.OK, "Miniatures des .wsquashfs supprimées")
 	}
 	if isFile(trayAutostartPath()) {
 		_ = removePaths(trayAutostartPath())
-		uiItem(stOK, "Icône de zone de notification : lancement à l'ouverture de session supprimé")
+		ui.Item(ui.OK, "Icône de zone de notification : lancement à l'ouverture de session supprimé")
 	}
 	mimeFile := filepath.Join(os.Getenv("HOME"), ".local/share/mime/packages/wsquashfs.xml")
 	if isFile(mimeFile) {
@@ -556,17 +558,17 @@ func uninstall() {
 				_ = exec.Command("update-mime-database", filepath.Dir(filepath.Dir(mimeFile))).Run()
 			}
 		}
-		uiItem(stOK, "Type MIME supprimé")
+		ui.Item(ui.OK, "Type MIME supprimé")
 	}
 	kept := []string{wsqData + "/ (sauvegardes, runners, DXVK/VKD3D/d7vk, archives)", "~/.cache/wsquashfs/ (cache)"}
 	if pathExists(agentDir()) {
 		kept = append(kept, agentDir()+"/ (machines associées et certificat de l'agent)")
 	}
 	kept = append(kept, protonInstallDir+"/ (partagé avec Steam et Heroic)")
-	uiList("Conservés", kept)
-	uiNote("Paquets système conservés.")
-	uiNote("Pour tout supprimer :")
-	uiCode("rm -rf " + wsqData + "/ ~/.cache/wsquashfs/")
+	ui.List("Conservés", kept)
+	ui.Note("Paquets système conservés.")
+	ui.Note("Pour tout supprimer :")
+	ui.Code("rm -rf " + wsqData + "/ ~/.cache/wsquashfs/")
 }
 
 // pathExists : chemin présent, lien cassé compris.
@@ -606,7 +608,7 @@ func installAll() int {
 	if dryRun {
 		sub += " · simulation : rien n'est modifié"
 	}
-	uiTitle("Installation de WSquashFS Launcher", sub)
+	ui.Title("Installation de WSquashFS Launcher", sub)
 
 	setupStage("Paquets système (" + distroName + ")")
 	if !checkDependencies() {
@@ -660,19 +662,19 @@ func installAll() int {
 // setupEnd : bilan du parcours, puis verdict et commandes utiles. abort : motif
 // d'un arrêt en cours de route (code 1, sans commandes utiles).
 func setupEnd(abort string) int {
-	uiSection("Bilan")
+	ui.Section("Bilan")
 	installedKey := "Installés"
 	if dryRun {
 		installedKey = "À installer (simulation)"
 	}
-	uiKV(2,
-		kv{installedKey, strconv.Itoa(setupCount.installed)},
-		kv{"Déjà présents", strconv.Itoa(setupCount.present)},
-		kv{"Ignorés", strconv.Itoa(setupCount.skipped)},
-		kv{"Échecs", strconv.Itoa(setupCount.failed)},
+	ui.KV(2,
+		ui.Pair{installedKey, strconv.Itoa(setupCount.installed)},
+		ui.Pair{"Déjà présents", strconv.Itoa(setupCount.present)},
+		ui.Pair{"Ignorés", strconv.Itoa(setupCount.skipped)},
+		ui.Pair{"Échecs", strconv.Itoa(setupCount.failed)},
 	)
 	if abort != "" {
-		uiVerdict(false, abort)
+		ui.Verdict(false, abort)
 		return 1
 	}
 	msg := "Installation terminée"
@@ -683,13 +685,13 @@ func setupEnd(abort string) int {
 	if !ok {
 		msg += fmt.Sprintf(" avec %d échec(s)", setupCount.failed)
 	}
-	uiVerdict(ok, msg)
-	uiOut("")
-	uiNote("Commandes utiles :")
-	uiCode("wsquashfs-launcher /chemin/jeu.wsquashfs")
-	uiCode("wsquashfs-launcher --doctor")
-	uiCode("wsquashfs-launcher --list")
-	uiCode("wsquashfs-launcher --help")
+	ui.Verdict(ok, msg)
+	ui.Out("")
+	ui.Note("Commandes utiles :")
+	ui.Code("wsquashfs-launcher /chemin/jeu.wsquashfs")
+	ui.Code("wsquashfs-launcher --doctor")
+	ui.Code("wsquashfs-launcher --list")
+	ui.Code("wsquashfs-launcher --help")
 	return 0
 }
 
@@ -709,15 +711,15 @@ func runSetup(args []string) int {
 		case "help":
 			action = "help"
 		default:
-			uiError("Option inconnue pour --setup : " + a + " (yes, dry-run, uninstall, ge-proton, help)")
-			uiHelp(setupUsage)
+			ui.Error("Option inconnue pour --setup : " + a + " (yes, dry-run, uninstall, ge-proton, help)")
+			ui.Help(setupUsage)
 			return 1
 		}
 	}
 	setupInit()
 	switch action {
 	case "help":
-		uiHelp(setupUsage)
+		ui.Help(setupUsage)
 		return 0
 	case "uninstall":
 		checkRoot()

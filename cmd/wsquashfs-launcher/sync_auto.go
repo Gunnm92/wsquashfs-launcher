@@ -5,7 +5,11 @@ package main
 // réception, jamais de verrou (le jeu tient le sien), jamais d'arrêt : une erreur est signalée, le
 // code de sortie du jeu ne change pas. Le manager garde la version qu'il remplace (archive).
 
-import "time"
+import (
+	"time"
+
+	"wsquashfs-launcher/internal/ui"
+)
 
 // autoSyncConnectTimeout : délai de connexion au manager à la sortie d'un jeu : court, la sortie
 // n'attend pas un manager éteint. Variable pour les tests.
@@ -38,17 +42,17 @@ func autoSyncAfterGame(name string) {
 	_, archived, err := client.send(t)
 	if err != nil {
 		if isUnreachable(err) {
-			uiNote("Manager injoignable : partie gardée ici (wsquashfs-launcher --sync plus tard)")
+			ui.Note("Manager injoignable : partie gardée ici (wsquashfs-launcher --sync plus tard)")
 			return
 		}
-		uiStatusLine(stFail, "envoi au manager : "+err.Error())
+		ui.StatusLine(ui.Fail, "envoi au manager : "+err.Error())
 		return
 	}
 	if err := saveSyncState(syncStateRoot(), peerID, name, t.fingerprint(t.files())); err != nil {
-		uiStatusLine(stFail, "état de synchro non enregistré : "+err.Error())
+		ui.StatusLine(ui.Fail, "état de synchro non enregistré : "+err.Error())
 		return
 	}
-	uiStatusLine(stOK, "Partie envoyée au manager"+archivedNote(archived))
+	ui.StatusLine(ui.OK, "Partie envoyée au manager"+archivedNote(archived))
 }
 
 // sendConflictToManager : en conflit de synchro avec la machine peerName, envoie la copie d'ici au

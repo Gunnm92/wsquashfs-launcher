@@ -32,6 +32,8 @@ import (
 	"time"
 
 	"fyne.io/systray"
+
+	"wsquashfs-launcher/internal/ui"
 )
 
 //go:embed tray_icon.png
@@ -183,7 +185,7 @@ func summarize(out string) string {
 	if len(lines) > 3 {
 		lines = lines[len(lines)-3:]
 	}
-	return truncate(strings.Join(lines, " · "), 300)
+	return ui.Truncate(strings.Join(lines, " · "), 300)
 }
 
 // resultSuffix : fin du titre d'une notification selon le code de sortie.
@@ -540,7 +542,7 @@ func (a *trayApp) diagnose() {
 		notify("Diagnostic", rep.Verdict)
 		return
 	}
-	notify("Diagnostic : "+plural(problems, "problème", "problèmes"), "Rapport ouvert dans un terminal")
+	notify("Diagnostic : "+ui.Plural(problems, "problème", "problèmes"), "Rapport ouvert dans un terminal")
 	term := trayTerminal()
 	if term == "" {
 		notify("Diagnostic", "Aucun terminal trouvé : lancer wsquashfs-launcher --doctor")
@@ -608,7 +610,7 @@ func cmdTray(args []string) int {
 	case len(args) == 1 && (args[0] == "on" || args[0] == "off"):
 		return trayAutostartCmd(args[0] == "on")
 	}
-	uiUsage(trayUsage)
+	ui.Usage(trayUsage)
 	return 1
 }
 
@@ -624,21 +626,21 @@ var trayStartWait = 3 * time.Second
 // main ; les erreurs prévisibles (déjà en marche, pas de zone de notification) sont dites ici.
 func trayStart() int {
 	if pid, ok := trayRunning(); ok {
-		uiStatusLine(stSkip, fmt.Sprintf("Icône déjà en marche (pid %d) ; l'arrêter : wsquashfs-launcher --tray stop", pid))
+		ui.StatusLine(ui.Skip, fmt.Sprintf("Icône déjà en marche (pid %d) ; l'arrêter : wsquashfs-launcher --tray stop", pid))
 		return 0
 	}
 	if err := trayHostError(); err != nil {
-		uiError(err.Error())
+		ui.Error(err.Error())
 		return 1
 	}
 	logPath := trayLogPath()
 	if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
-		uiError("icône impossible : " + err.Error())
+		ui.Error("icône impossible : " + err.Error())
 		return 1
 	}
 	logf, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
-		uiError("icône impossible : " + err.Error())
+		ui.Error("icône impossible : " + err.Error())
 		return 1
 	}
 	defer logf.Close()
@@ -646,7 +648,7 @@ func trayStart() int {
 	cmd.Stdout, cmd.Stderr = logf, logf
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := cmd.Start(); err != nil {
-		uiError("icône impossible : " + err.Error())
+		ui.Error("icône impossible : " + err.Error())
 		return 1
 	}
 	pid := cmd.Process.Pid
@@ -655,16 +657,16 @@ func trayStart() int {
 	for deadline := time.Now().Add(trayStartWait); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
 		select {
 		case <-exited:
-			uiStatusLine(stFail, "L'icône s'est arrêtée au démarrage, journal : "+logPath)
+			ui.StatusLine(ui.Fail, "L'icône s'est arrêtée au démarrage, journal : "+logPath)
 			return 1
 		default:
 		}
 		if p, ok := trayRunning(); ok && p == pid {
-			uiStatusLine(stOK, fmt.Sprintf("Icône lancée (pid %d) ; l'arrêter : wsquashfs-launcher --tray stop", pid))
+			ui.StatusLine(ui.OK, fmt.Sprintf("Icône lancée (pid %d) ; l'arrêter : wsquashfs-launcher --tray stop", pid))
 			return 0
 		}
 	}
-	uiStatusLine(stSkip, fmt.Sprintf("Icône lancée (pid %d), pas encore inscrite ; journal : %s", pid, logPath))
+	ui.StatusLine(ui.Skip, fmt.Sprintf("Icône lancée (pid %d), pas encore inscrite ; journal : %s", pid, logPath))
 	return 0
 }
 
@@ -676,21 +678,21 @@ func trayStop() int {
 	pid, ok := trayRunning()
 	if !ok {
 		_ = os.Remove(trayPidFile())
-		uiStatusLine(stSkip, "Icône : non lancée")
+		ui.StatusLine(ui.Skip, "Icône : non lancée")
 		return 0
 	}
 	if err := syscall.Kill(pid, syscall.SIGTERM); err != nil {
-		uiStatusLine(stFail, fmt.Sprintf("Icône (pid %d) : arrêt impossible (%v)", pid, err))
+		ui.StatusLine(ui.Fail, fmt.Sprintf("Icône (pid %d) : arrêt impossible (%v)", pid, err))
 		return 1
 	}
 	for deadline := time.Now().Add(trayStopWait); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
 		if syscall.Kill(pid, 0) != nil {
 			_ = os.Remove(trayPidFile())
-			uiStatusLine(stOK, fmt.Sprintf("Icône arrêtée (pid %d)", pid))
+			ui.StatusLine(ui.OK, fmt.Sprintf("Icône arrêtée (pid %d)", pid))
 			return 0
 		}
 	}
-	uiStatusLine(stFail, fmt.Sprintf("Icône (pid %d) toujours là après %s", pid, durationText(trayStopWait)))
+	ui.StatusLine(ui.Fail, fmt.Sprintf("Icône (pid %d) toujours là après %s", pid, durationText(trayStopWait)))
 	return 1
 }
 
@@ -699,16 +701,16 @@ func trayAutostartCmd(on bool) int {
 	path := trayAutostartPath()
 	changed, err := setTrayAutostart(on, launcherExe())
 	if err != nil {
-		uiStatusLine(stFail, "Lancement à l'ouverture de session : "+err.Error())
+		ui.StatusLine(ui.Fail, "Lancement à l'ouverture de session : "+err.Error())
 		return 1
 	}
 	switch {
 	case on:
-		uiStatusLine(stOK, "Icône lancée à l'ouverture de session : "+path)
+		ui.StatusLine(ui.OK, "Icône lancée à l'ouverture de session : "+path)
 	case changed:
-		uiStatusLine(stOK, "Lancement à l'ouverture de session retiré")
+		ui.StatusLine(ui.OK, "Lancement à l'ouverture de session retiré")
 	default:
-		uiStatusLine(stSkip, "Pas de lancement à l'ouverture de session")
+		ui.StatusLine(ui.Skip, "Pas de lancement à l'ouverture de session")
 	}
 	return 0
 }
@@ -716,19 +718,19 @@ func trayAutostartCmd(on bool) int {
 // trayRun : --tray run, l'icône au premier plan jusqu'à sa sortie (Quitter, --tray stop, signal).
 func trayRun() int {
 	if pid, ok := trayRunning(); ok {
-		uiStatusLine(stSkip, fmt.Sprintf("Icône déjà en marche (pid %d)", pid))
+		ui.StatusLine(ui.Skip, fmt.Sprintf("Icône déjà en marche (pid %d)", pid))
 		return 0
 	}
 	if err := trayHostError(); err != nil {
-		uiError(err.Error())
+		ui.Error(err.Error())
 		return 1
 	}
 	if err := os.MkdirAll(agentDir(), 0o700); err != nil {
-		uiError("icône impossible : " + err.Error())
+		ui.Error("icône impossible : " + err.Error())
 		return 1
 	}
 	if err := os.WriteFile(trayPidFile(), []byte(strconv.Itoa(os.Getpid())+"\n"), 0o600); err != nil {
-		uiError("icône impossible : " + err.Error())
+		ui.Error("icône impossible : " + err.Error())
 		return 1
 	}
 	app := &trayApp{}
@@ -742,7 +744,7 @@ func trayRun() int {
 		_ = os.Remove(trayPidFile())
 		exe := launcherExe()
 		err := syscall.Exec(exe, []string{exe, "--tray", "run"}, os.Environ())
-		uiError("relance impossible : " + err.Error())
+		ui.Error("relance impossible : " + err.Error())
 		return 1
 	}
 	return 0

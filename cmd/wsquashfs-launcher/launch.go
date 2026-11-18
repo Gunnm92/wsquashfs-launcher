@@ -15,6 +15,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"wsquashfs-launcher/internal/ui"
 )
 
 // ── 9.4 autorun.cmd ────────────────────────────────────────────────────
@@ -38,12 +40,12 @@ func readAutorun() {
 	launch.dxvk = autorunVar("DXVK", "")
 	launch.dxvkWanted = launch.dxvk
 	if launch.dxvk == "1" && findDxvkDir() == "" {
-		warn("DXVK introuvable (/usr/share/dxvk), rendu via wined3d")
+		ui.Warn("DXVK introuvable (/usr/share/dxvk), rendu via wined3d")
 		launch.dxvk = "0"
 	}
 	launch.vkd3d = autorunVar("VKD3D", "")
 	if launch.vkd3d == "1" && findVkd3dDir() == "" {
-		warn("VKD3D-Proton introuvable (/usr/share/vkd3d-proton), Direct3D 12 indisponible")
+		ui.Warn("VKD3D-Proton introuvable (/usr/share/vkd3d-proton), Direct3D 12 indisponible")
 		launch.vkd3d = "0"
 	}
 	launch.d7vk = autorunVar("D7VK", "")
@@ -265,18 +267,18 @@ func configureWine() {
 func initPrefixIfNeeded() {
 	if launch.umuRun != "" {
 		if !isFile(launch.winePoint + "/system.reg") {
-			uiStatusLine(stInfo, "Initialisation du préfixe par Proton au premier lancement...")
+			ui.StatusLine(ui.Info, "Initialisation du préfixe par Proton au premier lancement...")
 		}
 		return
 	}
 	if isFile(launch.winePoint + "/system.reg") {
 		if st, err := os.Stat(launch.winePoint + "/drive_c"); err == nil && st.IsDir() &&
 			(launch.packagedPrefix || isFile(launch.winePoint+"/drive_c/windows/system32/explorer.exe")) {
-			uiStatusLine(stOK, "Préfixe Wine détecté (structure Batocera)")
+			ui.StatusLine(ui.OK, "Préfixe Wine détecté (structure Batocera)")
 			return
 		}
 	}
-	uiStatusLine(stInfo, "Initialisation du préfixe Wine ("+launch.wineArch+")...")
+	ui.StatusLine(ui.Info, "Initialisation du préfixe Wine ("+launch.wineArch+")...")
 	// wineboot -u ne réinstalle rien tant que .update-timestamp correspond.
 	_ = os.Remove(launch.winePoint + "/.update-timestamp")
 	_ = runWineboot(os.Getenv("WINEDEBUG"))
@@ -310,13 +312,13 @@ func importRegistryFiles() {
 	if st, err := os.Stat(regs); err != nil || !st.IsDir() {
 		return
 	}
-	uiStatusLine(stInfo, "Import des fichiers de registre...")
+	ui.StatusLine(ui.Info, "Import des fichiers de registre...")
 	files, _ := filepath.Glob(regs + "/*")
 	for _, f := range files {
 		if !strings.EqualFold(filepath.Ext(f), ".reg") {
 			continue
 		}
-		uiNote(filepath.Base(f))
+		ui.Note(filepath.Base(f))
 		_ = runWineTool("regedit", "//?/unix"+f)
 	}
 }
@@ -339,64 +341,64 @@ func preparePrefix() {
 
 // printSummary : récapitulatif du lancement.
 func printSummary() {
-	pairs := []kv{{"Exécutable", launch.execPath}, {"Arguments", orEmpty(launch.execArgs, "<aucun>")}}
+	pairs := []ui.Pair{{"Exécutable", launch.execPath}, {"Arguments", orEmpty(launch.execArgs, "<aucun>")}}
 	if launch.umuRun != "" {
 		if launch.protonDir+"/files/bin/wine" == launch.imageRunner {
-			pairs = append(pairs, kv{"Proton", filepath.Base(launch.protonDir) + " via umu (" + launch.protonDir + ") — joint à l'image"})
+			pairs = append(pairs, ui.Pair{"Proton", filepath.Base(launch.protonDir) + " via umu (" + launch.protonDir + ") — joint à l'image"})
 		} else {
-			pairs = append(pairs, kv{"Proton", filepath.Base(launch.protonDir) + " via umu (" + launch.protonDir + ")"})
+			pairs = append(pairs, ui.Pair{"Proton", filepath.Base(launch.protonDir) + " via umu (" + launch.protonDir + ")"})
 		}
 		if v := runnerVersion(launch.protonDir + "/files/bin/wine"); v != "" {
-			pairs = append(pairs, kv{"Version Proton", v})
+			pairs = append(pairs, ui.Pair{"Version Proton", v})
 		}
 	} else {
 		if launch.imageRunner != "" && launch.wineBinary == launch.imageRunner {
-			pairs = append(pairs, kv{"Wine", launch.wineBinary + " (" + launch.wineArch + ") — joint à l'image"})
+			pairs = append(pairs, ui.Pair{"Wine", launch.wineBinary + " (" + launch.wineArch + ") — joint à l'image"})
 		} else {
-			pairs = append(pairs, kv{"Wine", launch.wineBinary + " (" + launch.wineArch + ")"})
+			pairs = append(pairs, ui.Pair{"Wine", launch.wineBinary + " (" + launch.wineArch + ")"})
 		}
 		if v := runnerVersion(launch.wineBinary); v != "" {
-			pairs = append(pairs, kv{"Version Wine", v})
+			pairs = append(pairs, ui.Pair{"Version Wine", v})
 		}
 	}
-	pairs = append(pairs, kv{"Préfixe", os.Getenv("WINEPREFIX")})
+	pairs = append(pairs, ui.Pair{"Préfixe", os.Getenv("WINEPREFIX")})
 	if u := os.Getenv("WINEUSERNAME"); u != "" {
-		pairs = append(pairs, kv{"Utilisateur", u + " (adapté au prefix)"})
+		pairs = append(pairs, ui.Pair{"Utilisateur", u + " (adapté au prefix)"})
 	}
 	if conf.runAsRoot {
 		if conf.targetUser != "" {
-			pairs = append(pairs, kv{"Privilège", "montage en root, Wine relancé en " + conf.targetUser})
+			pairs = append(pairs, ui.Pair{"Privilège", "montage en root, Wine relancé en " + conf.targetUser})
 		} else {
-			warn("lancé en root sans SUDO_USER — l'affichage risque d'échouer (pas de cookie X11)")
+			ui.Warn("lancé en root sans SUDO_USER — l'affichage risque d'échouer (pas de cookie X11)")
 		}
 	}
 	if launch.mountMode == "overlay" {
-		pairs = append(pairs, kv{"Sauvegardes", launch.savePoint})
+		pairs = append(pairs, ui.Pair{"Sauvegardes", launch.savePoint})
 	}
-	pairs = append(pairs, kv{"Manettes", launch.hidrawMsg})
+	pairs = append(pairs, ui.Pair{"Manettes", launch.hidrawMsg})
 	if launch.dxvk == "1" {
-		pairs = append(pairs, kv{"DXVK", "activé"})
+		pairs = append(pairs, ui.Pair{"DXVK", "activé"})
 	}
 	if launch.vkd3d == "1" {
-		pairs = append(pairs, kv{"VKD3D", "activé"})
+		pairs = append(pairs, ui.Pair{"VKD3D", "activé"})
 	}
 	if launch.d7vk == "1" {
-		pairs = append(pairs, kv{"D7VK", "activé (DirectDraw → Vulkan)"})
+		pairs = append(pairs, ui.Pair{"D7VK", "activé (DirectDraw → Vulkan)"})
 	}
 	if launch.esync == "1" {
-		pairs = append(pairs, kv{"ESYNC", "activé"})
+		pairs = append(pairs, ui.Pair{"ESYNC", "activé"})
 	}
 	if launch.fsync == "1" {
-		pairs = append(pairs, kv{"FSYNC", "activé"})
+		pairs = append(pairs, ui.Pair{"FSYNC", "activé"})
 	}
 	if launch.wineLang != "" {
-		pairs = append(pairs, kv{"Langue", launch.wineLang})
+		pairs = append(pairs, ui.Pair{"Langue", launch.wineLang})
 	}
 	if launch.virtualDesktop != "" {
-		pairs = append(pairs, kv{"Bureau virtuel", launch.virtualDesktop})
+		pairs = append(pairs, ui.Pair{"Bureau virtuel", launch.virtualDesktop})
 	}
-	uiSection("Lancement")
-	uiKV(2, pairs...)
+	ui.Section("Lancement")
+	ui.KV(2, pairs...)
 }
 
 // desktopNameRe : caractères retirés du nom de bureau créé pour le jeu.
@@ -567,7 +569,7 @@ func startAttachCommand() {
 			case <-stop:
 				// Partie finie avant le processus du jeu (trap USR1 du script).
 				if pid == 0 {
-					warn("ATTACH : processus " + launch.attachProcess + " introuvable, commande non lancée")
+					ui.Warn("ATTACH : processus " + launch.attachProcess + " introuvable, commande non lancée")
 				}
 				return
 			default:
@@ -624,7 +626,7 @@ func runGame() {
 		runPreCommand()
 		startAttachCommand()
 	}
-	uiRule("sortie du jeu")
+	ui.Rule("sortie du jeu")
 	code := playGame()
 	if signalExiting.Load() {
 		select {} // sortie sur signal en cours : cleanup puis os.Exit
@@ -634,8 +636,8 @@ func runGame() {
 	if launch.action == "run" { // lancement normal seulement (pas --exec)
 		autoSyncAfterGame(launch.gameName)
 	}
-	uiRule("")
-	uiVerdict(code == 0, fmt.Sprintf("Jeu terminé (code : %d)", code))
+	ui.Rule("")
+	ui.Verdict(code == 0, fmt.Sprintf("Jeu terminé (code : %d)", code))
 	exitNow(code)
 }
 
@@ -678,7 +680,7 @@ func launchGame() {
 	preparePrefix()
 	if launch.action == "prepare" {
 		applySavedir(launch.savedirKey, launch.savefilesKey)
-		uiVerdict(true, "Prefix préparé : "+launch.gameName+" (jeu non lancé)")
+		ui.Verdict(true, "Prefix préparé : "+launch.gameName+" (jeu non lancé)")
 		exitNow(0)
 	}
 	configureControllers()
@@ -693,26 +695,26 @@ func printLauncherHeader() {
 	if v := gameVersion(launch.wsquashfsFile); v != "" {
 		sub += " · version " + v
 	}
-	uiTitle("WSquashFS Launcher", sub)
-	uiKVLine("Environnement", detectEnv())
-	uiKVLine("Fichier", launch.wsquashfsFile)
+	ui.Title("WSquashFS Launcher", sub)
+	ui.KVLine("Environnement", detectEnv())
+	ui.KVLine("Fichier", launch.wsquashfsFile)
 	if f := machineLayerFile(); isFile(f) {
-		uiKVLine("Réglages machine", f+" ("+overrideKeys(f)+")")
+		ui.KVLine("Réglages machine", f+" ("+overrideKeys(f)+")")
 	}
 	if f := filepath.Dir(strings.TrimSuffix(launch.wsquashfsFile, "/")) + "/_defaults.autorun"; isFile(f) {
-		uiKVLine("Réglages dossier", f+" ("+overrideKeys(f)+")")
+		ui.KVLine("Réglages dossier", f+" ("+overrideKeys(f)+")")
 	}
 	if launch.autorunOverride != "" {
-		uiKVLine("Surcharge", filepath.Base(launch.autorunOverride)+" ("+overrideKeys(launch.autorunOverride)+")")
+		ui.KVLine("Surcharge", filepath.Base(launch.autorunOverride)+" ("+overrideKeys(launch.autorunOverride)+")")
 	}
 	if len(launch.setArgs) > 0 {
-		uiKVLine("Options --set", strings.Join(launch.setArgs, " "))
+		ui.KVLine("Options --set", strings.Join(launch.setArgs, " "))
 	}
 	if launch.action != "run" {
 		name := ""
 		if len(launch.execCmd) > 0 {
 			name = " (" + launch.execCmd[0] + ")"
 		}
-		uiKVLine("Action", launch.action+name)
+		ui.KVLine("Action", launch.action+name)
 	}
 }

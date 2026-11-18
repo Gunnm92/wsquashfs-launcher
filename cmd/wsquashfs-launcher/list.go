@@ -6,6 +6,8 @@ import (
 	"os"
 	"slices"
 	"strings"
+
+	"wsquashfs-launcher/internal/ui"
 )
 
 // savedGames : jeux qui ont une couche de sauvegardes.
@@ -75,7 +77,7 @@ func gameState(name string) string {
 func cmdList() {
 	games := knownGames()
 	if len(games) == 0 {
-		uiStatusLine(stSkip, "Aucun jeu connu (aucun lancement enregistré dans "+conf.savesDir+")")
+		ui.StatusLine(ui.Skip, "Aucun jeu connu (aucun lancement enregistré dans "+conf.savesDir+")")
 		return
 	}
 	var rows [][]string
@@ -101,26 +103,26 @@ func cmdList() {
 		if isDirPath(conf.savesDir + "/" + g) {
 			size = duHuman(conf.savesDir + "/" + g)
 		}
-		rows = append(rows, []string{truncate(g, uiNameMax), gameState(g), version, size, image})
+		rows = append(rows, []string{ui.Truncate(g, ui.NameMax), gameState(g), version, size, image})
 	}
 	// Taille totale : sur la ligne « Sauvegardes » en fin de liste.
-	uiTitle("Jeux connus", plural(len(rows), "jeu", "jeux"))
+	ui.Title("Jeux connus", ui.Plural(len(rows), "jeu", "jeux"))
 	if len(rows) > 0 {
-		uiTable([]string{"Jeu", "État", "Version", "Sauvegardes", "Image"}, rows, []int{3}, uiStateCell(1, 4))
+		ui.Table([]string{"Jeu", "État", "Version", "Sauvegardes", "Image"}, rows, []int{3}, ui.StateCell(1, 4))
 	}
-	uiOut("")
-	uiKVLine("Sauvegardes", conf.savesDir+" ("+duHuman(conf.savesDir)+" au total)")
+	ui.Out("")
+	ui.KVLine("Sauvegardes", conf.savesDir+" ("+duHuman(conf.savesDir)+" au total)")
 	if len(orphanEmpty) > 0 {
-		uiNote(plural(len(orphanEmpty), "jeu", "jeux") + " sans image ni sauvegarde, non listé(s) : wsquashfs-launcher --clean les retire.")
+		ui.Note(ui.Plural(len(orphanEmpty), "jeu", "jeux") + " sans image ni sauvegarde, non listé(s) : wsquashfs-launcher --clean les retire.")
 	}
 	if len(orphanSaves) > 0 {
-		uiNote(plural(len(orphanSaves), "jeu", "jeux") + " sans image mais avec des sauvegardes, non listé(s) : réinstaller le jeu (ou --erase pour tout effacer) :")
+		ui.Note(ui.Plural(len(orphanSaves), "jeu", "jeux") + " sans image mais avec des sauvegardes, non listé(s) : réinstaller le jeu (ou --erase pour tout effacer) :")
 		for _, g := range orphanSaves {
 			line := "  " + g
 			if near := nearImages(g, recordedImage(g)); len(near) > 0 {
 				line += " (image proche : " + near[0] + ")"
 			}
-			uiNote(line)
+			ui.Note(line)
 		}
 	}
 }

@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"wsquashfs-launcher/internal/ui"
 )
 
 // ── Runners Wine (section 5) ───────────────────────────────────────────
@@ -89,7 +91,7 @@ func checkWineRunners() {
 	if !needTkg && !needGE {
 		return
 	}
-	uiNote("Les prefixes .wsquashfs Batocera sont conçus pour wine-tkg ou wine-ge ;",
+	ui.Note("Les prefixes .wsquashfs Batocera sont conçus pour wine-tkg ou wine-ge ;",
 		"le Wine système peut provoquer des incompatibilités de DLL.")
 	if needTkg {
 		setupTodo("wine-tkg manquant", "Kron4ek staging, ~100 Mo — runner par défaut")
@@ -97,7 +99,7 @@ func checkWineRunners() {
 	if needGE {
 		setupTodo("wine-ge manquant", "GloriousEggroll, ~234 Mo — alternative")
 	}
-	uiMenu([]string{"Installer ce qui manque", "wine-tkg seulement", "wine-ge seulement", "Ignorer"}, "2")
+	ui.Menu([]string{"Installer ce qui manque", "wine-tkg seulement", "wine-ge seulement", "Ignorer"}, "2")
 	switch askChoice("Choix", "[1-4] (défaut : 2)", "2") {
 	case "1":
 		if needTkg {
@@ -277,7 +279,7 @@ func checkProton() {
 	if umu != "" && proton != "" {
 		return
 	}
-	uiNote("Les .wsquashfs sans prefix (jeux PC emballés seuls) et les prefixes",
+	ui.Note("Les .wsquashfs sans prefix (jeux PC emballés seuls) et les prefixes",
 		"créés par Proton (Heroic, Steam) se lancent via umu et Proton.",
 		"Inutile pour les seuls jeux arcade Batocera (wine-tkg).")
 	if umu == "" {
@@ -363,7 +365,7 @@ func checkNvapi() {
 		setupHave("DXVK-NVAPI : " + nvapi)
 		return
 	}
-	uiNote("Carte NVIDIA détectée. NVAPI (DLSS) et la couche Reflex sont optionnelles :",
+	ui.Note("Carte NVIDIA détectée. NVAPI (DLSS) et la couche Reflex sont optionnelles :",
 		"le lanceur ne les active que sur demande (NVAPI=1, VKREFLEX=1).")
 	setupTodo("DXVK-NVAPI manquant")
 	if !askYesNo("Installer DXVK-NVAPI (~5 Mo) ?", false) {
@@ -414,7 +416,7 @@ func checkAMD() {
 		setupSkip("FSR4 : aucun proton-cachyos installé, rien à copier (FSR4 reste désactivé)")
 		return
 	}
-	uiNote("Carte AMD détectée. FSR4 n'est activé que sur demande (FSR4=1 dans autorun.cmd)",
+	ui.Note("Carte AMD détectée. FSR4 n'est activé que sur demande (FSR4=1 dans autorun.cmd)",
 		"et seulement sur une carte RDNA 4. DLL trouvée : "+src)
 	if !askYesNo("Copier amdxcffx64.dll dans "+fsr4Dir+" ?", false) {
 		setupSkip("Ignoré : FSR4 non copié")
@@ -455,7 +457,7 @@ func checkRendering() {
 	if dxvk != "" && vkd3d != "" && d7vk != "" {
 		return
 	}
-	uiNote("Direct3D 8-11 (DXVK), 12 (VKD3D-Proton) et DirectDraw (d7vk) traduits",
+	ui.Note("Direct3D 8-11 (DXVK), 12 (VKD3D-Proton) et DirectDraw (d7vk) traduits",
 		"en Vulkan pour les jeux lancés par Wine ; sans eux, rendu OpenGL de Wine.")
 	if !askYesNo("Installer ce qui manque (~25 Mo) ?", true) {
 		setupSkip("Ignoré : rendu via wined3d (OpenGL) pour les jeux arcade")

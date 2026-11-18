@@ -1,13 +1,11 @@
-package main
+package ui
 
-// Tests de la charte d'affichage (ui.go) et des sorties machine, qui ne doivent
-// jamais être colorées. Les fonctions ui* écrivent dans uiStdout / uiStderr,
-// remplacés ici par des bytes.Buffer (« hors terminal »).
+// Tests de la charte d'affichage (ui.go) : jamais de couleur hors terminal.
+// Out et Err écrivent dans stdout / stderr, remplacés ici par des
+// bytes.Buffer (« hors terminal »).
 
 import (
 	"bytes"
-	"encoding/json"
-	"io"
 	"os"
 	"strings"
 	"testing"
@@ -22,9 +20,9 @@ const esc = "\x1b"
 func capteUI(t *testing.T) (out, errs *bytes.Buffer) {
 	t.Helper()
 	out, errs = &bytes.Buffer{}, &bytes.Buffer{}
-	oldOut, oldErr := uiStdout, uiStderr
-	uiStdout, uiStderr = out, errs
-	t.Cleanup(func() { uiStdout, uiStderr = oldOut, oldErr })
+	oldOut, oldErr := stdout, stderr
+	stdout, stderr = out, errs
+	t.Cleanup(func() { stdout, stderr = oldOut, oldErr })
 	return out, errs
 }
 
@@ -54,7 +52,7 @@ func horsTerminal(t *testing.T) {
 // appelsUI : chaque composant de la charte, avec des arguments couvrant
 // tous les statuts, couleurs de cellule et formes (détails, vide, etc.).
 func appelsUI() map[string]func() {
-	jeux := newUIGames([]string{"Alpha", "Béta"})
+	jeux := NewGames([]string{"Alpha", "Béta"})
 	cellule := func(row, col int, v string) lipgloss.Style {
 		switch v {
 		case "ok":
@@ -69,38 +67,38 @@ func appelsUI() map[string]func() {
 		return cellPlain
 	}
 	return map[string]func(){
-		"uiTitle":           func() { uiTitle("Lanceur", "sous-titre") },
-		"uiTitle-nu":        func() { uiTitle("Lanceur") },
-		"uiStage":           func() { uiStage(1, 3, "Dossier") },
-		"uiSection":         func() { uiSection("Jeux") },
-		"uiKVLine":          func() { uiKVLine("Clé", "valeur") },
-		"uiKV":              func() { uiKV(0, kv{"Clé", "v"}, kv{"Réglages machine", "w"}) },
-		"uiStatusLine-ok":   func() { uiStatusLine(stOK, "fait") },
-		"uiStatusLine-fail": func() { uiStatusLine(stFail, "échec") },
-		"uiStatusLine-skip": func() { uiStatusLine(stSkip, "ignoré") },
-		"uiStatusLine-info": func() { uiStatusLine(stInfo, "en cours...") },
-		"uiItem-ok":         func() { uiItem(stOK, "présent", "détail") },
-		"uiItem-fail":       func() { uiItem(stFail, "absent", "d1", "d2") },
-		"uiItem-skip":       func() { uiItem(stSkip, "optionnel") },
-		"uiItem-info":       func() { uiItem(stInfo, "étape") },
-		"uiGames.line":      func() { jeux.line(stOK, "Alpha", "fait") },
-		"uiList":            func() { uiList("Jeux", []string{"Alpha", "Béta"}) },
-		"uiTable": func() {
-			uiTable([]string{"Jeu", "Taille"},
+		"Title":           func() { Title("Lanceur", "sous-titre") },
+		"Title-nu":        func() { Title("Lanceur") },
+		"Stage":           func() { Stage(1, 3, "Dossier") },
+		"Section":         func() { Section("Jeux") },
+		"KVLine":          func() { KVLine("Clé", "valeur") },
+		"KV":              func() { KV(0, Pair{"Clé", "v"}, Pair{"Réglages machine", "w"}) },
+		"StatusLine-ok":   func() { StatusLine(OK, "fait") },
+		"StatusLine-fail": func() { StatusLine(Fail, "échec") },
+		"StatusLine-skip": func() { StatusLine(Skip, "ignoré") },
+		"StatusLine-info": func() { StatusLine(Info, "en cours...") },
+		"Item-ok":         func() { Item(OK, "présent", "détail") },
+		"Item-fail":       func() { Item(Fail, "absent", "d1", "d2") },
+		"Item-skip":       func() { Item(Skip, "optionnel") },
+		"Item-info":       func() { Item(Info, "étape") },
+		"Games.line":      func() { jeux.Line(OK, "Alpha", "fait") },
+		"List":            func() { List("Jeux", []string{"Alpha", "Béta"}) },
+		"Table": func() {
+			Table([]string{"Jeu", "Taille"},
 				[][]string{{"Alpha", "ok"}, {"Béta", "attention"}, {"Gamma", "erreur"}, {"Delta", "rien"}},
 				[]int{1}, cellule)
 		},
-		"uiNote":         func() { uiNote("une explication", "une seconde") },
-		"uiCode":         func() { uiCode("wsquashfs-launcher --doctor") },
-		"uiRule":         func() { uiRule("étiquette") },
-		"uiRule-nu":      func() { uiRule("") },
-		"uiVerdict-vrai": func() { uiVerdict(true, "Prêt à lancer des jeux") },
-		"uiVerdict-faux": func() { uiVerdict(false, "Aucun jeu ne peut être lancé") },
-		"uiHelp":         func() { uiHelp(usageText) },
-		"warn":           func() { warn("Message", "  → détail") },
-		"uiError":        func() { uiError("Message", "  → détail") },
-		"uiPrompt":       func() { uiPrompt("Supprimer les sauvegardes ?", "[o/N]") },
-		"uiAuto":         func() { uiAuto("Continuer ?", "[o/N]", "n", "pas de terminal") },
+		"Note":         func() { Note("une explication", "une seconde") },
+		"Code":         func() { Code("wsquashfs-launcher --doctor") },
+		"Rule":         func() { Rule("étiquette") },
+		"Rule-nu":      func() { Rule("") },
+		"Verdict-vrai": func() { Verdict(true, "Prêt à lancer des jeux") },
+		"Verdict-faux": func() { Verdict(false, "Aucun jeu ne peut être lancé") },
+		"Help":         func() { Help(aideTest) },
+		"Warn":         func() { Warn("Message", "  → détail") },
+		"Error":        func() { Error("Message", "  → détail") },
+		"Prompt":       func() { Prompt("Supprimer les sauvegardes ?", "[o/N]") },
+		"Auto":         func() { Auto("Continuer ?", "[o/N]", "n", "pas de terminal") },
 	}
 }
 
@@ -143,13 +141,13 @@ func TestEnvRelueAChaqueAppel(t *testing.T) {
 	horsTerminal(t)
 	out, _ := capteUI(t)
 	t.Setenv("CLICOLOR_FORCE", "1")
-	uiOut(sBold.Render("forcé"))
+	Out(sBold.Render("forcé"))
 	if !strings.Contains(out.String(), esc) {
 		t.Fatalf("CLICOLOR_FORCE=1 : aucun code ESC")
 	}
 	out.Reset()
 	_ = os.Unsetenv("CLICOLOR_FORCE")
-	uiOut(sBold.Render("retiré"))
+	Out(sBold.Render("retiré"))
 	if strings.Contains(out.String(), esc) {
 		t.Errorf("CLICOLOR_FORCE retiré : code ESC encore présent : %q", out.String())
 	}
@@ -158,7 +156,7 @@ func TestEnvRelueAChaqueAppel(t *testing.T) {
 // TestNO_COLORPrioritaire : NO_COLOR=1 coupe les couleurs même avec
 // CLICOLOR_FORCE=1, hors terminal, comme la règle 1 de ui.go l'annonce.
 // colorprofile v0.4.3 (Detect/colorProfile) n'applique NO_COLOR que si la
-// sortie est un terminal : uiWrite retire lui-même les codes (correctif
+// sortie est un terminal : write retire lui-même les codes (correctif
 // détecté par ce test).
 func TestNO_COLORPrioritaire(t *testing.T) {
 	horsTerminal(t)
@@ -201,44 +199,44 @@ func verifie(t *testing.T, nom, attendu string, appel func()) {
 func TestTexteKVLine(t *testing.T) {
 	horsTerminal(t)
 	// « Clé » (3 colonnes) complétée à 16 colonnes, puis « : ».
-	verifie(t, "uiKVLine Clé", "Clé              : valeur\n", func() { uiKVLine("Clé", "valeur") })
+	verifie(t, "KVLine Clé", "Clé              : valeur\n", func() { KVLine("Clé", "valeur") })
 	// « Nom » (3 colonnes) : même alignement.
-	verifie(t, "uiKVLine Nom", "Nom              : 42\n", func() { uiKVLine("Nom", "42") })
+	verifie(t, "KVLine Nom", "Nom              : 42\n", func() { KVLine("Nom", "42") })
 }
 
 func TestTexteKV(t *testing.T) {
 	horsTerminal(t)
 	// Clés accentuées : la colonne se cale sur « Réglages machine » (16 colonnes).
-	verifie(t, "uiKV accentué", ""+
+	verifie(t, "KV accentué", ""+
 		"Réglages machine : oui\n"+
 		"Clé              : non\n",
-		func() { uiKV(0, kv{"Réglages machine", "oui"}, kv{"Clé", "non"}) })
+		func() { KV(0, Pair{"Réglages machine", "oui"}, Pair{"Clé", "non"}) })
 	// Retrait de 2 : préfixe appliqué à chaque ligne.
-	verifie(t, "uiKV retrait 2", ""+
+	verifie(t, "KV retrait 2", ""+
 		"  Réglages machine : oui\n"+
 		"  Clé              : non\n",
-		func() { uiKV(2, kv{"Réglages machine", "oui"}, kv{"Clé", "non"}) })
+		func() { KV(2, Pair{"Réglages machine", "oui"}, Pair{"Clé", "non"}) })
 }
 
 func TestTexteStatus(t *testing.T) {
 	horsTerminal(t)
-	verifie(t, "uiStatusLine", ""+
+	verifie(t, "StatusLine", ""+
 		"✓ fait\n"+
 		"✗ échec\n"+
 		"– ignoré\n"+
 		"→ en cours...\n",
 		func() {
-			uiStatusLine(stOK, "fait")
-			uiStatusLine(stFail, "échec")
-			uiStatusLine(stSkip, "ignoré")
-			uiStatusLine(stInfo, "en cours...")
+			StatusLine(OK, "fait")
+			StatusLine(Fail, "échec")
+			StatusLine(Skip, "ignoré")
+			StatusLine(Info, "en cours...")
 		})
 }
 
 func TestTexteItem(t *testing.T) {
 	horsTerminal(t)
 	// Retrait 2 pour l'élément, retrait 6 pour chaque détail.
-	verifie(t, "uiItem", ""+
+	verifie(t, "Item", ""+
 		"  ✓ présent\n"+
 		"      détail un\n"+
 		"      détail deux\n"+
@@ -246,108 +244,108 @@ func TestTexteItem(t *testing.T) {
 		"  – optionnel\n"+
 		"  → étape\n",
 		func() {
-			uiItem(stOK, "présent", "détail un", "détail deux")
-			uiItem(stFail, "absent")
-			uiItem(stSkip, "optionnel")
-			uiItem(stInfo, "étape")
+			Item(OK, "présent", "détail un", "détail deux")
+			Item(Fail, "absent")
+			Item(Skip, "optionnel")
+			Item(Info, "étape")
 		})
 }
 
 func TestTexteGames(t *testing.T) {
 	horsTerminal(t)
 	// Noms alignés sur le plus large (« Béta » et « Alpha » : 5 colonnes).
-	g := newUIGames([]string{"Alpha", "Béta"})
-	verifie(t, "uiGames.line", ""+
+	g := NewGames([]string{"Alpha", "Béta"})
+	verifie(t, "Games.line", ""+
 		"  ✓ Alpha  fait\n"+
 		"  ✗ Béta   échec\n",
 		func() {
-			g.line(stOK, "Alpha", "fait")
-			g.line(stFail, "Béta", "échec")
+			g.Line(OK, "Alpha", "fait")
+			g.Line(Fail, "Béta", "échec")
 		})
 	// Chaque ligne commence par exactement deux espaces puis le symbole.
 	out, _ := capteUI(t)
-	g.line(stSkip, "Béta", "ignoré")
+	g.Line(Skip, "Béta", "ignoré")
 	if !strings.HasPrefix(out.String(), "  – ") {
-		t.Errorf("uiGames.line : retrait 2 et symbole attendus, obtenu %q", out.String())
+		t.Errorf("Games.line : retrait 2 et symbole attendus, obtenu %q", out.String())
 	}
 	// Colonne du message identique pour des noms de largeurs différentes
 	// (position en caractères : les accents pèsent 2 octets).
 	out.Reset()
-	g.line(stOK, "Alpha", "M")
-	g.line(stOK, "Béta", "M")
+	g.Line(OK, "Alpha", "M")
+	g.Line(OK, "Béta", "M")
 	lignes := strings.Split(strings.TrimSuffix(out.String(), "\n"), "\n")
 	pos := func(l string) int { return utf8.RuneCountInString(l[:strings.Index(l, "M")]) }
 	if len(lignes) != 2 || pos(lignes[0]) != pos(lignes[1]) {
-		t.Errorf("uiGames.line : messages désalignés : %q", lignes)
+		t.Errorf("Games.line : messages désalignés : %q", lignes)
 	}
 }
 
 func TestTexteList(t *testing.T) {
 	horsTerminal(t)
-	verifie(t, "uiList", ""+
+	verifie(t, "List", ""+
 		"\n"+
 		"Jeux (2)\n"+
 		"  · Alpha\n"+
 		"  · Béta\n",
-		func() { uiList("Jeux", []string{"Alpha", "Béta"}) })
+		func() { List("Jeux", []string{"Alpha", "Béta"}) })
 }
 
 func TestListeVide(t *testing.T) {
 	horsTerminal(t)
-	verifie(t, "uiList vide", "", func() { uiList("Jeux", nil) })
-	verifie(t, "uiList vide (tranche vide)", "", func() { uiList("Jeux", []string{}) })
+	verifie(t, "List vide", "", func() { List("Jeux", nil) })
+	verifie(t, "List vide (tranche vide)", "", func() { List("Jeux", []string{}) })
 }
 
 func TestTexteVerdict(t *testing.T) {
 	horsTerminal(t)
-	verifie(t, "uiVerdict vrai", "\n✓ Prêt à lancer des jeux\n",
-		func() { uiVerdict(true, "Prêt à lancer des jeux") })
-	verifie(t, "uiVerdict faux", "\n✗ Aucun jeu ne peut être lancé\n",
-		func() { uiVerdict(false, "Aucun jeu ne peut être lancé") })
+	verifie(t, "Verdict vrai", "\n✓ Prêt à lancer des jeux\n",
+		func() { Verdict(true, "Prêt à lancer des jeux") })
+	verifie(t, "Verdict faux", "\n✗ Aucun jeu ne peut être lancé\n",
+		func() { Verdict(false, "Aucun jeu ne peut être lancé") })
 }
 
 func TestTexteTitre(t *testing.T) {
 	horsTerminal(t)
 	// Sous-titre (10 colonnes) : cadre intérieur de 12 colonnes (1 de marge de chaque côté).
-	verifie(t, "uiTitle", ""+
+	verifie(t, "Title", ""+
 		"╭────────────╮\n"+
 		"│ Lanceur    │\n"+
 		"│ Sous-titre │\n"+
 		"╰────────────╯\n",
-		func() { uiTitle("Lanceur", "Sous-titre") })
+		func() { Title("Lanceur", "Sous-titre") })
 	// Sans sous-titre : le cadre s'adapte au titre (7 colonnes + 2 de marge).
-	verifie(t, "uiTitle sans sous-titre", ""+
+	verifie(t, "Title sans sous-titre", ""+
 		"╭─────────╮\n"+
 		"│ Lanceur │\n"+
 		"╰─────────╯\n",
-		func() { uiTitle("Lanceur", "") })
+		func() { Title("Lanceur", "") })
 }
 
 func TestTexteStageSectionRule(t *testing.T) {
 	horsTerminal(t)
-	verifie(t, "uiStage", "\n▍2/5  Jeux\n", func() { uiStage(2, 5, "Jeux") })
-	verifie(t, "uiSection", "\n▍Montage\n", func() { uiSection("Montage") })
-	verifie(t, "uiRule", strings.Repeat("─", 41)+" étiquette\n", func() { uiRule("étiquette") })
-	verifie(t, "uiRule vide", strings.Repeat("─", 41)+"\n", func() { uiRule("") })
+	verifie(t, "Stage", "\n▍2/5  Jeux\n", func() { Stage(2, 5, "Jeux") })
+	verifie(t, "Section", "\n▍Montage\n", func() { Section("Montage") })
+	verifie(t, "Rule", strings.Repeat("─", 41)+" étiquette\n", func() { Rule("étiquette") })
+	verifie(t, "Rule vide", strings.Repeat("─", 41)+"\n", func() { Rule("") })
 }
 
 func TestTexteNoteCodeAuto(t *testing.T) {
 	horsTerminal(t)
-	verifie(t, "uiNote", "  une explication\n  une seconde\n",
-		func() { uiNote("une explication", "une seconde") })
-	verifie(t, "uiCode", "  wsquashfs-launcher --doctor\n",
-		func() { uiCode("wsquashfs-launcher --doctor") })
-	verifie(t, "uiAuto", "  ? Continuer ? [o/N] n (pas de terminal)\n",
-		func() { uiAuto("Continuer ?", "[o/N]", "n", "pas de terminal") })
+	verifie(t, "Note", "  une explication\n  une seconde\n",
+		func() { Note("une explication", "une seconde") })
+	verifie(t, "Code", "  wsquashfs-launcher --doctor\n",
+		func() { Code("wsquashfs-launcher --doctor") })
+	verifie(t, "Auto", "  ? Continuer ? [o/N] n (pas de terminal)\n",
+		func() { Auto("Continuer ?", "[o/N]", "n", "pas de terminal") })
 }
 
 func TestTexteErreurs(t *testing.T) {
 	horsTerminal(t)
 	out, errs := capteUI(t)
-	warn("Message", "  → détail")
-	uiError("Erreur lue", "  → cause")
+	Warn("Message", "  → détail")
+	Error("Erreur lue", "  → cause")
 	if out.Len() != 0 {
-		t.Errorf("warn/uiError écrivent sur stdout : %q", out.String())
+		t.Errorf("Warn/Error écrivent sur stdout : %q", out.String())
 	}
 	if want := "Attention : Message\n  → détail\nErreur : Erreur lue\n  → cause\n"; errs.String() != want {
 		t.Errorf("stderr :\n--- obtenu\n%s--- attendu\n%s", errs.String(), want)
@@ -357,15 +355,15 @@ func TestTexteErreurs(t *testing.T) {
 func TestTextePrompt(t *testing.T) {
 	horsTerminal(t)
 	// Pas de fin de ligne : la réponse est saisie à la suite.
-	verifie(t, "uiPrompt", "  ? Supprimer les sauvegardes ? [o/N] ",
-		func() { uiPrompt("Supprimer les sauvegardes ?", "[o/N]") })
+	verifie(t, "Prompt", "  ? Supprimer les sauvegardes ? [o/N] ",
+		func() { Prompt("Supprimer les sauvegardes ?", "[o/N]") })
 }
 
 // ── Tableau ────────────────────────────────────────────────────────────
 
 func TestTexteTable(t *testing.T) {
 	horsTerminal(t)
-	verifie(t, "uiTable", ""+
+	verifie(t, "Table", ""+
 		"╭───────┬────────╮\n"+
 		"│ Jeu   │ Taille │\n"+
 		"├───────┼────────┤\n"+
@@ -373,7 +371,7 @@ func TestTexteTable(t *testing.T) {
 		"│ Béta  │ 1,5 Go │\n"+
 		"╰───────┴────────╯\n",
 		func() {
-			uiTable([]string{"Jeu", "Taille"},
+			Table([]string{"Jeu", "Taille"},
 				[][]string{{"Alpha", "12 Mo"}, {"Béta", "1,5 Go"}},
 				[]int{1}, nil)
 		})
@@ -394,14 +392,14 @@ func verifieSansEspaceFin(t *testing.T, nom string, appel func()) {
 
 func TestSansEspaceFinDeLigne(t *testing.T) {
 	horsTerminal(t)
-	verifieSansEspaceFin(t, "uiTable", func() {
-		uiTable([]string{"Jeu", "Taille"},
+	verifieSansEspaceFin(t, "Table", func() {
+		Table([]string{"Jeu", "Taille"},
 			[][]string{{"Alpha", "12 Mo"}, {"Béta", "1,5 Go"}}, []int{1}, nil)
 	})
-	verifieSansEspaceFin(t, "uiTitle", func() { uiTitle("Lanceur", "Sous-titre") })
+	verifieSansEspaceFin(t, "Title", func() { Title("Lanceur", "Sous-titre") })
 	// Valeur vide : « Clé : » doit sortir sans espace final.
-	verifie(t, "uiKV valeur vide", "Clé :\n", func() { uiKV(0, kv{"Clé", ""}) })
-	verifieSansEspaceFin(t, "uiKV", func() { uiKV(0, kv{"Clé", ""}, kv{"Réglages machine", "x"}) })
+	verifie(t, "KV valeur vide", "Clé :\n", func() { KV(0, Pair{"Clé", ""}) })
+	verifieSansEspaceFin(t, "KV", func() { KV(0, Pair{"Clé", ""}, Pair{"Réglages machine", "x"}) })
 }
 
 // ── Utilitaires ────────────────────────────────────────────────────────
@@ -420,9 +418,9 @@ func TestTruncate(t *testing.T) {
 		{"abc", 1, "…"},
 	}
 	for _, c := range cas {
-		got := truncate(c.entree, c.max)
+		got := Truncate(c.entree, c.max)
 		if got != c.want {
-			t.Errorf("truncate(%q, %d) = %q, attendu %q", c.entree, c.max, got, c.want)
+			t.Errorf("Truncate(%q, %d) = %q, attendu %q", c.entree, c.max, got, c.want)
 		}
 	}
 }
@@ -432,12 +430,12 @@ func TestTruncate(t *testing.T) {
 func TestTruncateUTF8(t *testing.T) {
 	const s = "Élodie 🎮 Électrique – Ça"
 	for max := 1; max <= utf8.RuneCountInString(s)+2; max++ {
-		got := truncate(s, max)
+		got := Truncate(s, max)
 		if !utf8.ValidString(got) {
-			t.Errorf("truncate(%d) : UTF-8 invalide : %q", max, got)
+			t.Errorf("Truncate(%d) : UTF-8 invalide : %q", max, got)
 		}
 		if n := utf8.RuneCountInString(got); n > max {
-			t.Errorf("truncate(%d) : %d caractères, maximum dépassé", max, n)
+			t.Errorf("Truncate(%d) : %d caractères, maximum dépassé", max, n)
 		}
 	}
 }
@@ -459,20 +457,20 @@ func TestPadRightEtLargeur(t *testing.T) {
 }
 
 // TestCléLaPlusLongueTientDansLaColonne : « Réglages machine » (16 colonnes)
-// tient dans uiKeyWidth, comme le commentaire de ui.go l'affirme : sinon
-// uiKVLine ne calerait plus « : » sur la colonne des autres clés.
+// tient dans keyWidth, comme le commentaire de ui.go l'affirme : sinon
+// KVLine ne calerait plus « : » sur la colonne des autres clés.
 func TestCléLaPlusLongueTientDansLaColonne(t *testing.T) {
-	if n := textWidth("Réglages machine"); n > uiKeyWidth {
-		t.Errorf("« Réglages machine » fait %d colonnes, uiKeyWidth = %d", n, uiKeyWidth)
+	if n := textWidth("Réglages machine"); n > keyWidth {
+		t.Errorf("« Réglages machine » fait %d colonnes, keyWidth = %d", n, keyWidth)
 	}
 }
 
-// TestUiKVLineAligne : les clés courtes sont alignées sur uiKeyWidth.
+// TestUiKVLineAligne : les clés courtes sont alignées sur keyWidth.
 func TestUiKVLineAligne(t *testing.T) {
 	horsTerminal(t)
 	out, _ := capteUI(t)
-	uiKVLine("Clé", "a")
-	uiKVLine("Réglages", "b")
+	KVLine("Clé", "a")
+	KVLine("Réglages", "b")
 	lignes := strings.Split(strings.TrimSuffix(out.String(), "\n"), "\n")
 	if len(lignes) != 2 {
 		t.Fatalf("deux lignes attendues, obtenu %q", lignes)
@@ -499,8 +497,8 @@ func TestSizeText(t *testing.T) {
 		2 * 1024 * 1024 * 1024: "2,0 Go",
 	}
 	for n, want := range cas {
-		if got := sizeText(n); got != want {
-			t.Errorf("sizeText(%d) = %q, attendu %q", n, got, want)
+		if got := SizeText(n); got != want {
+			t.Errorf("SizeText(%d) = %q, attendu %q", n, got, want)
 		}
 	}
 }
@@ -516,122 +514,20 @@ func TestPlural(t *testing.T) {
 		{3, "3 jeux"},
 	}
 	for _, c := range cas {
-		if got := plural(c.n, "jeu", "jeux"); got != c.want {
-			t.Errorf("plural(%d) = %q, attendu %q", c.n, got, c.want)
+		if got := Plural(c.n, "jeu", "jeux"); got != c.want {
+			t.Errorf("Plural(%d) = %q, attendu %q", c.n, got, c.want)
 		}
 	}
 }
 
 // ── Aide ───────────────────────────────────────────────────────────────
 
-// TestHelpIdentique : hors terminal, uiHelp rend usage.txt octet pour octet.
+const aideTest = "Usage :\n  wsquashfs-launcher --help\n\nOptions :\n  --doctor  diagnostic\n"
+
+// TestHelpIdentique : hors terminal, Help rend le texte octet pour octet.
 func TestHelpIdentique(t *testing.T) {
 	horsTerminal(t)
-	verifie(t, "uiHelp", usageText, func() { uiHelp(usageText) })
-}
-
-// TestHelpSansEspaceFin : usage.txt ne doit contenir aucun espace de fin de
-// ligne (sinon uiOut les retire et la sortie diverge du fichier).
-func TestHelpSansEspaceFin(t *testing.T) {
-	for i, l := range strings.Split(usageText, "\n") {
-		if strings.HasSuffix(l, " ") {
-			t.Errorf("usage.txt ligne %d : espace en fin de ligne", i+1)
-		}
-	}
-}
-
-// ── Sorties machine : jamais colorées ──────────────────────────────────
-
-// captureStdout exécute fn et renvoie ce qu'il écrit sur os.Stdout.
-func captureStdout(t *testing.T, fn func()) string {
-	t.Helper()
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	old := os.Stdout
-	os.Stdout = w
-	done := make(chan []byte)
-	go func() {
-		b, _ := io.ReadAll(r)
-		done <- b
-	}()
-	fn()
-	os.Stdout = old
-	_ = w.Close()
-	b := <-done
-	_ = r.Close()
-	return string(b)
-}
-
-// TestDoctorJSONSansCouleur : --doctor json reste du JSON pur, sans ESC,
-// même avec CLICOLOR_FORCE=1.
-func TestDoctorJSONSansCouleur(t *testing.T) {
-	horsTerminal(t)
-	t.Setenv("CLICOLOR_FORCE", "1")
-	oldSec, oldRun := docSections, docRunners
-	t.Cleanup(func() { docSections, docRunners = oldSec, oldRun })
-	docSections, docRunners = nil, nil
-	docSection("Montage des images")
-	doctorOK("/dev/fuse accessible")
-	doctorFail("squashfuse absent : montage de l'image")
-	docSection("Wine / Proton")
-	doctorOK("Wine par défaut : Proton (/opt/wine/bin/wine)")
-	docRunner("GE-Proton9", "/opt/GE-Proton9")
-
-	for _, fatal := range []bool{true, false} {
-		got := captureStdout(t, func() { printDoctorJSON(fatal) })
-		if strings.Contains(got, esc) {
-			t.Errorf("fatal=%v : code ESC dans le JSON : %q", fatal, got)
-		}
-		if !json.Valid([]byte(got)) {
-			t.Errorf("fatal=%v : JSON invalide : %q", fatal, got)
-		}
-		var rapport doctorJSON
-		if err := json.Unmarshal([]byte(got), &rapport); err != nil {
-			t.Fatalf("fatal=%v : décodage : %v", fatal, err)
-		}
-		if fatal && (rapport.Code != 1 || !strings.HasPrefix(rapport.Verdict, "✗")) {
-			t.Errorf("fatal : code %d, verdict %q", rapport.Code, rapport.Verdict)
-		}
-		if !fatal && (rapport.Code != 0 || !strings.HasPrefix(rapport.Verdict, "✓")) {
-			t.Errorf("non fatal : code %d, verdict %q", rapport.Code, rapport.Verdict)
-		}
-	}
-}
-
-// TestTrialJSONSansCouleur : le rapport --trial reste du JSON pur. Une image
-// absente renvoie « noimage » sans rien lancer (« busy » si un lanceur tourne
-// déjà sur la machine : rapport tout aussi pur).
-func TestTrialJSONSansCouleur(t *testing.T) {
-	horsTerminal(t)
-	t.Setenv("CLICOLOR_FORCE", "1")
-	var code int
-	got := captureStdout(t, func() {
-		code = runTrial(t.TempDir()+"/absent.wsquashfs", 1, "", "")
-	})
-	if strings.Contains(got, esc) {
-		t.Errorf("code ESC dans le rapport --trial : %q", got)
-	}
-	if !json.Valid([]byte(got)) {
-		t.Fatalf("JSON invalide : %q", got)
-	}
-	var rapport trialReport
-	if err := json.Unmarshal([]byte(got), &rapport); err != nil {
-		t.Fatalf("décodage : %v", err)
-	}
-	switch rapport.Error {
-	case "noimage":
-		if code != 4 {
-			t.Errorf("noimage : code %d, attendu 4", code)
-		}
-	case "busy":
-		if code != 3 {
-			t.Errorf("busy : code %d, attendu 3", code)
-		}
-	default:
-		t.Errorf("erreur %q, attendu noimage (ou busy)", rapport.Error)
-	}
+	verifie(t, "Help", aideTest, func() { Help(aideTest) })
 }
 
 // TestFitColumns : un tableau plus large que le terminal est rogné, sans
@@ -672,13 +568,22 @@ func TestFitColumns(t *testing.T) {
 // TestQuestionsHomogenes : toujours « [o/n] » dans le même ordre, la réponse
 // par défaut écrite en toutes lettres.
 func TestQuestionsHomogenes(t *testing.T) {
-	if uiYesNo(true) != "[o/n] (défaut : oui)" || uiYesNo(false) != "[o/n] (défaut : non)" {
-		t.Errorf("indications : %q / %q", uiYesNo(true), uiYesNo(false))
+	if YesNo(true) != "[o/n] (défaut : oui)" || YesNo(false) != "[o/n] (défaut : non)" {
+		t.Errorf("indications : %q / %q", YesNo(true), YesNo(false))
 	}
 	out, _ := capteUI(t)
-	uiMenu([]string{"Tout", "Rien"}, "2")
+	Menu([]string{"Tout", "Rien"}, "2")
 	want := "  1  Tout\n  2  Rien  (défaut)\n"
 	if out.String() != want {
 		t.Errorf("menu :\n%q\nattendu :\n%q", out.String(), want)
+	}
+}
+
+func TestTextWidthAndPad(t *testing.T) {
+	if w := textWidth("Développé"); w != 9 {
+		t.Errorf("textWidth = %d, attendu 9", w)
+	}
+	if p := padRight("Développé", 12); p != "Développé   " {
+		t.Errorf("pad = %q", p)
 	}
 }

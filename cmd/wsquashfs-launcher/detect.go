@@ -15,6 +15,8 @@ import (
 	"strings"
 	"time"
 	"unicode"
+
+	"wsquashfs-launcher/internal/ui"
 )
 
 // detectMaxDepth : nombre de niveaux de dossiers fouillés sous le dossier du jeu.
@@ -273,7 +275,7 @@ func ensureFolderCmd() {
 			choisi = racine[0]
 		}
 		launch.detectLayer = detectLignes(choisi.rel)
-		uiKVLine("Exécutable", choisi.rel+" (trouvé dans le dossier)")
+		ui.KVLine("Exécutable", choisi.rel+" (trouvé dans le dossier)")
 		return
 	}
 
@@ -294,15 +296,15 @@ func ensureFolderCmd() {
 	case pathExists(memo):
 		// Mémo déjà là sans CMD : on ne l'écrase pas.
 		launch.detectLayer = detectLignes(choisi.rel)
-		warn("plusieurs exécutables possibles dans "+dossier+" ; "+memo+" existe sans CMD, "+choisi.rel+" lancé", conseils...)
+		ui.Warn("plusieurs exécutables possibles dans "+dossier+" ; "+memo+" existe sans CMD, "+choisi.rel+" lancé", conseils...)
 	default:
 		if err := ecrireMemo(memo, nom, choisi, autres); err != nil {
 			launch.detectLayer = detectLignes(choisi.rel)
-			warn("plusieurs exécutables possibles dans "+dossier+" ; mémo impossible à écrire ("+err.Error()+"), "+choisi.rel+" lancé", conseils[1:]...)
+			ui.Warn("plusieurs exécutables possibles dans "+dossier+" ; mémo impossible à écrire ("+err.Error()+"), "+choisi.rel+" lancé", conseils[1:]...)
 			return
 		}
 		launch.autorunOverride = memo
-		warn("plusieurs exécutables possibles dans "+dossier+" ; "+choisi.rel+" retenu, mémo "+memo+" écrit", conseils...)
+		ui.Warn("plusieurs exécutables possibles dans "+dossier+" ; "+choisi.rel+" retenu, mémo "+memo+" écrit", conseils...)
 	}
-	uiKVLine("Exécutable", choisi.rel+" (mémo du lanceur)")
+	ui.KVLine("Exécutable", choisi.rel+" (mémo du lanceur)")
 }

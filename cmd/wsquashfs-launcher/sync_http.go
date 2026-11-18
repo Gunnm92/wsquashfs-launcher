@@ -24,6 +24,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"wsquashfs-launcher/internal/ui"
 )
 
 // syncPeer : une machine distante, telle qu'elle est enregistrée dans sync.json.
@@ -407,7 +409,7 @@ func (c *syncClient) fetch(t syncTarget) (string, error) {
 		return "", fmt.Errorf("%s : transfert interrompu : %w", c.label(), err)
 	}
 	if n > syncMaxBody {
-		return "", fmt.Errorf("%s : archive trop volumineuse (plus de %s)", c.label(), sizeText(syncMaxBody))
+		return "", fmt.Errorf("%s : archive trop volumineuse (plus de %s)", c.label(), ui.SizeText(syncMaxBody))
 	}
 	if _, err := tmp.Seek(0, io.SeekStart); err != nil {
 		return "", err

@@ -13,6 +13,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"wsquashfs-launcher/internal/ui"
 )
 
 // ── 7. Manettes ────────────────────────────────────────────────────────
@@ -78,7 +80,7 @@ func startDualsenseBridge() bool {
 	}
 	bridge := findDualsenseBridge()
 	if bridge == "" {
-		warn("dualsense-usb-bridge introuvable, DualSense Bluetooth en direct")
+		ui.Warn("dualsense-usb-bridge introuvable, DualSense Bluetooth en direct")
 		return false
 	}
 	ready := fmt.Sprintf("%s/dualsense-usb-bridge.%d", envOr("TMPDIR", "/tmp"), os.Getpid())

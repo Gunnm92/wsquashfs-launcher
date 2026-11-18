@@ -66,15 +66,6 @@ func TestUnquote(t *testing.T) {
 	}
 }
 
-func TestTextWidthAndPad(t *testing.T) {
-	if w := textWidth("Développé"); w != 9 {
-		t.Errorf("textWidth = %d, attendu 9", w)
-	}
-	if p := padRight("Développé", 12); p != "Développé   " {
-		t.Errorf("pad = %q", p)
-	}
-}
-
 func TestEnvHas(t *testing.T) {
 	env := "HOME=/root\x00WINEPREFIX=/c/wsquashfs/wine/Foo 2\x00WSQUASHFS_ATTACH=1234\x00"
 	cases := []struct {

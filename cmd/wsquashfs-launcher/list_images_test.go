@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"wsquashfs-launcher/internal/ui"
 )
 
 // TestListFindsImagesNotRecorded : --list retrouve l'image d'un jeu dont rien n'est mémorisé
@@ -135,7 +137,7 @@ func TestEraseForgetsTheGame(t *testing.T) {
 	writeTree(t, filepath.Join(conf.savesDir, "After Dark", "drive_c", "users", "arcade"), map[string]string{".wh..wh..opq": ""})
 	writeTree(t, filepath.Join(conf.savesDir, ".images"), map[string]string{"After Dark": "/roms/unis/After Dark.wsquashfs\n"})
 	capteUI(t)
-	eraseSaves("After Dark", newUIGames([]string{"After Dark"}))
+	eraseSaves("After Dark", ui.NewGames([]string{"After Dark"}))
 	if pathExists(filepath.Join(conf.savesDir, "After Dark")) || pathExists(filepath.Join(conf.savesDir, ".images", "After Dark")) {
 		t.Error("overlay ou chemin mémorisé encore là")
 	}
