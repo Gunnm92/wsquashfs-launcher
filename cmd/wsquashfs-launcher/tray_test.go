@@ -238,7 +238,7 @@ func TestTrayAutostartSansLanceur(t *testing.T) {
 // TestTrayPidObsolete : un fichier de PID qui ne désigne pas une icône ne compte pas.
 func TestTrayPidObsolete(t *testing.T) {
 	trayRig(t)
-	if err := os.MkdirAll(agentDir(), 0o700); err != nil {
+	if err := os.MkdirAll(agentSrv().Dir(), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(trayPidFile(), []byte(fmt.Sprintf("%d\n", os.Getpid())), 0o600); err != nil {
@@ -270,21 +270,9 @@ func TestByLastLaunch(t *testing.T) {
 	}
 }
 
-// TestManagerUIURL : adresse de l'interface donnée par le manager à sa déclaration.
-func TestManagerUIURL(t *testing.T) {
-	for raw, ok := range map[string]bool{
-		"": true, "http://10.0.0.5:8765": true, "https://manager.lan/wsq/": true,
-		"ftp://x": false, "javascript:alert(1)": false, "http://": false, "http://u:p@h": false,
-	} {
-		if _, err := managerUIURL(raw); (err == nil) != ok {
-			t.Errorf("managerUIURL(%q) : erreur %v, valide attendu %v", raw, err, ok)
-		}
-	}
-}
-
 // TestPairCodeRe : le code est repéré dans la sortie de --pair, pas la note qui la suit ou la précède.
 func TestPairCodeRe(t *testing.T) {
-	code := pairCode("s3cr3t_-X", "192.168.1.20", 8790, strings.Repeat("AB", 32))
+	code := "wsq://s3cr3t_-X@192.168.1.20:8790#" + strings.Repeat("AB", 32)
 	out := "Colle ce code sur l'autre machine (wsquashfs-launcher --sync wsq://…)\n  " + code + "\n"
 	if got := pairCodeRe.FindString(out); got != code {
 		t.Fatalf("code repéré %q, voulu %q", got, code)
@@ -300,7 +288,7 @@ func TestTrayStop(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", "")
-	if err := os.MkdirAll(agentDir(), 0o700); err != nil {
+	if err := os.MkdirAll(agentSrv().Dir(), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(trayPidFile(), []byte("999999\n"), 0o600); err != nil {

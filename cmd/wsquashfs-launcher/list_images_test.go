@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"wsquashfs-launcher/internal/agent"
 	"wsquashfs-launcher/internal/ui"
 )
 
@@ -27,7 +28,7 @@ func TestListFindsImagesNotRecorded(t *testing.T) {
 		"unis/After Dark (demul).wsquashfs": "hsqs",
 		"type-x2/Chase H.Q. 2.squashfs":     "hsqs",
 	})
-	if err := saveAgentConfig(agentConfig{Port: 8790, Roms: []string{roms}}); err != nil {
+	if err := agentSrv().SaveConfig(agent.Config{Port: 8790, Roms: []string{roms}}); err != nil {
 		t.Fatal(err)
 	}
 	for _, g := range []string{"Dispatch", "Moved", "Chase H.Q. 2"} {

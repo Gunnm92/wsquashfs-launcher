@@ -52,11 +52,11 @@ func run(args []string) int {
 		return 0
 	case "setup":
 		return setup.Run(opts.cmdArgs, setup.Env{
-			AgentDir:         agentDir(),
+			AgentDir:         agentSrv().Dir(),
 			TrayAutostart:    trayAutostartPath(),
 			CoverPath:        imageCoverPath,
 			CompletionScript: completionScript,
-			RemoveAgentUnits: removeAgentUnits,
+			RemoveAgentUnits: agentSrv().RemoveUnits,
 		})
 	}
 	applyOptions(opts)

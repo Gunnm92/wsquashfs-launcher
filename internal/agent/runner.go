@@ -1,4 +1,4 @@
-package main
+package agent
 
 // Routes GET /v1/runner/list et GET /v1/runner/tar : lecture des runners installés.
 
@@ -13,7 +13,7 @@ import (
 )
 
 // runnerDir : dossier demandé, seulement s'il est un runner installé.
-func runnerDir(path string) (string, int, string) {
+func (s *service) runnerDir(path string) (string, int, string) {
 	if !strings.HasPrefix(path, "/") {
 		return "", http.StatusBadRequest, "chemin absolu requis"
 	}
@@ -21,7 +21,7 @@ func runnerDir(path string) (string, int, string) {
 	if err != nil {
 		return "", http.StatusNotFound, "dossier introuvable"
 	}
-	for _, base := range listWineRunners() {
+	for _, base := range s.env.ListRunners() {
 		realBase, err := filepath.EvalSymlinks(base)
 		if err != nil {
 			continue
@@ -36,8 +36,8 @@ func runnerDir(path string) (string, int, string) {
 	return "", http.StatusForbidden, "ce dossier n'est pas un runner installé sur cette machine"
 }
 
-func (s *agentServer) runnerList(w http.ResponseWriter, r *http.Request) {
-	real, code, msg := runnerDir(r.URL.Query().Get("path"))
+func (s *service) runnerList(w http.ResponseWriter, r *http.Request) {
+	real, code, msg := s.runnerDir(r.URL.Query().Get("path"))
 	if code != 0 {
 		writeDetail(w, code, msg)
 		return
@@ -59,8 +59,8 @@ func (s *agentServer) runnerList(w http.ResponseWriter, r *http.Request) {
 }
 
 // runnerTar : tar du dossier de runner (liens symboliques conservés), en flux.
-func (s *agentServer) runnerTar(w http.ResponseWriter, r *http.Request) {
-	real, code, msg := runnerDir(r.URL.Query().Get("path"))
+func (s *service) runnerTar(w http.ResponseWriter, r *http.Request) {
+	real, code, msg := s.runnerDir(r.URL.Query().Get("path"))
 	if code != 0 {
 		writeDetail(w, code, msg)
 		return

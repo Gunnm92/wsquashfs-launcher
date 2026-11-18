@@ -1,6 +1,6 @@
-package main
+package agent
 
-// Installation des images .wsquashfs par wsquashfs-manager (routes /v1/games/*, agent_http.go).
+// Installation des images .wsquashfs par wsquashfs-manager (routes /v1/games/*, http.go).
 // L'image est envoyée par morceaux reprenables : PUT avec offset = taille déjà reçue (fichier
 // « <nom>.part »), puis POST commit qui vérifie l'empreinte et renomme. Le dossier d'installation
 // est toujours sous HOME, liens symboliques résolus : l'agent n'écrit jamais ailleurs.
@@ -171,7 +171,7 @@ func detectGamesDir(home string, roms []string) string {
 }
 
 // gamesDetected : dossier détecté, mis en cache gamesDetectTTL (champ protégé par gamesMu).
-func (s *agentServer) gamesDetected(realHome string) string {
+func (s *service) gamesDetected(realHome string) string {
 	s.gamesMu.Lock()
 	defer s.gamesMu.Unlock()
 	if s.gamesDetectedDir == "" || time.Since(s.gamesDetectedAt) > gamesDetectTTL {
@@ -183,7 +183,7 @@ func (s *agentServer) gamesDetected(realHome string) string {
 
 // gamesDir : dossier d'installation effectif (absolu, sans liens, sous HOME). Le choix manuel
 // (games_dir) l'emporte s'il est valide, sinon la détection. set : choix manuel en vigueur.
-func (s *agentServer) gamesDir() (dir string, set bool, code int, msg string) {
+func (s *service) gamesDir() (dir string, set bool, code int, msg string) {
 	s.gamesMu.Lock()
 	manual := s.cfg.GamesDir
 	s.gamesMu.Unlock()
@@ -237,7 +237,7 @@ func regularSize(p string) (int64, bool) {
 }
 
 // takeUpload : réserve le nom pour un envoi (un seul envoi à la fois par nom).
-func (s *agentServer) takeUpload(name string) bool {
+func (s *service) takeUpload(name string) bool {
 	s.gamesMu.Lock()
 	defer s.gamesMu.Unlock()
 	if s.uploads == nil {
@@ -250,14 +250,14 @@ func (s *agentServer) takeUpload(name string) bool {
 	return true
 }
 
-func (s *agentServer) releaseUpload(name string) {
+func (s *service) releaseUpload(name string) {
 	s.gamesMu.Lock()
 	defer s.gamesMu.Unlock()
 	delete(s.uploads, name)
 }
 
 // gamesList : GET /v1/games/list. Dossier absent : listes vides, espace du premier parent existant.
-func (s *agentServer) gamesList(w http.ResponseWriter, r *http.Request) {
+func (s *service) gamesList(w http.ResponseWriter, r *http.Request) {
 	dir, set, code, msg := s.gamesDir()
 	if code != 0 {
 		writeDetail(w, code, msg)
@@ -300,7 +300,7 @@ type gamesDirRequest struct {
 }
 
 // gamesSetDir : POST /v1/games/dir {"dir": "<absolu>"} ou {"dir": ""} (retour à la détection).
-func (s *agentServer) gamesSetDir(w http.ResponseWriter, r *http.Request) {
+func (s *service) gamesSetDir(w http.ResponseWriter, r *http.Request) {
 	var req gamesDirRequest
 	if err := json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&req); err != nil {
 		writeDetail(w, http.StatusBadRequest, "requête illisible")
@@ -314,9 +314,9 @@ func (s *agentServer) gamesSetDir(w http.ResponseWriter, r *http.Request) {
 		}
 		manual = filepath.Clean(req.Dir)
 	}
-	cfg := loadAgentConfig()
+	cfg := loadConfig()
 	cfg.GamesDir = manual
-	if err := saveAgentConfig(cfg); err != nil {
+	if err := saveConfig(cfg); err != nil {
 		writeDetail(w, http.StatusInternalServerError, "configuration non enregistrée")
 		return
 	}
@@ -333,7 +333,7 @@ func (s *agentServer) gamesSetDir(w http.ResponseWriter, r *http.Request) {
 }
 
 // gamesPart : GET /v1/games/part?name=. Taille du .part (0 sans envoi), image installée ou non et sa taille.
-func (s *agentServer) gamesPart(w http.ResponseWriter, r *http.Request) {
+func (s *service) gamesPart(w http.ResponseWriter, r *http.Request) {
 	name, msg := checkGamesName(r.URL.Query().Get("name"))
 	if msg != "" {
 		writeDetail(w, http.StatusBadRequest, msg)
@@ -354,7 +354,7 @@ func (s *agentServer) gamesPart(w http.ResponseWriter, r *http.Request) {
 
 // gamesPut : PUT /v1/games/file?name=&offset= (en-tête X-Wsq-Total-Size) : ajoute le corps au .part.
 // Le décalage doit être la taille déjà reçue (409 sinon, avec part_size pour reprendre).
-func (s *agentServer) gamesPut(w http.ResponseWriter, r *http.Request) {
+func (s *service) gamesPut(w http.ResponseWriter, r *http.Request) {
 	name, msg := checkGamesName(r.URL.Query().Get("name"))
 	if msg != "" {
 		writeDetail(w, http.StatusBadRequest, msg)
@@ -457,7 +457,7 @@ func syncDirPath(dir string) {
 
 // gamesCommit : POST /v1/games/commit {name, size, sha256}. Vérifie la taille et l'empreinte du .part,
 // puis le range en image installée. Empreinte fausse : le .part est supprimé (422).
-func (s *agentServer) gamesCommit(w http.ResponseWriter, r *http.Request) {
+func (s *service) gamesCommit(w http.ResponseWriter, r *http.Request) {
 	var req gamesCommitRequest
 	if err := json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&req); err != nil {
 		writeDetail(w, http.StatusBadRequest, "requête illisible")
@@ -526,7 +526,7 @@ func (s *agentServer) gamesCommit(w http.ResponseWriter, r *http.Request) {
 
 // gamesDelete : DELETE /v1/games/file?name= : supprime l'image installée et son .part. Jeu monté,
 // lancé ou verrouillé : 409.
-func (s *agentServer) gamesDelete(w http.ResponseWriter, r *http.Request) {
+func (s *service) gamesDelete(w http.ResponseWriter, r *http.Request) {
 	name, msg := checkGamesName(r.URL.Query().Get("name"))
 	if msg != "" {
 		writeDetail(w, http.StatusBadRequest, msg)
@@ -542,7 +542,7 @@ func (s *agentServer) gamesDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer s.releaseUpload(name)
-	lock, ok := lockIdleGame(strings.TrimSuffix(name, gamesExt))
+	lock, ok := s.env.LockIdleGame(strings.TrimSuffix(name, gamesExt))
 	if !ok {
 		writeDetail(w, http.StatusConflict, "jeu monté ou en cours")
 		return

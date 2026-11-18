@@ -1,4 +1,4 @@
-package main
+package agent
 
 // Routes POST /v1/trial et POST /v1/maintenance : actions du lanceur lancées en sous-processus.
 
@@ -26,7 +26,7 @@ type trialRequest struct {
 }
 
 // trialRoute : essai chronométré d'une image des dossiers roms/.
-func (s *agentServer) trialRoute(w http.ResponseWriter, r *http.Request) {
+func (s *service) trialRoute(w http.ResponseWriter, r *http.Request) {
 	var req trialRequest
 	if err := json.NewDecoder(io.LimitReader(r.Body, 65536)).Decode(&req); err != nil {
 		writeDetail(w, http.StatusBadRequest, "requête illisible")
@@ -61,7 +61,7 @@ func (s *agentServer) trialRoute(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), time.Duration(req.Duration+180)*time.Second)
 	defer cancel()
 	args := []string{"--trial", image, fmt.Sprint(req.Duration), "session", s.cfg.Session, "screenshot", shot.Name()}
-	cmd := exec.CommandContext(ctx, launcherExe(), args...)
+	cmd := exec.CommandContext(ctx, s.env.Exe(), args...)
 	// Interruption (délai, client parti) : SIGTERM, pour que --trial arrête
 	// le jeu et démonte ; SIGKILL seulement s'il ne s'est pas arrêté à temps.
 	cmd.Cancel = func() error { return cmd.Process.Signal(syscall.SIGTERM) }
@@ -133,7 +133,7 @@ type maintenanceRequest struct {
 }
 
 // maintenance : une action de maintenance du lanceur, selon la table maintenanceActions.
-func (s *agentServer) maintenance(w http.ResponseWriter, r *http.Request) {
+func (s *service) maintenance(w http.ResponseWriter, r *http.Request) {
 	var req maintenanceRequest
 	if err := json.NewDecoder(io.LimitReader(r.Body, 65536)).Decode(&req); err != nil {
 		writeDetail(w, http.StatusBadRequest, "requête illisible")
@@ -164,7 +164,7 @@ func (s *agentServer) maintenance(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	// Couleurs forcées : wsquashfs-manager affiche la sortie en couleurs
 	// (codes ANSI convertis en HTML). NO_COLOR, s'il est posé, l'emporte.
-	cmd := exec.CommandContext(ctx, launcherExe(), args...)
+	cmd := exec.CommandContext(ctx, s.env.Exe(), args...)
 	cmd.Env = append(os.Environ(), "CLICOLOR_FORCE=1")
 	// Interruption (délai, client parti) : SIGTERM, pour que le lanceur fasse son nettoyage (image
 	// démontée…) ; SIGKILL seulement s'il ne s'est pas arrêté à temps.

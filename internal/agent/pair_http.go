@@ -1,4 +1,4 @@
-package main
+package agent
 
 // Route POST /v1/pair : association d'une machine cliente à l'agent (code à usage unique).
 
@@ -29,7 +29,7 @@ type pairRequest struct {
 // pairRoute : POST /v1/pair, hors du contrôle de jeton. Le secret du code (Authorization « Bearer »)
 // est consommé à l'usage : pair.json est retiré avant qu'un jeton durable ne soit délivré. Un
 // mauvais secret ne consomme pas le code.
-func (s *agentServer) pairRoute(w http.ResponseWriter, r *http.Request) {
+func (s *service) pairRoute(w http.ResponseWriter, r *http.Request) {
 	machine := r.Header.Get("X-Wsq-Machine")
 	if !savesync.ValidID(machine) {
 		writeDetail(w, http.StatusBadRequest, "identifiant de machine absent ou invalide")
@@ -84,22 +84,22 @@ func (s *agentServer) pairRoute(w http.ResponseWriter, r *http.Request) {
 		name = addr
 	}
 	now := time.Now()
-	cfg := loadAgentConfig()
+	cfg := loadConfig()
 	previous := cfg.Machines
-	cfg.Machines = upsertMachine(previous, agentMachine{
+	cfg.Machines = upsertMachine(previous, Machine{
 		ID:          machine,
 		Name:        name,
 		TokenSHA256: hex.EncodeToString(tokSum[:]),
 		Paired:      now,
 	})
-	if err := saveAgentConfig(cfg); err != nil {
+	if err := saveConfig(cfg); err != nil {
 		writeDetail(w, http.StatusInternalServerError, "association non enregistrée : "+err.Error())
 		return
 	}
 	if err := writeJSONAtomic600(lastPairPath(), lastPair{At: now, Addr: addr, ID: machine, Name: name}); err != nil {
 		// Sans cette trace, --pair ne verrait pas l'association : elle est annulée.
 		cfg.Machines = previous
-		_ = saveAgentConfig(cfg)
+		_ = saveConfig(cfg)
 		writeDetail(w, http.StatusInternalServerError, "association non enregistrée : "+err.Error())
 		return
 	}
@@ -118,8 +118,8 @@ func clientAddr(r *http.Request) string {
 
 // upsertMachine : remplace l'entrée de même identifiant (sa place est gardée), ou ajoute la machine.
 // Retourne une nouvelle liste : celle reçue n'est pas modifiée.
-func upsertMachine(machines []agentMachine, m agentMachine) []agentMachine {
-	out := make([]agentMachine, 0, len(machines)+1)
+func upsertMachine(machines []Machine, m Machine) []Machine {
+	out := make([]Machine, 0, len(machines)+1)
 	replaced := false
 	for _, old := range machines {
 		if old.ID == m.ID {

@@ -1,5 +1,5 @@
-package main
-
+// Package agent : l'agent HTTPS de wsquashfs-manager (--agent, --pair).
+//
 // Agent pour wsquashfs-manager : serveur HTTPS (jeton, certificat épinglé)
 // qui expose les opérations du lanceur sur la machine de jeu. Pas
 // d'exécution de commande fournie par le client : chaque route correspond à
@@ -9,19 +9,23 @@ package main
 // en attente ; last-pair.json ; cert.pem, key.pem).
 //
 // Commandes :
-//   --agent            lance l'agent en arrière-plan et rend la main (le
-//                      configure d'abord, comme --pair, si besoin)
-//   --agent run [log]  premier plan : systemd (ExecStart) et débogage
-//   --agent stop       arrête l'agent lancé (fichier de PID)
-//   --agent status     en marche ou non, pid, port, journal
-//   --pair             affiche le code wsq://… (à usage unique, délai court),
-//                      attend l'association (POST /v1/pair) et se ferme ; sans
-//                      agent en marche, sert un agent temporaire le temps de l'attente
-//   --pair forget <m>  retire une machine associée (nom ou identifiant)
-//   --pair reset       retire toutes les machines associées, puis --pair
 //
-// La commande --pair est dans pair_cmd.go ; le lancement, l'arrêt et l'état de l'agent,
-// ainsi que le service, sont dans agent_run.go.
+//	--agent            lance l'agent en arrière-plan et rend la main (le
+//	                   configure d'abord, comme --pair, si besoin)
+//	--agent run [log]  premier plan : systemd (ExecStart) et débogage
+//	--agent stop       arrête l'agent lancé (fichier de PID)
+//	--agent status     en marche ou non, pid, port, journal
+//	--pair             affiche le code wsq://… (à usage unique, délai court),
+//	                   attend l'association (POST /v1/pair) et se ferme ; sans
+//	                   agent en marche, sert un agent temporaire le temps de l'attente
+//	--pair forget <m>  retire une machine associée (nom ou identifiant)
+//	--pair reset       retire toutes les machines associées, puis --pair
+//
+// La commande --pair est dans pair.go ; le lancement, l'arrêt et l'état de l'agent,
+// ainsi que le service, sont dans run.go. Le paquet n'arrête jamais le processus : les commandes
+// (Run, Pair) renvoient le code de sortie. Ce qu'il tient du lanceur (binaire, synchro des
+// sauvegardes, runners, signaux) lui est passé par Env.
+package agent
 
 import (
 	"crypto/ecdsa"
@@ -38,13 +42,14 @@ import (
 	"fmt"
 	"math/big"
 	"net"
+	"net/http"
 	"os"
 	"os/user"
 	"path/filepath"
 	"strings"
-	"sync/atomic"
 	"time"
 
+	"wsquashfs-launcher/internal/savesync"
 	"wsquashfs-launcher/internal/ui"
 )
 
@@ -53,18 +58,74 @@ const (
 	agentDefaultPort = 8790
 )
 
-// agentConfig : agent.json. Pas de jeton ici : une entrée par machine associée, avec seulement le
-// SHA-256 de son jeton durable.
-type agentConfig struct {
-	Port     int            `json:"port"`
-	Machines []agentMachine `json:"machines"`
-	Roms     []string       `json:"roms"`
-	Session  string         `json:"session_process"`
-	GamesDir string         `json:"games_dir,omitempty"` // dossier d'installation choisi (vide : détection, games_http.go)
+// Env : ce que l'agent reçoit du lanceur. Les champs fonction sont appelés à chaque usage : ils
+// suivent l'état du lanceur du moment.
+type Env struct {
+	Exe          func() string                      // chemin du lanceur, relancé pour les actions (trial, maintenance, doctor) et pour --agent run log
+	Syncer       func() *savesync.Syncer            // synchro des sauvegardes (routes /v1/saves/*)
+	ListRunners  func() []string                    // runners Wine installés (routes /v1/runner/*)
+	LockIdleGame func(name string) (*os.File, bool) // verrou d'un jeu arrêté (faux : il tourne), pour supprimer son image (DELETE /v1/games/file)
+	SetInterrupt func(hook func())                  // crochet appelé à la place de la sortie quand un signal arrive (nil : le retire), pendant que --pair attend ou que l'agent sert
+	StopGrace    time.Duration                      // délai laissé aux requêtes en cours à l'arrêt (signal) ; 0 : 3 s
+	MaxBody      func() int64                       // taille maximale d'une archive de sauvegardes reçue, relue à chaque envoi ; absent ou 0 : savesync.DefaultMaxBody
 }
 
-// agentMachine : une machine associée (entrée de agent.json).
-type agentMachine struct {
+// Server : l'agent de cette machine, avec son environnement : commandes --agent et --pair,
+// configuration, état du processus et routes HTTPS (Handler).
+type Server struct {
+	env Env
+}
+
+// New : agent pour cet environnement.
+func New(env Env) *Server {
+	return &Server{env: env}
+}
+
+// HTTPServer : serveur HTTP de l'agent pour cette configuration (routes, authentification, délais),
+// sans écoute ni TLS : ses tests l'appellent en mémoire.
+func (s *Server) HTTPServer(cfg Config, logOn bool) *http.Server {
+	return s.newService(cfg, logOn).httpServer()
+}
+
+// LoadConfig : agent.json (valeurs par défaut pour ce qui manque).
+func (s *Server) LoadConfig() Config { return loadConfig() }
+
+// SaveConfig : écrit agent.json.
+func (s *Server) SaveConfig(cfg Config) error { return saveConfig(cfg) }
+
+// Init : configuration et certificat de l'agent (créés une fois).
+func (s *Server) Init(roms []string, port int) (Config, error) { return agentInit(roms, port) }
+
+// Dir : dossier de configuration de l'agent.
+func (s *Server) Dir() string { return agentDir() }
+
+// LogPath : journal de l'agent lancé en arrière-plan (--agent).
+func (s *Server) LogPath() string { return agentLogPath() }
+
+// DefaultRoms : premier dossier roms/ usuel qui existe.
+func (s *Server) DefaultRoms() string { return agentDefaultRoms() }
+
+// CertFingerprint : SHA-256 du certificat de l'agent, en hexadécimal majuscule.
+func (s *Server) CertFingerprint() (string, error) { return certFingerprint() }
+
+// Running : PID de l'agent en marche, s'il l'est.
+func (s *Server) Running() (int, bool) { return runningAgentPid() }
+
+// RemoveUnits : retire le démarrage automatique par systemd des anciennes versions. Vrai si retiré.
+func (s *Server) RemoveUnits() bool { return removeAgentUnits() }
+
+// Config : agent.json. Pas de jeton ici : une entrée par machine associée, avec seulement le
+// SHA-256 de son jeton durable.
+type Config struct {
+	Port     int       `json:"port"`
+	Machines []Machine `json:"machines"`
+	Roms     []string  `json:"roms"`
+	Session  string    `json:"session_process"`
+	GamesDir string    `json:"games_dir,omitempty"` // dossier d'installation choisi (vide : détection, games.go)
+}
+
+// Machine : une machine associée (entrée de agent.json).
+type Machine struct {
 	ID          string    `json:"id"`
 	Name        string    `json:"name"`
 	TokenSHA256 string    `json:"token_sha256"`
@@ -82,14 +143,35 @@ func agentDefaultRoms() string {
 	return filepath.Join(home, "roms")
 }
 
+// configHome : dossier de configuration de l'utilisateur ($XDG_CONFIG_HOME, sinon ~/.config).
+func configHome() string {
+	base := os.Getenv("XDG_CONFIG_HOME")
+	if base == "" {
+		base = filepath.Join(os.Getenv("HOME"), ".config")
+	}
+	return base
+}
+
+// isFile : fichier ordinaire (test -f).
+func isFile(p string) bool {
+	st, err := os.Stat(p)
+	return err == nil && st.Mode().IsRegular()
+}
+
+// isDirPath : le chemin est un dossier (liens suivis).
+func isDirPath(p string) bool {
+	st, err := os.Stat(p)
+	return err == nil && st.IsDir()
+}
+
 // agentDir : dossier de configuration de l'agent.
 func agentDir() string {
 	base := configHome()
 	return filepath.Join(base, "wsquashfs", "agent")
 }
 
-func loadAgentConfig() agentConfig {
-	var cfg agentConfig
+func loadConfig() Config {
+	var cfg Config
 	if data, err := os.ReadFile(filepath.Join(agentDir(), "agent.json")); err == nil {
 		_ = json.Unmarshal(data, &cfg)
 	}
@@ -102,13 +184,13 @@ func loadAgentConfig() agentConfig {
 	return cfg
 }
 
-// saveAgentConfig : écriture atomique, droits 600.
-func saveAgentConfig(cfg agentConfig) error {
+// saveConfig : écriture atomique, droits 600.
+func saveConfig(cfg Config) error {
 	if err := os.MkdirAll(agentDir(), 0o700); err != nil {
 		return err
 	}
 	if cfg.Machines == nil {
-		cfg.Machines = []agentMachine{}
+		cfg.Machines = []Machine{}
 	}
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
@@ -209,8 +291,8 @@ func certFingerprint() (string, error) {
 
 // agentInit : configuration et certificat (créés une fois ; roms et port de --pair remplacent les
 // valeurs existantes). Les machines associées sont conservées.
-func agentInit(roms []string, port int) (agentConfig, error) {
-	cfg := loadAgentConfig()
+func agentInit(roms []string, port int) (Config, error) {
+	cfg := loadConfig()
 	if port != 0 {
 		cfg.Port = port
 	}
@@ -225,16 +307,11 @@ func agentInit(roms []string, port int) (agentConfig, error) {
 	if len(cfg.Roms) == 0 {
 		cfg.Roms = []string{agentDefaultRoms()}
 	}
-	if err := saveAgentConfig(cfg); err != nil {
+	if err := saveConfig(cfg); err != nil {
 		return cfg, err
 	}
 	return cfg, ensureAgentCert()
 }
-
-// interruptHook : appelé à la place de la sortie quand un signal arrive
-// (installSignals), tant que --pair attend l'association ou que l'agent sert
-// (serveAgent : arrêt propre).
-var interruptHook atomic.Pointer[func()]
 
 // durationText : durée lisible pour un message (« 10 min », « 300ms »).
 func durationText(d time.Duration) string {
@@ -288,27 +365,27 @@ func parseAgentArgs(args []string) (agentCmd, error) {
 	switch args[0] {
 	case "stop", "status":
 		if len(args) > 1 {
-			return agentCmd{}, &argError{msg: "--agent " + args[0] + " ne prend pas d'argument"}
+			return agentCmd{}, errors.New("--agent " + args[0] + " ne prend pas d'argument")
 		}
 		return agentCmd{mode: args[0]}, nil
 	case "run":
 		c := agentCmd{mode: "run"}
 		for _, a := range args[1:] {
 			if a != "log" {
-				return agentCmd{}, &argError{msg: "option inconnue pour --agent run : " + a + " (--agent run [log])"}
+				return agentCmd{}, errors.New("option inconnue pour --agent run : " + a + " (--agent run [log])")
 			}
 			c.logOn = true
 		}
 		return c, nil
 	case "log":
-		return agentCmd{}, &argError{msg: "« --agent log » seul n'existe plus : utiliser « --agent run log » (premier plan, avec trace)"}
+		return agentCmd{}, errors.New("« --agent log » seul n'existe plus : utiliser « --agent run log » (premier plan, avec trace)")
 	}
-	return agentCmd{}, &argError{msg: "option inconnue pour --agent : " + args[0] + " (--agent [run [log] | stop | status])"}
+	return agentCmd{}, errors.New("option inconnue pour --agent : " + args[0] + " (--agent [run [log] | stop | status])")
 }
 
-// cmdAgentMain : --agent [run [log] | stop | status]. Sans argument, l'agent
-// se lance en arrière-plan et la commande rend la main.
-func cmdAgentMain(args []string) int {
+// Run : --agent [run [log] | stop | status]. Sans argument, l'agent
+// se lance en arrière-plan et la commande rend la main. Retourne le code de sortie.
+func (s *Server) Run(args []string) int {
 	c, err := parseAgentArgs(args)
 	if err != nil {
 		ui.Error(err.Error())
@@ -320,7 +397,7 @@ func cmdAgentMain(args []string) int {
 	case "status":
 		return cmdAgentStatus()
 	case "run":
-		return serveAgent(c.logOn)
+		return s.serve(c.logOn)
 	}
-	return cmdAgentStart()
+	return s.start()
 }

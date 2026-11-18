@@ -54,7 +54,7 @@ var pairCodeRe = regexp.MustCompile(`wsq://[A-Za-z0-9_-]+@[^\s@#]+:[0-9]+#[0-9A-
 
 // trayPidFile : PID de l'icône en marche, dans le dossier de l'agent.
 func trayPidFile() string {
-	return filepath.Join(agentDir(), "tray.pid")
+	return filepath.Join(agentSrv().Dir(), "tray.pid")
 }
 
 // trayRunning : PID inscrit dans trayPidFile, s'il est bien une icône.
@@ -284,7 +284,7 @@ func (a *trayApp) refresh() {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
-	_, running := runningAgentPid()
+	_, running := agentSrv().Running()
 	v := trayState(savesync.LoadConfig(), running, agentNames(), byLastLaunch(knownGames(), lastLaunch))
 	if running {
 		a.status.SetTitle("Agent : actif")
@@ -396,7 +396,7 @@ func (a *trayApp) gameAt(i int) string {
 }
 
 func (a *trayApp) toggleAgent() {
-	if _, running := runningAgentPid(); running {
+	if _, running := agentSrv().Running(); running {
 		a.runAction("Agent : arrêt", "--agent", "stop")
 	} else {
 		a.runAction("Agent : démarrage", "--agent")
@@ -617,7 +617,7 @@ func cmdTray(args []string) int {
 
 // trayLogPath : journal de l'icône lancée en arrière-plan (à côté de celui de l'agent).
 func trayLogPath() string {
-	return filepath.Join(filepath.Dir(agentLogPath()), "tray.log")
+	return filepath.Join(filepath.Dir(agentSrv().LogPath()), "tray.log")
 }
 
 // trayStartWait : délai laissé à l'icône lancée pour s'inscrire (tray.pid). Variable pour les tests.
@@ -726,7 +726,7 @@ func trayRun() int {
 		ui.Error(err.Error())
 		return 1
 	}
-	if err := os.MkdirAll(agentDir(), 0o700); err != nil {
+	if err := os.MkdirAll(agentSrv().Dir(), 0o700); err != nil {
 		ui.Error("icône impossible : " + err.Error())
 		return 1
 	}

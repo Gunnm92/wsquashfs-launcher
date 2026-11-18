@@ -1,4 +1,4 @@
-package main
+package agent
 
 // Commande --pair : code d'association (wsq://…), attente de l'association,
 // machines associées (--pair forget, --pair reset) et agent temporaire le temps de l'attente.
@@ -27,12 +27,13 @@ func pairCode(secret, host string, port int, fp string) string {
 	return fmt.Sprintf("wsq://%s@%s:%d#%s", secret, host, port, fp)
 }
 
-// cmdPair : --pair [reset] [roms DIR]... [port N], ou --pair forget <machine>. Initialise si besoin,
+// Pair : --pair [reset] [roms DIR]... [port N], ou --pair forget <machine>. Initialise si besoin,
 // affiche le code d'association à usage unique, puis attend l'association (pairRun).
-func cmdPair(args []string) int {
+func (s *Server) Pair(args []string) int {
 	if len(args) > 0 && args[0] == "forget" {
 		if len(args) != 2 {
-			usageError("wsquashfs-launcher --pair forget <machine>")
+			ui.Usage("wsquashfs-launcher --pair forget <machine>")
+			return 1
 		}
 		return cmdPairForget(args[1])
 	}
@@ -46,25 +47,29 @@ func cmdPair(args []string) int {
 		case "roms":
 			dir := argAt(args, i+1)
 			if dir == "" {
-				die("--pair roms attend un dossier")
+				ui.Error("--pair roms attend un dossier")
+				return 1
 			}
 			roms = append(roms, dir)
 			i++
 		case "port":
 			n, err := strconv.Atoi(argAt(args, i+1))
 			if err != nil || n < 1 || n > 65535 {
-				die("--pair port attend un numéro de port (1 à 65535)")
+				ui.Error("--pair port attend un numéro de port (1 à 65535)")
+				return 1
 			}
 			port = n
 			i++
 		default:
-			die("option inconnue pour --pair : " + args[i] + " (reset, roms DIR, port N, forget <machine>)")
+			ui.Error("option inconnue pour --pair : " + args[i] + " (reset, roms DIR, port N, forget <machine>)")
+			return 1
 		}
 	}
 	if reset {
 		names, err := pairRevokeAll()
 		if err != nil {
-			die("configuration impossible : " + err.Error())
+			ui.Error("configuration impossible : " + err.Error())
+			return 1
 		}
 		if len(names) == 0 {
 			ui.StatusLine(ui.Skip, "Reset : aucune machine associée à retirer")
@@ -74,15 +79,18 @@ func cmdPair(args []string) int {
 	}
 	cfg, err := agentInit(roms, port)
 	if err != nil {
-		die("agent non initialisé : " + err.Error())
+		ui.Error("agent non initialisé : " + err.Error())
+		return 1
 	}
 	secret, err := pairSecretNew()
 	if err != nil {
-		die("code d'association impossible : " + err.Error())
+		ui.Error("code d'association impossible : " + err.Error())
+		return 1
 	}
 	code, err := currentPairCode(cfg, secret)
 	if err != nil {
-		die("certificat illisible : " + err.Error())
+		ui.Error("certificat illisible : " + err.Error())
+		return 1
 	}
 	// Agent : celui qui tourne déjà (systemd, --agent), sinon un agent temporaire servi par ce
 	// processus, arrêté après l'association. Le port est pris avant que le code ne soit écrit.
@@ -91,12 +99,17 @@ func cmdPair(args []string) int {
 	if !agentListening(cfg.Port) {
 		ln, err = net.Listen("tcp", fmt.Sprintf(":%d", cfg.Port))
 		if err != nil {
-			die(fmt.Sprintf("agent temporaire impossible sur le port %d : %s", cfg.Port, err.Error()))
+			ui.Error(fmt.Sprintf("agent temporaire impossible sur le port %d : %s", cfg.Port, err.Error()))
+			return 1
 		}
 		state = fmt.Sprintf("temporaire (port %d), arrêté après l'association", cfg.Port)
 	}
 	if err := beginPairing(secret, pairTimeout); err != nil {
-		die("code d'association impossible : " + err.Error())
+		if ln != nil {
+			_ = ln.Close()
+		}
+		ui.Error("code d'association impossible : " + err.Error())
+		return 1
 	}
 	ui.Title("Association avec wsquashfs-manager")
 	ui.Note("Colle ce code sur l'autre machine (wsquashfs-launcher --sync wsq://…)",
@@ -106,13 +119,21 @@ func cmdPair(args []string) int {
 	ui.Out("")
 	ui.Note("Usage unique : ce code ne sert qu'une fois, et seulement pendant " + durationText(pairTimeout) + ".")
 	ui.KV(0, ui.Pair{"Autres adresses", strings.Join(localAddresses(), ", ")}, ui.Pair{"Dossiers roms/", strings.Join(cfg.Roms, ", ")}, ui.Pair{"Agent", state})
-	// Ctrl-C : annulation propre (installSignals appelle ce crochet, sans sortir).
+	// Ctrl-C : annulation propre (le lanceur appelle ce crochet, sans sortir : Env.SetInterrupt).
 	cancel := make(chan struct{})
 	var once sync.Once
 	hook := func() { once.Do(func() { close(cancel) }) }
-	interruptHook.Store(&hook)
-	defer interruptHook.Store(nil)
-	return pairRun(cfg, ln, pairTimeout, cancel)
+	s.env.SetInterrupt(hook)
+	defer s.env.SetInterrupt(nil)
+	return s.pairRun(cfg, ln, pairTimeout, cancel)
+}
+
+// argAt : args[i] ou "" hors de la liste.
+func argAt(args []string, i int) string {
+	if i < len(args) {
+		return args[i]
+	}
+	return ""
 }
 
 // pairSecretNew : secret d'un code d'association neuf. Variable : les tests fixent le secret.
@@ -120,21 +141,21 @@ var pairSecretNew = newToken
 
 // pairRevokeAll : retire toutes les machines associées (--pair reset). Retourne leurs noms.
 func pairRevokeAll() ([]string, error) {
-	cfg := loadAgentConfig()
+	cfg := loadConfig()
 	var names []string
 	for _, m := range cfg.Machines {
 		names = append(names, m.Name)
 	}
 	cfg.Machines = nil
-	return names, saveAgentConfig(cfg)
+	return names, saveConfig(cfg)
 }
 
 // cmdPairForget : --pair forget <machine> : retire les machines de ce nom (sans tenir compte de la
 // casse) ou de cet identifiant. Pas d'association : l'agent relit agent.json à chaque requête, la
 // révocation prend effet tout de suite, agent en marche ou non.
 func cmdPairForget(name string) int {
-	cfg := loadAgentConfig()
-	var kept []agentMachine
+	cfg := loadConfig()
+	var kept []Machine
 	var gone []string
 	for _, m := range cfg.Machines {
 		if strings.EqualFold(m.Name, name) || m.ID == name {
@@ -148,7 +169,7 @@ func cmdPairForget(name string) int {
 		return 1
 	}
 	cfg.Machines = kept
-	if err := saveAgentConfig(cfg); err != nil {
+	if err := saveConfig(cfg); err != nil {
 		ui.Error("configuration impossible : " + err.Error())
 		return 1
 	}
@@ -158,7 +179,7 @@ func cmdPairForget(name string) int {
 }
 
 // agentMachineNames : noms des machines associées, « aucune » si la liste est vide.
-func agentMachineNames(cfg agentConfig) string {
+func agentMachineNames(cfg Config) string {
 	if len(cfg.Machines) == 0 {
 		return "aucune"
 	}
@@ -170,7 +191,7 @@ func agentMachineNames(cfg agentConfig) string {
 }
 
 // currentPairCode : code wsq:// de cette machine pour le secret donné (hôte : première adresse locale).
-func currentPairCode(cfg agentConfig, secret string) (string, error) {
+func currentPairCode(cfg Config, secret string) (string, error) {
 	fp, err := certFingerprint()
 	if err != nil {
 		return "", err
@@ -199,18 +220,18 @@ const (
 // pairRun : attend l'association (POST /v1/pair) et rend le code de --pair : 0 associé, 1 délai
 // dépassé ou agent temporaire impossible, 130 annulé. Le code en attente (pair.json) est retiré à la
 // fin, quelle qu'elle soit. ln : écoute d'un agent temporaire à servir (nil : un agent tourne déjà).
-func pairRun(cfg agentConfig, ln net.Listener, timeout time.Duration, cancel <-chan struct{}) int {
+func (s *Server) pairRun(cfg Config, ln net.Listener, timeout time.Duration, cancel <-chan struct{}) int {
 	defer func() { _ = removePairOffer() }()
 	since := time.Now() // pris avant l'écoute : une association dès le premier instant est vue
 	stop := func() {}
 	if ln != nil {
-		s, err := serveTempAgent(cfg, ln)
+		shutdown, err := s.serveTemp(cfg, ln)
 		if err != nil {
 			_ = ln.Close()
 			ui.StatusLine(ui.Fail, "Agent temporaire impossible : "+err.Error())
 			return 1
 		}
-		stop = s
+		stop = shutdown
 	}
 	ui.StatusLine(ui.Info, "En attente de l'association… (Ctrl-C pour annuler)")
 	last, res := waitAssociation(since, timeout, cancel)
@@ -311,10 +332,10 @@ func removePairOffer() error {
 	return os.Remove(pairPath())
 }
 
-// serveTempAgent : sert l'agent temporaire de --pair sur ln (sans fichier de
+// serveTemp : sert l'agent temporaire de --pair sur ln (sans fichier de
 // PID). Retourne l'arrêt : arrêt propre, connexions en cours comprises.
-func serveTempAgent(cfg agentConfig, ln net.Listener) (func(), error) {
-	ag, tlsConf, err := prepareAgent(cfg, false)
+func (s *Server) serveTemp(cfg Config, ln net.Listener) (func(), error) {
+	ag, tlsConf, err := s.prepare(cfg, false)
 	if err != nil {
 		return nil, err
 	}

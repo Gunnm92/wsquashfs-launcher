@@ -60,7 +60,7 @@ func romsIndex(recorded string) imagesIndex {
 	if recorded != "" {
 		roots = append(roots, filepath.Dir(filepath.Dir(recorded))) // même roms/ que le chemin mémorisé
 	}
-	roots = append(append(roots, loadAgentConfig().Roms...), agentDefaultRoms())
+	roots = append(append(roots, agentSrv().LoadConfig().Roms...), agentSrv().DefaultRoms())
 	key := strings.Join(roots, "\x00")
 	if idx, ok := romsIndexDone[key]; ok {
 		return idx

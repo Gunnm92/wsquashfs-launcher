@@ -1,10 +1,10 @@
-package main
+package agent
 
 // Routes HTTPS de l'agent (voir agent.go). Chaque route appelle une action du
 // lanceur ou une lecture de dossier borné ; aucune commande fournie par le
 // client, aucun chemin hors des dossiers roms/ ou des runners installés.
-// Les routes sont réparties par famille : pair_http.go, actions_http.go,
-// runner_http.go, saves_http.go et games_http.go.
+// Les routes sont réparties par famille : pair_http.go, actions.go,
+// runner.go, saves.go et games.go.
 
 import (
 	"context"
@@ -25,8 +25,9 @@ import (
 
 const doctorTTL = 5 * time.Minute
 
-type agentServer struct {
-	cfg       agentConfig
+type service struct {
+	env       Env
+	cfg       Config
 	logOn     bool
 	trial     sync.Mutex // un essai à la fois
 	docMu     sync.Mutex
@@ -34,7 +35,7 @@ type agentServer struct {
 	docAt     time.Time
 	pairMu    sync.Mutex // POST /v1/pair : un code consommé à la fois
 	syncCfgMu sync.Mutex // sync.json : déclarations de dossiers et du manager (PUT/DELETE /v1/saves/dirs, PUT /v1/saves/manager)
-	// Installation des images (games_http.go) : dossier détecté (cache de 10 min), envois en
+	// Installation des images (games.go) : dossier détecté (cache de 10 min), envois en
 	// cours par nom. gamesMu protège aussi cfg.GamesDir.
 	gamesMu          sync.Mutex
 	gamesDetectedDir string
@@ -42,12 +43,12 @@ type agentServer struct {
 	uploads          map[string]bool
 }
 
-func newAgentServer(cfg agentConfig, logOn bool) *agentServer {
-	return &agentServer{cfg: cfg, logOn: logOn}
+func (s *Server) newService(cfg Config, logOn bool) *service {
+	return &service{env: s.env, cfg: cfg, logOn: logOn}
 }
 
 // httpServer : routes, authentification et trace.
-func (s *agentServer) httpServer() *http.Server {
+func (s *service) httpServer() *http.Server {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /v1/pair", s.pairRoute) // hors du contrôle de jeton : le code d'association
 	mux.HandleFunc("GET /v1/info", s.auth(s.info))
@@ -90,9 +91,9 @@ func (s *agentServer) httpServer() *http.Server {
 // auth : le jeton « Bearer » doit être celui d'une machine associée (agent.json, relu à chaque
 // requête : un --pair forget ou reset prend effet tout de suite). Si l'en-tête X-Wsq-Machine est
 // présent, il doit être l'identifiant de cette machine-là.
-func (s *agentServer) auth(next http.HandlerFunc) http.HandlerFunc {
+func (s *service) auth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		m, ok := machineForToken(loadAgentConfig().Machines, r.Header.Get("Authorization"))
+		m, ok := machineForToken(loadConfig().Machines, r.Header.Get("Authorization"))
 		if !ok {
 			writeDetail(w, http.StatusUnauthorized, "jeton refusé")
 			return
@@ -107,14 +108,14 @@ func (s *agentServer) auth(next http.HandlerFunc) http.HandlerFunc {
 
 // machineForToken : la machine dont le SHA-256 de jeton égale celui du jeton présenté (en-tête
 // Authorization « Bearer »). La comparaison est à temps constant, toutes les machines sont lues.
-func machineForToken(machines []agentMachine, authorization string) (agentMachine, bool) {
+func machineForToken(machines []Machine, authorization string) (Machine, bool) {
 	token, ok := strings.CutPrefix(authorization, "Bearer ")
 	if !ok || token == "" {
-		return agentMachine{}, false
+		return Machine{}, false
 	}
 	sum := sha256.Sum256([]byte(token))
 	got := hex.EncodeToString(sum[:])
-	var found agentMachine
+	var found Machine
 	match := false
 	for _, m := range machines {
 		if subtle.ConstantTimeCompare([]byte(got), []byte(m.TokenSHA256)) == 1 && !match {
@@ -125,7 +126,7 @@ func machineForToken(machines []agentMachine, authorization string) (agentMachin
 }
 
 // logged : trace (méthode, chemin, code, durée) ; jamais le jeton ni la requête.
-func (s *agentServer) logged(next http.Handler) http.Handler {
+func (s *service) logged(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		rec := &statusRecorder{ResponseWriter: w, code: http.StatusOK}
@@ -154,12 +155,7 @@ func writeDetail(w http.ResponseWriter, code int, detail string) {
 	writeJSON(w, code, map[string]string{"detail": detail})
 }
 
-// launcherExe : ce binaire, pour lancer ses propres actions.
-func launcherExe() string {
-	return conf.selfPath
-}
-
-func (s *agentServer) info(w http.ResponseWriter, r *http.Request) {
+func (s *service) info(w http.ResponseWriter, r *http.Request) {
 	host, _ := os.Hostname()
 	gamesDir, gamesSet, _, _ := s.gamesDir()
 	// manager : empreinte du manager déclaré ("" sans déclaration) ; auto : synchro automatique avec le manager.
@@ -172,7 +168,7 @@ func (s *agentServer) info(w http.ResponseWriter, r *http.Request) {
 		"version":         agentVersion,
 		"host":            host,
 		"user":            agentOwner(),
-		"launcher":        launcherExe(),
+		"launcher":        s.env.Exe(),
 		"roms":            s.cfg.Roms,
 		"session_process": s.cfg.Session,
 		"os":              osID("/etc/os-release"),
@@ -201,13 +197,13 @@ func osID(path string) string {
 }
 
 // doctor : --doctor json, mis en cache quelques minutes.
-func (s *agentServer) doctor(w http.ResponseWriter, r *http.Request) {
+func (s *service) doctor(w http.ResponseWriter, r *http.Request) {
 	s.docMu.Lock()
 	defer s.docMu.Unlock()
 	if s.docOut == nil || r.URL.Query().Get("refresh") == "1" || time.Since(s.docAt) > doctorTTL {
 		ctx, cancel := context.WithTimeout(r.Context(), 120*time.Second)
 		defer cancel()
-		out, _ := exec.CommandContext(ctx, launcherExe(), "--doctor", "json").Output()
+		out, _ := exec.CommandContext(ctx, s.env.Exe(), "--doctor", "json").Output()
 		if len(out) == 0 {
 			writeDetail(w, http.StatusServiceUnavailable, "rapport --doctor indisponible")
 			return
@@ -221,7 +217,7 @@ func (s *agentServer) doctor(w http.ResponseWriter, r *http.Request) {
 // resolveImage : chemin relatif à un dossier roms/ configuré → fichier réel.
 // Refuse les chemins absolus, « .. », les liens qui sortent des dossiers et
 // tout ce qui n'est pas une image .wsquashfs.
-func (s *agentServer) resolveImage(rel string) (string, int, string) {
+func (s *service) resolveImage(rel string) (string, int, string) {
 	if rel == "" || strings.HasPrefix(rel, "/") {
 		return "", http.StatusBadRequest, "chemin invalide"
 	}

@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"wsquashfs-launcher/internal/agent"
 	"wsquashfs-launcher/internal/savesync"
 )
 
@@ -30,7 +31,7 @@ func completionRig(t *testing.T) {
 	if err := savesync.SaveConfig(cfg); err != nil {
 		t.Fatal(err)
 	}
-	if err := saveAgentConfig(agentConfig{Port: 8790, Machines: []agentMachine{{ID: "m1", Name: "wsquashfs-manager"}}}); err != nil {
+	if err := agentSrv().SaveConfig(agent.Config{Port: 8790, Machines: []agent.Machine{{ID: "m1", Name: "wsquashfs-manager"}}}); err != nil {
 		t.Fatal(err)
 	}
 }

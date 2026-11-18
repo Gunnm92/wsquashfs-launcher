@@ -6,6 +6,9 @@ import (
 	"wsquashfs-launcher/internal/savesync"
 )
 
+// syncMaxBody : taille maximale d'une archive reçue (--sync, agent et synchro). Variable pour les tests.
+var syncMaxBody int64 = savesync.DefaultMaxBody
+
 // syncer : la synchro des sauvegardes, avec les dossiers et les fonctions du lanceur du moment.
 func syncer() *savesync.Syncer {
 	return savesync.New(syncEnv())
@@ -28,11 +31,11 @@ func syncEnv() savesync.Env {
 		CopyUsersStash:  copyUsersStash,
 		BackupDir:       backupDir,
 		AgentRunning: func() bool {
-			_, running := runningAgentPid()
+			_, running := agentSrv().Running()
 			return running
 		},
-		CertFingerprint: certFingerprint,
-		AgentRoms:       func() []string { return loadAgentConfig().Roms },
+		CertFingerprint: agentSrv().CertFingerprint,
+		AgentRoms:       func() []string { return agentSrv().LoadConfig().Roms },
 		MaxBody:         syncMaxBody,
 	}
 }

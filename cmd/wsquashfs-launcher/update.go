@@ -130,7 +130,7 @@ func cmdUpdate() int {
 		die("remplacement du lanceur impossible : " + err.Error())
 	}
 	ui.StatusLine(ui.OK, "Lanceur mis à jour : "+self+" (version "+shortBuild(want)+")")
-	removeAgentUnits() // démarrage automatique par systemd des anciennes versions
+	agentSrv().RemoveUnits() // démarrage automatique par systemd des anciennes versions
 	ui.KV(0, ui.Pair{"Vérification", os.Args[0] + " --help"})
 	return 0
 }

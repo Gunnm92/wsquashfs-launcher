@@ -513,9 +513,6 @@ func TestSyncCommandAction(t *testing.T) {
 			t.Errorf("%q compté comme un lancement de jeu", args)
 		}
 	}
-	if spec, ok := maintenanceActions["sync"]; !ok || spec.game != gameOptional || spec.args[0] != "--sync" {
-		t.Errorf("« sync » de l'agent : %+v, attendu --sync avec jeu facultatif", spec)
-	}
 }
 
 // TestSyncGameNothingAnywhere : aucune sauvegarde ici ni là-bas : ligne ignorée, rien n'est écrit.

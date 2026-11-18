@@ -51,9 +51,9 @@ func maintenanceMain() int {
 	case "doctor":
 		return cmdDoctorMain(launch.cmdArgs)
 	case "agent":
-		return cmdAgentMain(launch.cmdArgs)
+		return agentSrv().Run(launch.cmdArgs)
 	case "pair":
-		return cmdPair(launch.cmdArgs)
+		return agentSrv().Pair(launch.cmdArgs)
 	case "sync":
 		return syncer().Run(launch.cmdArgs)
 	case "tray":

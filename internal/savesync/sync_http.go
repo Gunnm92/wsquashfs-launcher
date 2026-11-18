@@ -1,6 +1,6 @@
 package savesync
 
-// Client de la synchro (--sync) : parle aux routes /v1/saves/* d'une autre machine (saves_http.go).
+// Client de la synchro (--sync) : parle aux routes /v1/saves/* d'une autre machine (internal/agent/saves.go).
 // La machine qui lance --sync fait tout : elle lit la liste distante, puis reçoit ou envoie.
 // Le certificat distant est épinglé (empreinte du code d'association), pas la chaîne de confiance.
 

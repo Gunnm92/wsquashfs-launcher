@@ -1,4 +1,4 @@
-package main
+package agent
 
 // Tests de --agent (lancement en arrière-plan, status, premier plan) et de --pair (association,
 // agent temporaire, annulation, délai). Les agents réels écoutent sur 127.0.0.1 ; le lancement
@@ -63,7 +63,7 @@ func fakeLauncher(t *testing.T, body string) string {
 	if err := os.WriteFile(p, []byte("#!/bin/sh\n"+body+"\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	conf.selfPath = p
+	testExe = p
 	return p
 }
 
@@ -104,7 +104,7 @@ func TestParseAgentArgs(t *testing.T) {
 func TestAgentLogWithoutRunIsUsageError(t *testing.T) {
 	agentEnv(t)
 	out, errs := capteUI(t)
-	if code := cmdAgentMain([]string{"log"}); code != 1 {
+	if code := testServer().Run([]string{"log"}); code != 1 {
 		t.Errorf("code %d, attendu 1", code)
 	}
 	if !strings.Contains(errs.String(), "--agent run log") || out.Len() != 0 {
@@ -122,7 +122,7 @@ func TestAgentStartAlreadyRunning(t *testing.T) {
 	}
 	fakeLauncher(t, "echo ne-doit-pas-etre-lance; exit 1")
 	out, _ := capteUI(t)
-	if code := cmdAgentStart(); code != 0 {
+	if code := testServer().start(); code != 0 {
 		t.Fatalf("code %d", code)
 	}
 	want := fmt.Sprintf("Agent : déjà en marche sur le port %d", port)
@@ -144,7 +144,7 @@ func TestAgentStartFailsWithLogTail(t *testing.T) {
 	}
 	fakeLauncher(t, "echo « boom au démarrage » >&2; exit 1")
 	out, _ := capteUI(t)
-	if code := cmdAgentStart(); code != 1 {
+	if code := testServer().start(); code != 1 {
 		t.Fatalf("code %d, attendu 1 ; sortie %q", code, out.String())
 	}
 	if !strings.Contains(out.String(), "pas en écoute") || !strings.Contains(out.String(), "boom au démarrage") {
@@ -160,12 +160,12 @@ func TestAgentStartInitialises(t *testing.T) {
 	t.Cleanup(func() { agentStartWait = old })
 	// Port libre écrit sans jeton : --agent initialise le reste, sans écouter 8790.
 	port := freePort(t)
-	if err := saveAgentConfig(agentConfig{Port: port}); err != nil {
+	if err := saveConfig(Config{Port: port}); err != nil {
 		t.Fatal(err)
 	}
 	fakeLauncher(t, "exit 1")
 	out, _ := capteUI(t)
-	_ = cmdAgentStart()
+	_ = testServer().start()
 	if !agentConfigured() {
 		t.Fatalf("configuration absente après --agent : %q", out.String())
 	}
@@ -189,7 +189,7 @@ func TestAgentStartLaunchesDetached(t *testing.T) {
 	// « -- --agent » : le processus porte « --agent » dans sa ligne de commande (PID inscrit valide).
 	fakeLauncher(t, `exec "$WSQ_TESTBIN" -test.run='^TestAgentHelperProcess$' -- --agent`)
 	out, _ := capteUI(t)
-	code := cmdAgentStart()
+	code := testServer().start()
 	pidRe := regexp.MustCompile(`pid (\d+)`)
 	m := pidRe.FindStringSubmatch(out.String())
 	if m != nil {
@@ -414,7 +414,7 @@ func TestPairTempAgentAssociates(t *testing.T) {
 	addr := ln.Addr().String()
 	out, _ := capteUI(t)
 	done := make(chan int, 1)
-	go func() { done <- pairRun(cfg, ln, 20*time.Second, nil) }()
+	go func() { done <- testServer().pairRun(cfg, ln, 20*time.Second, nil) }()
 
 	c := pairClient(t)
 	waitPairServed(t, c, addr)
@@ -479,7 +479,7 @@ func TestPairTimeout(t *testing.T) {
 	}
 	ln := listenLocal(t)
 	out, _ := capteUI(t)
-	if code := pairRun(cfg, ln, 300*time.Millisecond, nil); code != 1 {
+	if code := testServer().pairRun(cfg, ln, 300*time.Millisecond, nil); code != 1 {
 		t.Fatalf("code %d, attendu 1", code)
 	}
 	if !strings.Contains(out.String(), "aucune association en 300ms") {
@@ -511,7 +511,7 @@ func TestPairCancelled(t *testing.T) {
 		time.Sleep(200 * time.Millisecond)
 		close(cancel)
 	}()
-	if code := pairRun(cfg, ln, time.Minute, cancel); code != 130 {
+	if code := testServer().pairRun(cfg, ln, time.Minute, cancel); code != 130 {
 		t.Fatalf("code %d, attendu 130", code)
 	}
 	if !strings.Contains(out.String(), "Association annulée") {
@@ -529,7 +529,7 @@ func TestPairCommandCtrlC(t *testing.T) {
 	port := freePort(t)
 	out, _ := capteUI(t)
 	done := make(chan int, 1)
-	go func() { done <- cmdPair([]string{"port", strconv.Itoa(port)}) }()
+	go func() { done <- testServer().Pair([]string{"port", strconv.Itoa(port)}) }()
 	var hook *func()
 	for deadline := time.Now().Add(5 * time.Second); hook == nil; time.Sleep(10 * time.Millisecond) {
 		hook = interruptHook.Load()
@@ -574,7 +574,7 @@ func TestPairCommandWaitsForAssociation(t *testing.T) {
 	t.Cleanup(func() { pairSecretNew = oldSecret })
 	out, _ := capteUI(t)
 	done := make(chan int, 1)
-	go func() { done <- cmdPair([]string{"port", strconv.Itoa(port)}) }()
+	go func() { done <- testServer().Pair([]string{"port", strconv.Itoa(port)}) }()
 	for deadline := time.Now().Add(5 * time.Second); interruptHook.Load() == nil; time.Sleep(10 * time.Millisecond) {
 		if time.Now().After(deadline) {
 			t.Fatal("cmdPair n'attend pas l'association")
@@ -621,7 +621,7 @@ func TestPairCommandReset(t *testing.T) {
 	enrollMachine(t, "ancienne-machine-01", "Ancienne", "jeton-ancien")
 	out, _ := capteUI(t)
 	done := make(chan int, 1)
-	go func() { done <- cmdPair([]string{"reset", "port", strconv.Itoa(port)}) }()
+	go func() { done <- testServer().Pair([]string{"reset", "port", strconv.Itoa(port)}) }()
 	for deadline := time.Now().Add(5 * time.Second); interruptHook.Load() == nil; time.Sleep(10 * time.Millisecond) {
 		if time.Now().After(deadline) {
 			t.Fatal("cmdPair n'attend pas l'association")
@@ -653,7 +653,7 @@ func TestPairForgetReturnsAtOnce(t *testing.T) {
 	agentEnv(t)
 	enrollMachine(t, "ancienne-machine-01", "Ancienne", "jeton-ancien")
 	out, _ := capteUI(t)
-	if code := cmdPair([]string{"forget", "ancienne-machine-01"}); code != 0 {
+	if code := testServer().Pair([]string{"forget", "ancienne-machine-01"}); code != 0 {
 		t.Fatalf("code %d", code)
 	}
 	if strings.Contains(out.String(), "En attente") || strings.Contains(out.String(), "wsq://") {
@@ -676,7 +676,7 @@ func TestPairRejectsStaleAssociation(t *testing.T) {
 		t.Fatal(err)
 	}
 	capteUI(t)
-	if code := pairRun(cfg, nil, 300*time.Millisecond, nil); code != 1 {
+	if code := testServer().pairRun(cfg, nil, 300*time.Millisecond, nil); code != 1 {
 		t.Errorf("association périmée acceptée (code %d)", code)
 	}
 }

@@ -1,6 +1,6 @@
-package main
+package agent
 
-// Tests de l'installation des images (games_http.go, routes /v1/games/*) : détection du dossier,
+// Tests de l'installation des images (games.go, routes /v1/games/*) : détection du dossier,
 // règle HOME, envoi reprenable (PUT, commit), suppression. Appels directs au handler de l'agent
 // (agentFixture, comme agent_test.go) ; HOME et XDG_CONFIG_HOME isolés dans t.TempDir().
 
@@ -22,7 +22,7 @@ import (
 // gamesRig : agent de test (HOME isolé, roms/ avec une image), cacheDir et savesDir isolés.
 type gamesRig struct {
 	t    *testing.T
-	s    *agentServer
+	s    *service
 	h    http.Handler
 	home string // HOME (liens résolus)
 }
@@ -31,7 +31,6 @@ func newGamesRig(t *testing.T) *gamesRig {
 	t.Helper()
 	s, h, _ := agentFixture(t)
 	isolateState(t)
-	conf.savesDir, conf.cacheDir = t.TempDir(), t.TempDir()
 	home, err := filepath.EvalSymlinks(os.Getenv("HOME"))
 	if err != nil {
 		t.Fatal(err)
@@ -205,7 +204,7 @@ func TestDetectGamesDir(t *testing.T) {
 func TestGamesDirPost(t *testing.T) {
 	g := newGamesRig(t)
 	sub := g.setDir("Jeux")
-	cfg := loadAgentConfig()
+	cfg := loadConfig()
 	if cfg.GamesDir != sub {
 		t.Errorf("choix non persisté : %q, attendu %q", cfg.GamesDir, sub)
 	}
@@ -230,7 +229,7 @@ func TestGamesDirPost(t *testing.T) {
 		}
 	}
 	// Refus : le choix précédent reste en place.
-	if cfg := loadAgentConfig(); cfg.GamesDir != sub {
+	if cfg := loadConfig(); cfg.GamesDir != sub {
 		t.Errorf("choix modifié malgré le refus : %q", cfg.GamesDir)
 	}
 
@@ -242,7 +241,7 @@ func TestGamesDirPost(t *testing.T) {
 	if out := decodeGames(t, rec); out["set"] != false {
 		t.Errorf("set après retour à la détection : %v", out)
 	}
-	if cfg := loadAgentConfig(); cfg.GamesDir != "" {
+	if cfg := loadConfig(); cfg.GamesDir != "" {
 		t.Errorf("games_dir non effacé : %q", cfg.GamesDir)
 	}
 }
@@ -402,17 +401,14 @@ func TestGamesDelete(t *testing.T) {
 	del := "/v1/games/file?name=" + name
 
 	// Jeu verrouillé (lancé ou en maintenance) : 409, rien supprimé.
-	lock, ok := lockIdleGame("Suppr")
-	if !ok {
-		t.Fatal("verrou de test impossible")
-	}
+	testLockedGame = "Suppr"
 	if rec := g.req("DELETE", del, nil, nil); rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "jeu monté ou en cours") {
 		t.Errorf("jeu verrouillé : %d %s", rec.Code, rec.Body.String())
 	}
 	if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
 		t.Errorf("image supprimée malgré le verrou : %v", err)
 	}
-	lock.Close()
+	testLockedGame = ""
 
 	rec := g.req("DELETE", del, nil, nil)
 	if rec.Code != http.StatusOK || decodeGames(t, rec)["removed"] != true {

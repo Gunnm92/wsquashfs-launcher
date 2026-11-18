@@ -207,7 +207,7 @@ func completeSync(rest []string) []string {
 // agentNames : noms des machines associées à l'agent (--pair forget).
 func agentNames() []string {
 	var out []string
-	for _, m := range loadAgentConfig().Machines {
+	for _, m := range agentSrv().LoadConfig().Machines {
 		out = append(out, m.Name)
 	}
 	return out

@@ -5,10 +5,7 @@ package main
 // archive d'un runner et nom de jeu.
 
 import (
-	"archive/tar"
 	"errors"
-	"io"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -182,44 +179,6 @@ func TestLockIdleGameRefusesLockedGame(t *testing.T) {
 	if l, idle := lockIdleGame("Jeu"); idle {
 		l.Close()
 		t.Error("maintenance acceptée sur un jeu en cours de lancement")
-	}
-}
-
-func TestRunnerTarSkipsUnreadableFile(t *testing.T) {
-	isolateState(t)
-	if os.Geteuid() == 0 {
-		t.Skip("root lit tout")
-	}
-	_, h, _ := agentFixture(t)
-	conf.sysroot = ""
-	runner := filepath.Join(os.Getenv("HOME"), ".local/share/wsquashfs/wine/wine-test")
-	_ = os.MkdirAll(runner+"/bin", 0o755)
-	_ = os.WriteFile(runner+"/bin/wine", []byte("#!/bin/sh\n"), 0o755)
-	_ = os.WriteFile(runner+"/a-secret.bin", []byte("illisible, plus long que la suite"), 0o000)
-	_ = os.WriteFile(runner+"/z-last.txt", []byte("fin"), 0o644)
-
-	rec := do(h, "GET", "/v1/runner/tar?path="+runner, "secret-token", "")
-	if rec.Code != http.StatusOK {
-		t.Fatalf("code %d", rec.Code)
-	}
-	names := map[string]string{}
-	tr := tar.NewReader(rec.Body)
-	for {
-		hdr, err := tr.Next()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			t.Fatalf("archive illisible après %d entrées : %v", len(names), err)
-		}
-		data, _ := io.ReadAll(tr)
-		names[hdr.Name] = string(data)
-	}
-	if _, ok := names["wine-test/a-secret.bin"]; ok {
-		t.Error("fichier illisible présent dans l'archive")
-	}
-	if names["wine-test/z-last.txt"] != "fin" {
-		t.Errorf("fichier suivant le fichier illisible absent ou faux : %q", names["wine-test/z-last.txt"])
 	}
 }
 

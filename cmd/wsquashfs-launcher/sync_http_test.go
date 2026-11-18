@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"wsquashfs-launcher/internal/agent"
 	"wsquashfs-launcher/internal/savesync"
 )
 
@@ -147,7 +148,7 @@ func syncTestSaveArchive(t *testing.T) []byte {
 // (savesPutTimeout). Sans lui : 400 « archive refusée : … i/o timeout ».
 func TestSyncSendSlowBodyOutlivesReadTimeout(t *testing.T) {
 	r := newSyncRigWith(t, func(srv *httptest.Server) {
-		base := (&agentServer{}).httpServer()
+		base := agentSrv().HTTPServer(agent.Config{}, false)
 		srv.Config.ReadHeaderTimeout = base.ReadHeaderTimeout
 		srv.Config.ReadTimeout = time.Second
 	}, nil)

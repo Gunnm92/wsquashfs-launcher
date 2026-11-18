@@ -1,7 +1,7 @@
-package main
+package agent
 
-// Les routes /v1/saves/* (synchro --sync, sync.go) lisent et écrivent les
-// sauvegardes de partie, bornées au périmètre de sync.go : jamais hors de
+// Les routes /v1/saves/* (synchro --sync, internal/savesync) lisent et écrivent les
+// sauvegardes de partie, bornées au périmètre de internal/savesync : jamais hors de
 // users/, jamais les caches ni les comptes système.
 
 import (
@@ -24,12 +24,19 @@ import (
 // l'agent : 60 s, trop court pour une grosse sauvegarde ou un réseau lent).
 const savesPutTimeout = 10 * time.Minute
 
-// syncMaxBody : taille maximale d'une archive reçue (--sync). Variable pour les tests.
-var syncMaxBody int64 = savesync.DefaultMaxBody
+// maxBody : taille maximale d'une archive reçue (--sync).
+func (s *service) maxBody() int64 {
+	if s.env.MaxBody != nil {
+		if n := s.env.MaxBody(); n > 0 {
+			return n
+		}
+	}
+	return savesync.DefaultMaxBody
+}
 
 // syncMachine : authentification, puis identifiant de la machine cliente obligatoire
 // (en-tête X-Wsq-Machine) : l'état de synchro est tenu par machine.
-func (s *agentServer) syncMachine(next http.HandlerFunc) http.HandlerFunc {
+func (s *service) syncMachine(next http.HandlerFunc) http.HandlerFunc {
 	return s.auth(func(w http.ResponseWriter, r *http.Request) {
 		if !savesync.ValidID(r.Header.Get("X-Wsq-Machine")) {
 			writeDetail(w, http.StatusBadRequest, "identifiant de machine absent ou invalide")
@@ -40,11 +47,11 @@ func (s *agentServer) syncMachine(next http.HandlerFunc) http.HandlerFunc {
 }
 
 // savesList : jeux à sauvegardes, plus ceux qui ont un état pour cette machine.
-func (s *agentServer) savesList(w http.ResponseWriter, r *http.Request) {
+func (s *service) savesList(w http.ResponseWriter, r *http.Request) {
 	machine := r.Header.Get("X-Wsq-Machine")
 	// Jeux avec un état pour cette machine : listés même vides (la synchro doit le savoir).
 	withState := map[string]bool{}
-	if entries, err := os.ReadDir(filepath.Join(syncer().StateRoot(), machine)); err == nil {
+	if entries, err := os.ReadDir(filepath.Join(s.env.Syncer().StateRoot(), machine)); err == nil {
 		for _, e := range entries {
 			if g, ok := strings.CutSuffix(e.Name(), ".json"); ok {
 				withState[g] = true
@@ -54,7 +61,7 @@ func (s *agentServer) savesList(w http.ResponseWriter, r *http.Request) {
 	// Même liste que --sync (syncNames : jeux, dossiers déclarés, jeux Switch), plus ce qui n'a
 	// qu'un état pour cette machine.
 	names := map[string]bool{}
-	for _, g := range syncer().Names() {
+	for _, g := range s.env.Syncer().Names() {
 		names[g] = true
 	}
 	for g := range withState {
@@ -62,7 +69,7 @@ func (s *agentServer) savesList(w http.ResponseWriter, r *http.Request) {
 	}
 	games := []savesync.RemoteSave{}
 	for name := range names {
-		t, err := syncer().TargetOf(name)
+		t, err := s.env.Syncer().TargetOf(name)
 		if err != nil {
 			continue
 		}
@@ -71,7 +78,7 @@ func (s *agentServer) savesList(w http.ResponseWriter, r *http.Request) {
 		if fp == "" && !withState[name] {
 			continue
 		}
-		st := savesync.LoadState(syncer().StateRoot(), machine, name)
+		st := savesync.LoadState(s.env.Syncer().StateRoot(), machine, name)
 		games = append(games, savesync.RemoteSave{Name: name, Label: t.Label, Dir: t.RelDir(), Fingerprint: fp, Content: t.Content(files), Newest: savesync.NewestSave(files), Size: savesync.SaveSize(files), State: st.Fingerprint})
 	}
 	slices.SortFunc(games, func(a, b savesync.RemoteSave) int { return cmp.Compare(a.Name, b.Name) })
@@ -80,9 +87,9 @@ func (s *agentServer) savesList(w http.ResponseWriter, r *http.Request) {
 
 // savesGet : archive des sauvegardes d'un jeu (tar.gz). L'archive est écrite dans un fichier
 // temporaire d'abord : l'empreinte et le profil partent dans les en-têtes, avant le corps.
-func (s *agentServer) savesGet(w http.ResponseWriter, r *http.Request) {
+func (s *service) savesGet(w http.ResponseWriter, r *http.Request) {
 	game := r.URL.Query().Get("game")
-	t, err := syncer().TargetOf(game)
+	t, err := s.env.Syncer().TargetOf(game)
 	if err != nil {
 		writeSyncTargetErr(w, err)
 		return
@@ -101,7 +108,7 @@ func (s *agentServer) savesGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	fp := t.Fingerprint(files)
-	tmp, err := syncer().TempFile("wsq-sync-*.tar.gz")
+	tmp, err := s.env.Syncer().TempFile("wsq-sync-*.tar.gz")
 	if err != nil {
 		writeDetail(w, http.StatusInternalServerError, "erreur interne de l'agent")
 		return
@@ -135,9 +142,9 @@ func (s *agentServer) savesGet(w http.ResponseWriter, r *http.Request) {
 // savesPut : reçoit une archive et remplace le périmètre du jeu. Si le périmètre local a changé
 // depuis la dernière synchro avec cette machine, il est archivé d'abord (dossier backups) : c'est
 // la version perdante du conflit, rien ne doit disparaître. Sans archive, rien n'est remplacé.
-func (s *agentServer) savesPut(w http.ResponseWriter, r *http.Request) {
+func (s *service) savesPut(w http.ResponseWriter, r *http.Request) {
 	game := r.URL.Query().Get("game")
-	t, err := syncer().TargetOf(game)
+	t, err := s.env.Syncer().TargetOf(game)
 	if errors.Is(err, savesync.ErrAbsent) && r.Header.Get(savesync.DirHeader) != "" {
 		// Dossier déclaré sur l'envoyeur, pas ici : déclaré avec son chemin (à partir de HOME), comme
 		// un jeu reçu pour la première fois.
@@ -147,7 +154,7 @@ func (s *agentServer) savesPut(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.syncCfgMu.Lock()
-		t, err = syncer().DeclareFromPeer(game, rel)
+		t, err = s.env.Syncer().DeclareFromPeer(game, rel)
 		s.syncCfgMu.Unlock()
 		if err != nil && !errors.Is(err, savesync.ErrAbsent) && !errors.Is(err, savesync.ErrInvalid) {
 			writeDetail(w, http.StatusBadRequest, "dossier non déclaré ici : "+err.Error())
@@ -169,7 +176,7 @@ func (s *agentServer) savesPut(w http.ResponseWriter, r *http.Request) {
 	}
 	cur := t.Fingerprint(t.Files())
 	archived := ""
-	if cur != "" && cur != savesync.LoadState(syncer().StateRoot(), machine, game).Fingerprint {
+	if cur != "" && cur != savesync.LoadState(s.env.Syncer().StateRoot(), machine, game).Fingerprint {
 		// Le membre est le nom réel du dossier : une mise de côté (mode copy) ne s'appelle pas « users ».
 		path, err := t.ArchiveLocal()
 		if err != nil {
@@ -181,7 +188,7 @@ func (s *agentServer) savesPut(w http.ResponseWriter, r *http.Request) {
 	// Une grosse sauvegarde peut être longue à recevoir : délai de lecture propre à cet envoi,
 	// compté à partir d'ici (l'archivage local ci-dessus n'y entre pas).
 	_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(savesPutTimeout))
-	r.Body = http.MaxBytesReader(w, r.Body, syncMaxBody)
+	r.Body = http.MaxBytesReader(w, r.Body, s.maxBody())
 	if err := t.Apply(r.Body, r.Header.Get("X-Wsq-Profile")); err != nil {
 		var tooBig *http.MaxBytesError
 		if errors.As(err, &tooBig) {
@@ -193,7 +200,7 @@ func (s *agentServer) savesPut(w http.ResponseWriter, r *http.Request) {
 	}
 	fp := t.Fingerprint(t.Files())
 	for _, key := range stateKeysOf(machine) {
-		if err := savesync.SaveState(syncer().StateRoot(), key, game, fp); err != nil {
+		if err := savesync.SaveState(s.env.Syncer().StateRoot(), key, game, fp); err != nil {
 			writeDetail(w, http.StatusInternalServerError, "état de synchro non enregistré")
 			return
 		}
@@ -203,7 +210,7 @@ func (s *agentServer) savesPut(w http.ResponseWriter, r *http.Request) {
 
 // stateKeysOf : clés sous lesquelles l'état de synchro d'un appelant est tenu. Le manager (pair
 // déclaré par PUT /v1/saves/manager, identifiant de ses envois) l'est aussi sous savesync.PeerID : c'est
-// la clé que lit --sync auto à la sortie d'un jeu (sync_auto.go).
+// la clé que lit --sync auto à la sortie d'un jeu (savesync/sync_auto.go).
 func stateKeysOf(machine string) []string {
 	keys := []string{machine}
 	if peer, ok := savesync.ManagerPeer(savesync.LoadConfig()); ok && peer.MachineID == machine {
@@ -219,9 +226,9 @@ func stateKeysOf(machine string) []string {
 // les fichiers du périmètre partent, puis les dossiers devenus vides ; caches et autres fichiers
 // restent. L'état de synchro de la machine appelante pour ce jeu est effacé ; ceux des autres machines
 // restent.
-func (s *agentServer) savesDelete(w http.ResponseWriter, r *http.Request) {
+func (s *service) savesDelete(w http.ResponseWriter, r *http.Request) {
 	game := r.URL.Query().Get("game")
-	t, err := syncer().TargetOf(game)
+	t, err := s.env.Syncer().TargetOf(game)
 	if errors.Is(err, savesync.ErrAbsent) {
 		// Rien de déclaré ici : rien à supprimer (comme un jeu sans sauvegarde).
 		writeJSON(w, http.StatusOK, map[string]any{"archived": "", "removed": 0})
@@ -242,7 +249,7 @@ func (s *agentServer) savesDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	files := t.Files()
 	if len(files) == 0 {
-		if err := removeStateKeys(machine, game); err != nil {
+		if err := s.removeStateKeys(machine, game); err != nil {
 			writeDetail(w, http.StatusInternalServerError, "état de synchro non supprimé")
 			return
 		}
@@ -259,7 +266,7 @@ func (s *agentServer) savesDelete(w http.ResponseWriter, r *http.Request) {
 		writeDetail(w, http.StatusInternalServerError, "suppression impossible ("+err.Error()+"), archive : "+archived)
 		return
 	}
-	if err := removeStateKeys(machine, game); err != nil {
+	if err := s.removeStateKeys(machine, game); err != nil {
 		writeDetail(w, http.StatusInternalServerError, "état de synchro non supprimé, archive : "+archived)
 		return
 	}
@@ -267,9 +274,9 @@ func (s *agentServer) savesDelete(w http.ResponseWriter, r *http.Request) {
 }
 
 // removeStateKeys : efface l'état de synchro d'un appelant pour ce jeu (toutes ses clés, voir stateKeysOf).
-func removeStateKeys(machine, game string) error {
+func (s *service) removeStateKeys(machine, game string) error {
 	for _, key := range stateKeysOf(machine) {
-		if err := savesync.RemoveState(syncer().StateRoot(), key, game); err != nil {
+		if err := savesync.RemoveState(s.env.Syncer().StateRoot(), key, game); err != nil {
 			return err
 		}
 	}
@@ -278,13 +285,13 @@ func removeStateKeys(machine, game string) error {
 
 // savesState : la machine cliente confirme l'empreinte commune après une réception. Refusé si le
 // jeu a changé sur cette machine entre-temps.
-func (s *agentServer) savesState(w http.ResponseWriter, r *http.Request) {
+func (s *service) savesState(w http.ResponseWriter, r *http.Request) {
 	var req savesync.StateRequest
 	if err := json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&req); err != nil {
 		writeDetail(w, http.StatusBadRequest, "requête illisible")
 		return
 	}
-	t, err := syncer().TargetOf(req.Game)
+	t, err := s.env.Syncer().TargetOf(req.Game)
 	if err != nil {
 		writeSyncTargetErr(w, err)
 		return
@@ -295,7 +302,7 @@ func (s *agentServer) savesState(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for _, key := range stateKeysOf(r.Header.Get("X-Wsq-Machine")) {
-		if err := savesync.SaveState(syncer().StateRoot(), key, req.Game, cur); err != nil {
+		if err := savesync.SaveState(s.env.Syncer().StateRoot(), key, req.Game, cur); err != nil {
 			writeDetail(w, http.StatusInternalServerError, "état de synchro non enregistré")
 			return
 		}
@@ -322,13 +329,13 @@ func syncDirsReply() map[string]any {
 }
 
 // savesDirs : GET /v1/saves/dirs.
-func (s *agentServer) savesDirs(w http.ResponseWriter, r *http.Request) {
+func (s *service) savesDirs(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, syncDirsReply())
 }
 
 // savesDirPut : PUT /v1/saves/dirs {name, path} : déclare (ou remplace) un dossier à synchroniser,
 // sous HOME. Répond la liste à jour.
-func (s *agentServer) savesDirPut(w http.ResponseWriter, r *http.Request) {
+func (s *service) savesDirPut(w http.ResponseWriter, r *http.Request) {
 	var req savesync.Dir
 	if err := json.NewDecoder(io.LimitReader(r.Body, 8192)).Decode(&req); err != nil {
 		writeDetail(w, http.StatusBadRequest, "requête illisible")
@@ -351,7 +358,7 @@ func (s *agentServer) savesDirPut(w http.ResponseWriter, r *http.Request) {
 // savesManagerPut : PUT /v1/saves/manager {name, url, token, fingerprint} : le manager se déclare comme
 // pair de cette machine (sync.json, Manager). Remplace le manager déclaré précédemment. Répond son
 // empreinte et l'état de la synchro automatique.
-func (s *agentServer) savesManagerPut(w http.ResponseWriter, r *http.Request) {
+func (s *service) savesManagerPut(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name        string `json:"name"`
 		URL         string `json:"url"`
@@ -413,7 +420,7 @@ func (s *agentServer) savesManagerPut(w http.ResponseWriter, r *http.Request) {
 }
 
 // savesDirDelete : DELETE /v1/saves/dirs?name= : retire la déclaration (les fichiers restent).
-func (s *agentServer) savesDirDelete(w http.ResponseWriter, r *http.Request) {
+func (s *service) savesDirDelete(w http.ResponseWriter, r *http.Request) {
 	s.syncCfgMu.Lock()
 	defer s.syncCfgMu.Unlock()
 	cfg, found := savesync.RemoveDir(savesync.LoadConfig(), r.URL.Query().Get("name"))

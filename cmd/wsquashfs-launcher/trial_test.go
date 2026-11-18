@@ -5,11 +5,8 @@ package main
 
 import (
 	"bufio"
-	"context"
 	"encoding/json"
 	"io"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,37 +14,6 @@ import (
 	"testing"
 	"time"
 )
-
-// ReadTimeout de l'agent : un traitement plus long que lui (essai de 10 min)
-// garde le contexte de sa requête. net/http lève le délai de lecture au
-// lancement de sa lecture de fond ; ce test le vérifie avec un délai réduit.
-func TestReadTimeoutKeepsLongRequestAlive(t *testing.T) {
-	ctxErr := make(chan error, 1)
-	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var v map[string]any
-		_ = json.NewDecoder(io.LimitReader(r.Body, 65536)).Decode(&v)
-		select {
-		case <-r.Context().Done():
-			ctxErr <- r.Context().Err()
-		case <-time.After(700 * time.Millisecond):
-			ctxErr <- nil
-		}
-	}))
-	base := (&agentServer{}).httpServer()
-	srv.Config.ReadHeaderTimeout = base.ReadHeaderTimeout
-	srv.Config.ReadTimeout = 200 * time.Millisecond // 60 s en vrai
-	srv.Start()
-	defer srv.Close()
-
-	resp, err := http.Post(srv.URL, "application/json", strings.NewReader(`{"rel":"x"}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	resp.Body.Close()
-	if err := <-ctxErr; err != nil {
-		t.Fatalf("contexte annulé après ReadTimeout : %v", err)
-	}
-}
 
 // SIGTERM pendant l'essai : le lanceur lancé (Setsid, hors du groupe) reçoit
 // SIGTERM, son code est relevé après sa fin, et le rapport le signale.
@@ -94,35 +60,6 @@ func TestTrialInterruptedStopsLauncher(t *testing.T) {
 	}
 	if d := time.Since(start); d > 20*time.Second {
 		t.Errorf("arrêt trop long : %v", d)
-	}
-}
-
-// L'agent interrompt --trial par SIGTERM (et non SIGKILL) : le faux --trial
-// note le signal reçu.
-func TestTrialRouteCancelSendsSIGTERM(t *testing.T) {
-	isolateState(t)
-	dir := t.TempDir()
-	marker := filepath.Join(dir, "sig")
-	fake := filepath.Join(dir, "fake")
-	script := "#!/bin/sh\ntrap 'echo term > " + marker + "; exit 0' TERM\nwhile :; do sleep 0.1; done\n"
-	if err := os.WriteFile(fake, []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	s, _, _ := agentFixture(t)
-	conf.selfPath = fake
-	ctx, cancel := context.WithCancel(context.Background())
-	req := httptest.NewRequest("POST", "/v1/trial", strings.NewReader(`{"rel":"win/Jeu.wsquashfs","duration":10}`)).WithContext(ctx)
-	rec := httptest.NewRecorder()
-	go func() {
-		time.Sleep(500 * time.Millisecond)
-		cancel()
-	}()
-	s.trialRoute(rec, req)
-	if rec.Code != http.StatusGatewayTimeout {
-		t.Errorf("code HTTP %d, attendu 504", rec.Code)
-	}
-	if _, err := os.Stat(marker); err != nil {
-		t.Error("--trial n'a pas reçu SIGTERM à l'interruption")
 	}
 }
 

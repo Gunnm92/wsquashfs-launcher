@@ -1,4 +1,4 @@
-package main
+package agent
 
 // Commandes --agent, --agent run | stop | status : lancement de l'agent en arrière-plan,
 // arrêt par fichier de PID, état, et service systemd (unités, socket).
@@ -87,7 +87,7 @@ func agentLogSince(offset int64) []string {
 
 // startAgentDetached : lance « wsquashfs-launcher --agent run log » hors du
 // terminal (nouvelle session, journal dans agentLogPath). Retourne son PID.
-func startAgentDetached() (int, error) {
+func (s *Server) startDetached() (int, error) {
 	logPath := agentLogPath()
 	if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
 		return 0, err
@@ -97,7 +97,7 @@ func startAgentDetached() (int, error) {
 		return 0, err
 	}
 	defer log.Close()
-	cmd := exec.Command(conf.selfPath, "--agent", "run", "log")
+	cmd := exec.Command(s.env.Exe(), "--agent", "run", "log")
 	cmd.Stdin = nil
 	cmd.Stdout = log
 	cmd.Stderr = log
@@ -113,9 +113,9 @@ func startAgentDetached() (int, error) {
 // agentStartWait : délai laissé à l'agent lancé pour écouter. Variable pour les tests.
 var agentStartWait = 3 * time.Second
 
-// cmdAgentStart : --agent. Lance l'agent en arrière-plan et rend la main. Sans
+// start : --agent. Lance l'agent en arrière-plan et rend la main. Sans
 // configuration, l'initialise comme --pair (jeton, certificat).
-func cmdAgentStart() int {
+func (s *Server) start() int {
 	if !agentConfigured() {
 		if _, err := agentInit(nil, 0); err != nil {
 			ui.Error("agent non initialisé : " + err.Error())
@@ -125,7 +125,7 @@ func cmdAgentStart() int {
 		ui.Note("Code d'association : wsquashfs-launcher --pair")
 	}
 	removeAgentUnits()
-	cfg := loadAgentConfig()
+	cfg := loadConfig()
 	if agentListening(cfg.Port) {
 		msg := fmt.Sprintf("Agent : déjà en marche sur le port %d", cfg.Port)
 		if pid, ok := runningAgentPid(); ok {
@@ -135,7 +135,7 @@ func cmdAgentStart() int {
 		return 0
 	}
 	before := agentLogSize()
-	pid, err := startAgentDetached()
+	pid, err := s.startDetached()
 	if err != nil {
 		ui.StatusLine(ui.Fail, "Agent : lancement impossible : "+err.Error())
 		return 1
@@ -171,7 +171,7 @@ func cmdAgentStatus() int {
 		ui.StatusLine(ui.Skip, "Agent : non configuré (« wsquashfs-launcher --agent » l'initialise)")
 		return 0
 	}
-	cfg := loadAgentConfig()
+	cfg := loadConfig()
 	if pid, ok := runningAgentPid(); ok {
 		ui.StatusLine(ui.OK, fmt.Sprintf("Agent en marche (pid %d, port %d)", pid, cfg.Port))
 	} else if agentListening(cfg.Port) {
@@ -202,7 +202,7 @@ func agentPidFile() string {
 }
 
 // agentStopWait : attente de la fin de l'agent après SIGTERM (--agent stop). L'agent finit
-// ses requêtes en cours pendant agentStopGrace au plus, qui doit rester en dessous.
+// ses requêtes en cours pendant le délai de grâce (defaultStopGrace) au plus, qui doit rester en dessous.
 const agentStopWait = 5 * time.Second
 
 // cmdAgentStop : --agent stop. Arrête l'agent (SIGTERM) pour le PID inscrit
@@ -292,10 +292,10 @@ func isAgentProcess(pid int) bool {
 	return false
 }
 
-// prepareAgent : routes et TLS de l'agent, sans écoute. Erreur : agent non
+// prepare : routes et TLS de l'agent, sans écoute. Erreur : agent non
 // initialisé (certificat absent) ou certificat illisible. Sans machine associée, l'agent
 // tourne quand même : il ne refuse que ce qui n'est pas POST /v1/pair.
-func prepareAgent(cfg agentConfig, logOn bool) (*agentServer, *tls.Config, error) {
+func (s *Server) prepare(cfg Config, logOn bool) (*service, *tls.Config, error) {
 	if !agentConfigured() {
 		return nil, nil, errors.New("agent non initialisé : « wsquashfs-launcher --agent » d'abord")
 	}
@@ -304,7 +304,7 @@ func prepareAgent(cfg agentConfig, logOn bool) (*agentServer, *tls.Config, error
 		return nil, nil, fmt.Errorf("certificat illisible : %w", err)
 	}
 	tlsConf := &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS13}
-	return newAgentServer(cfg, logOn), tlsConf, nil
+	return s.newService(cfg, logOn), tlsConf, nil
 }
 
 // agentListener : écoute sur le port configuré.
@@ -312,25 +312,33 @@ func agentListener(port int) (net.Listener, error) {
 	return net.Listen("tcp", fmt.Sprintf(":%d", port))
 }
 
-// agentStopGrace : délai laissé aux requêtes en cours quand l'agent reçoit SIGTERM ou SIGINT.
-// Doit tenir dans l'attente de « --agent stop » (agentStopWait). Variable pour les tests.
-var agentStopGrace = 3 * time.Second
+// defaultStopGrace : délai laissé aux requêtes en cours quand l'agent reçoit SIGTERM ou SIGINT
+// (Env.StopGrace). Doit tenir dans l'attente de « --agent stop » (agentStopWait).
+const defaultStopGrace = 3 * time.Second
 
-// serveAgent : premier plan (--agent run, et l'agent lancé par --agent). Écoute TLS, PID
+// stopGrace : délai de grâce de cet agent.
+func (s *Server) stopGrace() time.Duration {
+	if s.env.StopGrace > 0 {
+		return s.env.StopGrace
+	}
+	return defaultStopGrace
+}
+
+// serve : premier plan (--agent run, et l'agent lancé par --agent). Écoute TLS, PID
 // pour « --agent stop ». logOn : trace des requêtes sur la sortie d'erreur.
 // SIGTERM ou SIGINT : arrêt propre, code 0. Le port est fermé tout de suite, les requêtes en
-// cours ont agentStopGrace pour finir (un remplacement de sauvegardes commencé va au bout) ;
-// passé ce délai elles sont coupées (un envoi encore en lecture : rien n'a été remplacé).
-func serveAgent(logOn bool) int {
+// cours ont le délai de grâce pour finir (un remplacement de sauvegardes commencé va au bout) ;
+// passé ce délai (Env.StopGrace) elles sont coupées (un envoi encore en lecture : rien n'a été remplacé).
+func (s *Server) serve(logOn bool) int {
 	// Posé avant l'écoute et le fichier de PID : un signal ne sort plus sans arrêt propre
-	// (installSignals appelle ce crochet au lieu de sortir).
+	// (le lanceur appelle ce crochet au lieu de sortir : Env.SetInterrupt).
 	stop := make(chan struct{})
 	var once sync.Once
 	hook := func() { once.Do(func() { close(stop) }) }
-	interruptHook.Store(&hook)
-	defer interruptHook.Store(nil)
-	cfg := loadAgentConfig()
-	ag, tlsConf, err := prepareAgent(cfg, logOn)
+	s.env.SetInterrupt(hook)
+	defer s.env.SetInterrupt(nil)
+	cfg := loadConfig()
+	ag, tlsConf, err := s.prepare(cfg, logOn)
 	if err != nil {
 		ui.Error(err.Error())
 		return 1
@@ -355,7 +363,7 @@ func serveAgent(logOn bool) int {
 			return 1
 		}
 	case <-stop:
-		ctx, cancel := context.WithTimeout(context.Background(), agentStopGrace)
+		ctx, cancel := context.WithTimeout(context.Background(), s.stopGrace())
 		defer cancel()
 		if err := httpSrv.Shutdown(ctx); err != nil {
 			_ = httpSrv.Close()

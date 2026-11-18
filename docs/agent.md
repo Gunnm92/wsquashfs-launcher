@@ -128,7 +128,7 @@ Toutes les routes sauf `POST /v1/pair` exigent un jeton de machine associée (40
 ### Installation des images (`/v1/games/*`)
 
 wsquashfs-manager installe une image `.wsquashfs` sur la machine de jeu et la désinstalle, par
-ces routes (`games_http.go`). Toutes exigent le jeton ; aucune ne sort du dossier d'installation.
+ces routes (`internal/agent/games.go`). Toutes exigent le jeton ; aucune ne sort du dossier d'installation.
 
 **Règle HOME** : le dossier d'installation est toujours un sous-dossier strict de HOME, une fois
 les liens symboliques résolus (`filepath.EvalSymlinks` sur le dossier et sur HOME, puis
@@ -160,7 +160,7 @@ avec `GET /v1/games/part`, puis `PUT` à partir de `part_size`.
 
 ### Maintenance (`POST /v1/maintenance`)
 
-Table fermée (`maintenanceActions` dans `agent_http.go`), contrat commun avec
+Table fermée (`maintenanceActions` dans `internal/agent/actions.go`), contrat commun avec
 wsquashfs-manager (version de l'agent : **10**, route `GET /v1/info`).
 
 | `action` | Lanceur | `rel` (image du jeu) |

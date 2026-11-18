@@ -428,7 +428,7 @@ func cmdTrialMain(args []string) int {
 	}
 	image := args[0]
 	seconds := 60
-	session := loadAgentConfig().Session
+	session := agentSrv().LoadConfig().Session
 	shot := ""
 	for i := 1; i < len(args); i++ {
 		switch args[i] {
