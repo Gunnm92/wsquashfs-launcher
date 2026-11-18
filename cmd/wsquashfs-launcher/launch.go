@@ -5,6 +5,7 @@ package main
 // et point d'entrée du lancement. Les manettes sont dans controllers.go.
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -476,7 +477,8 @@ func playGame() int {
 		cmd.ExtraFiles = []*os.File{launch.lockFile}
 	}
 	err := cmd.Run()
-	if ee, ok := err.(*exec.ExitError); ok {
+	var ee *exec.ExitError
+	if errors.As(err, &ee) {
 		return ee.ExitCode()
 	}
 	if err != nil {

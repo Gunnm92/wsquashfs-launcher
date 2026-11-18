@@ -98,7 +98,7 @@ func archiveUsers(name, parent, member string) (string, error) {
 	// « -- » : un membre qui commence par un tiret (nom de jeu, de dossier) n'est pas une option.
 	if err := execQuiet("tar", flag, "-cf", part, "-C", parent, "--", member); err != nil {
 		_ = os.Remove(part)
-		return "", err
+		return "", fmt.Errorf("création de l'archive : %w", err)
 	}
 	if err := os.Rename(part, out); err != nil {
 		_ = os.Remove(part)

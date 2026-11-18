@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -71,7 +72,8 @@ func (s *agentServer) trialRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		if ee, ok := err.(*exec.ExitError); ok {
+		var ee *exec.ExitError
+		if errors.As(err, &ee) {
 			switch ee.ExitCode() {
 			case 3:
 				writeDetail(w, http.StatusConflict, "un jeu tourne déjà sur cette machine")
@@ -177,7 +179,8 @@ func (s *agentServer) maintenance(w http.ResponseWriter, r *http.Request) {
 	code := 0
 	if err != nil {
 		code = -1
-		if ee, ok := err.(*exec.ExitError); ok && ee.ExitCode() >= 0 {
+		var ee *exec.ExitError
+		if errors.As(err, &ee) && ee.ExitCode() >= 0 {
 			code = ee.ExitCode()
 		} else {
 			out = append(out, []byte(err.Error()+"\n")...)

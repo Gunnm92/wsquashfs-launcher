@@ -62,7 +62,7 @@ func downloadBytes(url string) ([]byte, error) {
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	if err := cmd.Run(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("téléchargement de %s : %w", url, err)
 	}
 	return out.Bytes(), nil
 }
@@ -220,7 +220,7 @@ func extract(archive, dest string) error {
 func extractZip(archive, dest string) error {
 	zr, err := zip.OpenReader(archive)
 	if err != nil {
-		return err
+		return fmt.Errorf("lecture de l'archive zip : %w", err)
 	}
 	defer zr.Close()
 	clean := filepath.Clean(dest) + string(os.PathSeparator)
@@ -248,7 +248,7 @@ func extractZip(archive, dest string) error {
 func writeZipEntry(f *zip.File, target string) error {
 	rc, err := f.Open()
 	if err != nil {
-		return err
+		return fmt.Errorf("entrée %s : %w", f.Name, err)
 	}
 	defer rc.Close()
 	out, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, f.Mode().Perm()|0o600)
@@ -257,7 +257,7 @@ func writeZipEntry(f *zip.File, target string) error {
 	}
 	if _, err := io.Copy(out, rc); err != nil {
 		out.Close()
-		return err
+		return fmt.Errorf("extraction de %s : %w", target, err)
 	}
 	return out.Close()
 }
@@ -288,7 +288,7 @@ func installTree(src, dst string) error {
 	_ = os.RemoveAll(fresh)
 	if err := runCmd("cp", "-rp", src, fresh); err != nil {
 		_ = os.RemoveAll(fresh)
-		return err
+		return fmt.Errorf("copie de %s : %w", src, err)
 	}
 	_ = os.RemoveAll(old)
 	if pathExists(dst) {
@@ -318,7 +318,7 @@ func copyFile(src, dst string, mode os.FileMode) error {
 	}
 	if _, err := io.Copy(out, in); err != nil {
 		out.Close()
-		return err
+		return fmt.Errorf("copie de %s : %w", src, err)
 	}
 	if err := out.Close(); err != nil {
 		return err

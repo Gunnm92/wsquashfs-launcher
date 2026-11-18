@@ -299,7 +299,7 @@ func prepareAgent(cfg agentConfig, logOn bool) (*agentServer, *tls.Config, error
 	}
 	cert, err := tls.LoadX509KeyPair(filepath.Join(agentDir(), "cert.pem"), filepath.Join(agentDir(), "key.pem"))
 	if err != nil {
-		return nil, nil, errors.New("certificat illisible : " + err.Error())
+		return nil, nil, fmt.Errorf("certificat illisible : %w", err)
 	}
 	tlsConf := &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS13}
 	return newAgentServer(cfg, logOn), tlsConf, nil
@@ -348,7 +348,7 @@ func serveAgent(logOn bool) int {
 	go func() { served <- httpSrv.Serve(tls.NewListener(ln, tlsConf)) }()
 	select {
 	case err := <-served:
-		if err != nil && err != http.ErrServerClosed {
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			uiError("arrêt : " + err.Error())
 			return 1
 		}

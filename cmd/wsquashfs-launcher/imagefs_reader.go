@@ -47,7 +47,7 @@ func newSqDecompressor(comp uint16) (sqDecompressor, error) {
 	case sqCompZstd:
 		d, err := zstd.NewReader(nil, zstd.WithDecoderConcurrency(runtime.NumCPU()))
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("décodeur zstd : %w", err)
 		}
 		return func(src []byte, max int) ([]byte, error) {
 			return d.DecodeAll(src, make([]byte, 0, max))
@@ -110,19 +110,19 @@ func (s *squashImage) metaBlock(off int64) (*sqMetaBlock, error) {
 	}
 	var hdr [2]byte
 	if _, err := s.file.ReadAt(hdr[:], off); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("lecture de l'en-tête des métadonnées : %w", err)
 	}
 	h := binary.LittleEndian.Uint16(hdr[:])
 	size := int(h &^ 0x8000)
 	raw := make([]byte, size)
 	if _, err := s.file.ReadAt(raw, off+2); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("lecture des métadonnées : %w", err)
 	}
 	data := raw
 	if h&0x8000 == 0 {
 		var err error
 		if data, err = s.dec(raw, sqMetaSize); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("décompression des métadonnées : %w", err)
 		}
 	}
 	b := &sqMetaBlock{data: data, next: off + 2 + int64(size)}
@@ -201,7 +201,9 @@ func (s *squashImage) fragIndex() ([]uint64, error) {
 	s.fragOnce.Do(func() {
 		sb := &s.rdr.Superblock
 		raw := make([]byte, (int(sb.FragCount)+511)/512*8)
-		if _, s.fragErr = s.file.ReadAt(raw, int64(sb.FragTableStart)); s.fragErr == nil {
+		if _, err := s.file.ReadAt(raw, int64(sb.FragTableStart)); err != nil {
+			s.fragErr = fmt.Errorf("lecture de la table des fragments : %w", err)
+		} else {
 			s.fragPtrs = make([]uint64, len(raw)/8)
 			for i := range s.fragPtrs {
 				s.fragPtrs[i] = binary.LittleEndian.Uint64(raw[i*8:])
@@ -223,7 +225,7 @@ func (s *squashImage) fragment(i uint32) (sqFragment, error) {
 	r := s.metaReader(int64(ptrs[i/512]), int(i%512)*16)
 	var e [16]byte
 	if _, err := io.ReadFull(r, e[:]); err != nil {
-		return sqFragment{}, err
+		return sqFragment{}, fmt.Errorf("lecture de la table des fragments : %w", err)
 	}
 	return sqFragment{binary.LittleEndian.Uint64(e[0:8]), binary.LittleEndian.Uint32(e[8:12])}, nil
 }
@@ -290,13 +292,13 @@ func (s *squashImage) loadBlock(off uint64, sizeField uint32) ([]byte, error) {
 	size := sizeField &^ sqUncompressedBit
 	raw := make([]byte, size)
 	if _, err := s.file.ReadAt(raw, int64(off)); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("lecture du bloc de données : %w", err)
 	}
 	data := raw
 	if sizeField&sqUncompressedBit == 0 {
 		var err error
 		if data, err = s.dec(raw, int(s.rdr.Superblock.BlockSize)); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("décompression du bloc de données : %w", err)
 		}
 	}
 	return data, nil
@@ -407,13 +409,15 @@ func (s *squashImage) xattrTable() (uint64, []uint64, error) {
 			return
 		}
 		var hdr [16]byte
-		if _, s.xattrErr = s.file.ReadAt(hdr[:], int64(sb.XattrTableStart)); s.xattrErr != nil {
+		if _, err := s.file.ReadAt(hdr[:], int64(sb.XattrTableStart)); err != nil {
+			s.xattrErr = fmt.Errorf("lecture de la table des attributs : %w", err)
 			return
 		}
 		s.xattrStart = binary.LittleEndian.Uint64(hdr[0:8])
 		ids := binary.LittleEndian.Uint32(hdr[8:12])
 		raw := make([]byte, (int(ids)+511)/512*8)
-		if _, s.xattrErr = s.file.ReadAt(raw, int64(sb.XattrTableStart)+16); s.xattrErr != nil {
+		if _, err := s.file.ReadAt(raw, int64(sb.XattrTableStart)+16); err != nil {
+			s.xattrErr = fmt.Errorf("lecture de la table des attributs : %w", err)
 			return
 		}
 		s.xattrPtrs = make([]uint64, len(raw)/8)
@@ -439,7 +443,7 @@ func (s *squashImage) xattrs(ind uint32) ([]sqXattr, error) {
 	}
 	var id [16]byte
 	if _, err := io.ReadFull(s.metaReader(int64(ptrs[ind/512]), int(ind%512)*16), id[:]); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("lecture de l'identifiant d'attribut : %w", err)
 	}
 	ref := binary.LittleEndian.Uint64(id[0:8])
 	count := binary.LittleEndian.Uint32(id[8:12])
@@ -448,12 +452,12 @@ func (s *squashImage) xattrs(ind uint32) ([]sqXattr, error) {
 	for range count {
 		var h [4]byte
 		if _, err := io.ReadFull(r, h[:]); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("lecture de l'en-tête d'attribut : %w", err)
 		}
 		typ := binary.LittleEndian.Uint16(h[0:2])
 		name := make([]byte, binary.LittleEndian.Uint16(h[2:4]))
 		if _, err := io.ReadFull(r, name); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("lecture du nom d'attribut : %w", err)
 		}
 		value, err := sqXattrValue(r)
 		if err != nil {
@@ -478,13 +482,15 @@ func (s *squashImage) xattrs(ind uint32) ([]sqXattr, error) {
 func sqXattrValue(r io.Reader) ([]byte, error) {
 	var sz [4]byte
 	if _, err := io.ReadFull(r, sz[:]); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("lecture de la taille d'attribut : %w", err)
 	}
 	n := binary.LittleEndian.Uint32(sz[:])
 	if n > 1<<24 {
 		return nil, errors.New("valeur d'attribut trop grande")
 	}
 	v := make([]byte, n)
-	_, err := io.ReadFull(r, v)
-	return v, err
+	if _, err := io.ReadFull(r, v); err != nil {
+		return v, fmt.Errorf("lecture de la valeur d'attribut : %w", err)
+	}
+	return v, nil
 }

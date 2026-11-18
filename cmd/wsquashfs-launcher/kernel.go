@@ -7,6 +7,7 @@ package main
 // fichier NS_DIR/status.
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -205,7 +206,8 @@ func stageInNamespace() (int, string, bool) {
 	err := cmd.Wait()
 	nsPID.Store(0)
 	rc := 0
-	if ee, ok := err.(*exec.ExitError); ok {
+	var ee *exec.ExitError
+	if errors.As(err, &ee) {
 		rc = ee.ExitCode()
 	}
 	status := strings.TrimSpace(readTrim(filepath.Join(launch.nsDir, "status")))

@@ -299,7 +299,7 @@ func writeArchiveTree(w io.Writer, root string, files []saveFile, name func(rel 
 				ModTime:  time.Unix(st.ModTime().Unix(), 0),
 			}
 			if err := tw.WriteHeader(hdr); err != nil {
-				return err
+				return fmt.Errorf("en-tête tar de %s : %w", dirRel, err)
 			}
 		}
 		fp := filepath.Join(root, filepath.FromSlash(f.Rel))
@@ -324,13 +324,16 @@ func writeArchiveTree(w io.Writer, root string, files []saveFile, name func(rel 
 		}
 		_ = src.Close()
 		if err != nil {
-			return err
+			return fmt.Errorf("écriture de %s : %w", f.Rel, err)
 		}
 	}
 	if err := tw.Close(); err != nil {
-		return err
+		return fmt.Errorf("fermeture de l'archive : %w", err)
 	}
-	return gz.Close()
+	if err := gz.Close(); err != nil {
+		return fmt.Errorf("fermeture de l'archive : %w", err)
+	}
+	return nil
 }
 
 // syncEntry : entrée d'archive acceptée : profil (token non résolu), chemin restant, dossier ou fichier.
@@ -448,7 +451,7 @@ func checkSyncDests(users string, moves []syncMove) error {
 	for _, m := range moves {
 		rel, err := filepath.Rel(users, m.dst)
 		if err != nil {
-			return err
+			return fmt.Errorf("chemin de %s : %w", m.dst, err)
 		}
 		parts := strings.Split(filepath.ToSlash(rel), "/")
 		cur := users
@@ -570,7 +573,7 @@ func replaceFromArchive(r io.Reader, root string, entry func(*tar.Header) (strin
 
 	zr, err := gzip.NewReader(r)
 	if err != nil {
-		return err
+		return fmt.Errorf("décompression de l'archive : %w", err)
 	}
 	defer func() { _ = zr.Close() }()
 
@@ -579,11 +582,11 @@ func replaceFromArchive(r io.Reader, root string, entry func(*tar.Header) (strin
 	tr := tar.NewReader(zr)
 	for {
 		hdr, err := tr.Next()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
-			return err
+			return fmt.Errorf("lecture de l'archive : %w", err)
 		}
 		rel, isDir, err := entry(hdr)
 		if err != nil {
@@ -713,7 +716,7 @@ func saveSyncState(stateRoot, peerID, game, fp string) error {
 	}
 	data, err := json.MarshalIndent(syncState{Fingerprint: fp, At: time.Now().UTC()}, "", "  ")
 	if err != nil {
-		return err
+		return fmt.Errorf("encodage de l'état de synchro : %w", err)
 	}
 	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, append(data, '\n'), 0o644); err != nil {

@@ -99,7 +99,7 @@ func saveAgentConfig(cfg agentConfig) error {
 	}
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
-		return err
+		return fmt.Errorf("encodage de agent.json : %w", err)
 	}
 	tmp := filepath.Join(agentDir(), "agent.json.tmp")
 	if err := os.WriteFile(tmp, append(data, '\n'), 0o600); err != nil {
@@ -112,7 +112,7 @@ func saveAgentConfig(cfg agentConfig) error {
 func newToken() (string, error) {
 	buf := make([]byte, 32)
 	if _, err := rand.Read(buf); err != nil {
-		return "", err
+		return "", fmt.Errorf("génération du jeton : %w", err)
 	}
 	return base64.RawURLEncoding.EncodeToString(buf), nil
 }
@@ -140,11 +140,11 @@ func ensureAgentCert() error {
 	}
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
-		return err
+		return fmt.Errorf("génération de la clé : %w", err)
 	}
 	serial, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 62))
 	if err != nil {
-		return err
+		return fmt.Errorf("numéro de série du certificat : %w", err)
 	}
 	host, _ := os.Hostname()
 	tmpl := x509.Certificate{
@@ -165,11 +165,11 @@ func ensureAgentCert() error {
 	}
 	der, err := x509.CreateCertificate(rand.Reader, &tmpl, &tmpl, &key.PublicKey, key)
 	if err != nil {
-		return err
+		return fmt.Errorf("création du certificat : %w", err)
 	}
 	keyDER, err := x509.MarshalECPrivateKey(key)
 	if err != nil {
-		return err
+		return fmt.Errorf("encodage de la clé : %w", err)
 	}
 	if err := os.MkdirAll(agentDir(), 0o700); err != nil {
 		return err
@@ -238,7 +238,7 @@ func writeJSONAtomic600(path string, v any) error {
 	}
 	data, err := json.Marshal(v)
 	if err != nil {
-		return err
+		return fmt.Errorf("encodage de %s : %w", filepath.Base(path), err)
 	}
 	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, data, 0o600); err != nil {

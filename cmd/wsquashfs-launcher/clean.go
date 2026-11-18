@@ -5,6 +5,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"os"
 	"os/exec"
@@ -220,8 +221,8 @@ func sameContent(a, b string) bool {
 		if na != nb || !bytes.Equal(ba[:na], bb[:nb]) {
 			return false
 		}
-		if ea == io.EOF || ea == io.ErrUnexpectedEOF {
-			return eb == io.EOF || eb == io.ErrUnexpectedEOF
+		if errors.Is(ea, io.EOF) || errors.Is(ea, io.ErrUnexpectedEOF) {
+			return errors.Is(eb, io.EOF) || errors.Is(eb, io.ErrUnexpectedEOF)
 		}
 		if ea != nil || eb != nil {
 			return false

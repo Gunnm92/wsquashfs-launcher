@@ -131,7 +131,7 @@ func openSquashImage(path string, uid, gid int) (*squashImage, error) {
 	rdr, err := squashfslow.NewReader(f)
 	if err != nil {
 		f.Close()
-		return nil, err
+		return nil, fmt.Errorf("lecture du superbloc : %w", err)
 	}
 	dec, err := newSqDecompressor(rdr.Superblock.CompType)
 	if err != nil {

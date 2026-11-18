@@ -89,7 +89,7 @@ func saveSyncConfig(cfg syncConfig) error {
 	}
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
-		return err
+		return fmt.Errorf("encodage de la configuration de synchro : %w", err)
 	}
 	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, append(data, '\n'), 0o600); err != nil {
@@ -304,7 +304,7 @@ func (c *syncClient) pair() (pairReply, error) {
 	name, _ := os.Hostname()
 	body, err := json.Marshal(map[string]string{"name": name})
 	if err != nil {
-		return pairReply{}, err
+		return pairReply{}, fmt.Errorf("encodage de la demande d'association : %w", err)
 	}
 	resp, err := c.raw(c.http, http.MethodPost, "/v1/pair", nil, bytes.NewReader(body),
 		map[string]string{"Content-Type": "application/json"})
@@ -473,7 +473,7 @@ func (c *syncClient) send(t syncTarget) (string, string, error) {
 func (c *syncClient) ack(game, fp string) error {
 	body, err := json.Marshal(syncStateRequest{Game: game, Fingerprint: fp})
 	if err != nil {
-		return err
+		return fmt.Errorf("encodage de l'état de synchro : %w", err)
 	}
 	resp, err := c.do(http.MethodPost, "/v1/saves/state", nil, bytes.NewReader(body),
 		map[string]string{"Content-Type": "application/json"})
