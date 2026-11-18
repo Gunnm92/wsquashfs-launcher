@@ -770,6 +770,7 @@ chaque montage noyau.
 ```
 wsquashfs-launcher/
 ├── wsquashfs-launcher          # Binaire principal (Go, versionné)
+├── go.mod, go.sum              # Module Go (racine du dépôt)
 ├── cmd/wsquashfs-launcher/     # Sources Go (affichage : ui.go, lipgloss) et tests unitaires
 ├── autorun.cmd.example         # Exemple de configuration
 ├── install.sh                  # Installation (Debian/Ubuntu, Arch/CachyOS)

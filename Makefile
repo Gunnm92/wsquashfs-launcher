@@ -24,7 +24,7 @@ help:
 # versionné à la racine est régénéré par cette cible.
 build:
 	@command -v go >/dev/null || { echo "go absent (Go 1.26.7 ou plus récent ; go1.27.4 pour reproduire l'empreinte du binaire versionné)"; exit 1; }
-	@cd cmd/wsquashfs-launcher && CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w" -o ../../wsquashfs-launcher .
+	@CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w" -o wsquashfs-launcher ./cmd/wsquashfs-launcher
 	@sha256sum wsquashfs-launcher > wsquashfs-launcher.sha256
 	@echo "✓ wsquashfs-launcher compilé (empreinte : wsquashfs-launcher.sha256, à committer avec lui)"
 
@@ -37,18 +37,18 @@ uninstall:
 	@./wsquashfs-launcher --setup uninstall
 
 test:
-	@cd cmd/wsquashfs-launcher && go test ./...
+	@go test -race -count=1 ./...
 	@tests/run-tests.sh
 
 test-update:
 	@tests/run-tests.sh --update
 
 lint:
-	@cd cmd/wsquashfs-launcher && go vet ./... && test -z "`gofmt -l .`" && echo "✓ go vet, gofmt"
+	@go vet ./... && test -z "`gofmt -l cmd`" && echo "✓ go vet, gofmt"
 	@command -v shellcheck >/dev/null || { echo "shellcheck absent"; exit 1; }
 	@shellcheck install.sh tests/run-tests.sh && echo "✓ shellcheck"
-	@if command -v staticcheck >/dev/null; then (cd cmd/wsquashfs-launcher && staticcheck ./...) && echo "✓ staticcheck"; else echo "staticcheck absent, ignoré"; fi
-	@if command -v govulncheck >/dev/null; then (cd cmd/wsquashfs-launcher && govulncheck ./...) && echo "✓ govulncheck"; else echo "govulncheck absent, ignoré"; fi
+	@if command -v staticcheck >/dev/null; then staticcheck ./... && echo "✓ staticcheck"; else echo "staticcheck absent, ignoré"; fi
+	@if command -v govulncheck >/dev/null; then govulncheck ./... && echo "✓ govulncheck"; else echo "govulncheck absent, ignoré"; fi
 
 deps:
 	@echo "Vérification des dépendances..."

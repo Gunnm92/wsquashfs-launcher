@@ -47,7 +47,7 @@ l'affichage ; toute autre dépendance doit être justifiée.
 - `make build` régénère le binaire versionné `wsquashfs-launcher` et son
   empreinte `wsquashfs-launcher.sha256` ; à committer ensemble, avec les
   sources. L'empreinte dépend de la version exacte de Go : elle se reproduit
-  avec go1.27.4 (ligne `toolchain` de `cmd/wsquashfs-launcher/go.mod`)
+  avec go1.27.4 (ligne `toolchain` de `go.mod`, à la racine)
 - `make lint` lance `gofmt` et `go vet` (et `shellcheck` sur les scripts)
 - Les fonctions gardent les noms de l'ancienne version bash quand c'est possible,
   et les dates (JJ/MM) des commentaires renvoient aux constats qui ont motivé
@@ -85,7 +85,7 @@ Le lanceur a une suite de tests de non-régression (`tests/run-tests.sh`) :
 elle lance le vrai binaire sur des dizaines de scénarios, avec de vrais
 montages FUSE mais un faux Wine/Proton/umu qui journalise ses appels, et
 compare la trace obtenue à `tests/expected.out`. Les tests unitaires Go
-(`go test ./...` dans `cmd/wsquashfs-launcher/`) complètent cette suite.
+(`go test ./...` à la racine, ou `make test`) complètent cette suite.
 Les scénarios se lancent dans un environnement avec `/dev/fuse` (le conteneur
 SteamBox, par exemple), pas dans un conteneur sans FUSE.
 
