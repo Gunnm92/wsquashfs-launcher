@@ -500,3 +500,38 @@ func TestImageRunnerFolderOverlay(t *testing.T) {
 		t.Fatalf("imageRunner = %q, attendu %q", launch.imageRunner, want)
 	}
 }
+
+// TestProtonFamilyLatest : PROTON=GE-Proton (sans version, 18/11) → le
+// GE-Proton le plus récent, comparé sur le nom du dossier (pas sur le chemin :
+// Heroic et Steam ont des dossiers différents) ; nom inconnu → "".
+func TestProtonFamilyLatest(t *testing.T) {
+	isolateState(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	mk := func(rel string) string {
+		d := filepath.Join(home, rel)
+		writeTree(t, d, map[string]string{"proton": "#!/bin/sh\n", "files/bin/wine": "#!/bin/sh\n"})
+		if err := os.Chmod(filepath.Join(d, "files/bin/wine"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return d
+	}
+	mk(".config/heroic/tools/proton/GE-Proton-latest")
+	mk(".local/share/Steam/compatibilitytools.d/GE-Proton10-34")
+	newest := mk(".local/share/Steam/compatibilitytools.d/GE-Proton11-5")
+	mk(".local/share/Steam/compatibilitytools.d/UMU-Proton-10.0-4")
+
+	real := func(p string) string { r, _ := filepath.EvalSymlinks(p); return r }
+	if got := protonFamilyLatest("GE-Proton"); got != real(newest) {
+		t.Fatalf("GE-Proton → %q, attendu %q", got, newest)
+	}
+	if got := protonFamilyLatest("ge-proton"); got != real(newest) {
+		t.Fatalf("casse ignorée : ge-proton → %q", got)
+	}
+	if got := protonFamilyLatest("GE-Proton11-5"); got != "" {
+		t.Fatalf("version précise : %q, attendu \"\" (recherche exacte ailleurs)", got)
+	}
+	if got := protonFamilyLatest("proton-cachyos"); got != "" {
+		t.Fatalf("aucun proton-cachyos : %q", got)
+	}
+}

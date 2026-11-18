@@ -577,7 +577,7 @@ func pathExists(p string) bool {
 
 // ── Point d'entrée (section 10) ────────────────────────────────────────
 
-const setupUsage = `Usage : wsquashfs-launcher --setup [yes] [dry-run] [uninstall] [help]
+const setupUsage = `Usage : wsquashfs-launcher --setup [yes] [dry-run] [uninstall] [ge-proton] [help]
 
   --setup            installe wsquashfs-launcher et ce dont il a besoin
                      (paquets système, runners Wine et Proton, DXVK, VKD3D,
@@ -585,6 +585,9 @@ const setupUsage = `Usage : wsquashfs-launcher --setup [yes] [dry-run] [uninstal
   yes                répond oui à toutes les questions (installation complète)
   dry-run            montre ce qui serait fait, sans rien installer ni modifier
   uninstall          désinstalle le lanceur (sauvegardes et runners gardés)
+  ge-proton          installe seulement la dernière version de GE-Proton (somme
+                     SHA-512 vérifiée), choisie par PROTON=GE-Proton ; à relancer
+                     pour passer à une version plus récente
   help               cette aide
 
 Distributions prises en charge pour les paquets système :
@@ -701,10 +704,12 @@ func runSetup(args []string) int {
 			dryRun = true
 		case "uninstall":
 			action = "uninstall"
+		case "ge-proton":
+			action = "ge-proton"
 		case "help":
 			action = "help"
 		default:
-			uiError("Option inconnue pour --setup : " + a + " (yes, dry-run, uninstall, help)")
+			uiError("Option inconnue pour --setup : " + a + " (yes, dry-run, uninstall, ge-proton, help)")
 			uiHelp(setupUsage)
 			return 1
 		}
@@ -718,6 +723,14 @@ func runSetup(args []string) int {
 		checkRoot()
 		uninstall()
 		return 0
+	case "ge-proton":
+		checkRoot()
+		stageTotal = 1
+		setupStage("GE-Proton")
+		if !downloadGEProton() {
+			return setupEnd("GE-Proton non installé")
+		}
+		return setupEnd("")
 	}
 	return installAll()
 }

@@ -263,6 +263,34 @@ var (
 	reGEProton = regexp.MustCompile(`(?i)/GE-Proton`)
 )
 
+// protonFamilyLatest : PROTON=GE-Proton, UMU-Proton ou proton-cachyos (nom de
+// famille, sans version, 18/11) → la version la plus récente installée de
+// cette famille, comparée sur le nom du dossier ; "" sinon. Évite de figer une
+// version dans l'autorun.cmd.
+func protonFamilyLatest(want string) string {
+	var re *regexp.Regexp
+	switch strings.ToLower(want) {
+	case "ge-proton":
+		re = reGEProton
+	case "umu-proton":
+		re = reUmu
+	case "proton-cachyos":
+		re = reCachyos
+	default:
+		return ""
+	}
+	best := ""
+	for _, d := range protonRunnerDirs() {
+		if !re.MatchString(d) {
+			continue
+		}
+		if best == "" || versionLess(filepath.Base(best), filepath.Base(d)) {
+			best = d
+		}
+	}
+	return best
+}
+
 // findProtonRunner : dossier du runner Proton pour une version voulue, sinon le
 // plus récent des proton-cachyos, puis UMU-Proton, GE-Proton, puis n'importe
 // quel Proton (un prefix Proton ne doit pas retomber sur le Wine système).
@@ -495,12 +523,17 @@ func applyAutorunRunner() {
 			launch.wineBinary = launch.imageRunner
 		} else if found := findProtonRunner(launch.protonVersion); found != "" && protonRunnerIs(found, launch.protonVersion) {
 			launch.wineBinary = found + "/files/bin/wine"
+		} else if found := protonFamilyLatest(launch.protonVersion); found != "" {
+			launch.wineBinary = found + "/files/bin/wine"
 		} else if len(protonRunnerDirs()) == 0 && isExecutable(sysPath("/usr/local/bin/proton")) {
 			launch.wineBinary = sysPath("/usr/local/bin/proton")
 		} else {
-			die("Proton "+launch.protonVersion+" introuvable",
-				"  cherché : runners/ de l'image, Heroic, Steam (compatibilitytools.d)",
-				"  → le joindre à l'image (runners/"+launch.protonVersion+"/), l'installer, ou --wine <runner>")
+			details := []string{"  cherché : runners/ de l'image, Heroic, Steam (compatibilitytools.d)",
+				"  → le joindre à l'image (runners/" + launch.protonVersion + "/), l'installer, ou --wine <runner>"}
+			if strings.HasPrefix(strings.ToLower(launch.protonVersion), "ge-proton") {
+				details = append(details, "  → GE-Proton : wsquashfs-launcher --setup ge-proton (dernière version)")
+			}
+			die("Proton "+launch.protonVersion+" introuvable", details...)
 		}
 	case launch.wineVersion != "":
 		found := launch.imageRunner

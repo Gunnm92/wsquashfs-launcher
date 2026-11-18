@@ -42,7 +42,10 @@ REM WINE=system
 
 REM Version de Proton à utiliser (Steam Proton)
 REM Exemples : 8.0, 9.0, GE-Proton8-25, etc.
+REM Sans version (GE-Proton, UMU-Proton, proton-cachyos) : la plus récente
+REM installée de cette famille (GE-Proton : wsquashfs-launcher --setup ge-proton)
 REM PROTON=9.0
+REM PROTON=GE-Proton
 
 REM Runner personnalisé (chemin complet vers un binaire Wine/Proton)
 REM RUNNER=/opt/wine-custom/bin/wine

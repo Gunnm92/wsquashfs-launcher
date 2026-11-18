@@ -82,7 +82,12 @@ Puis il propose, quelle que soit la distribution :
   lancés par Wine.
 
 Il termine par `wsquashfs-launcher --doctor`. Options, sans tirets : `dry-run` (montre ce
-qui serait fait sans rien modifier), `yes` (sans questions), `uninstall`.
+qui serait fait sans rien modifier), `yes` (sans questions), `uninstall`,
+`ge-proton` (installe seulement la dernière version de **GE-Proton**, SHA-512
+vérifiée, dans `~/.local/share/Steam/compatibilitytools.d` ; à relancer pour
+passer à une version plus récente, les précédentes sont gardées). GE-Proton
+n'est pas installé par défaut : seulement pour les jeux qui le demandent
+(`PROTON=GE-Proton`).
 Les questions sont posées au terminal, y compris avec `curl … | bash`.
 
 ### Prérequis
@@ -382,7 +387,7 @@ fonctionnera pas tel quel.
 | Variable | Description | Exemples |
 |---|---|---|
 | `WINE` | Wine joint à l'image (`runners/<VERSION>/`), sinon version dans `/opt/wine-<VERSION>/bin/wine`, ou `system` pour le Wine du système. Introuvable : erreur | `9.0`, `tkg`, `system` |
-| `PROTON` | Proton joint à l'image (`runners/<nom>/`), sinon runner Proton de Heroic/Steam (nom du dossier ou version). Introuvable : erreur (plus de repli sur un autre Proton) | `MonProton-11.0`, `UMU-Proton-10.0-4`, `GE-Proton8-25` |
+| `PROTON` | Proton joint à l'image (`runners/<nom>/`), sinon runner Proton de Heroic/Steam (nom du dossier ou version). Nom de famille sans version (`GE-Proton`, `UMU-Proton`, `proton-cachyos`) : la version la plus récente installée, rien de figé (GE-Proton : `--setup ge-proton`). Introuvable : erreur (plus de repli sur un autre Proton) | `GE-Proton`, `MonProton-11.0`, `UMU-Proton-10.0-4` |
 | `RUNNER` | Chemin **absolu** d'un binaire wine de la machine (un runner joint au jeu passe par `runners/` et `PROTON`/`WINE`) | `/opt/wine-custom/bin/wine` |
 | `ARCH` | Architecture Wine (défaut : `win64`) | `win32`, `win64` |
 | `LANG` | Langue (`LC_ALL`) | `fr_FR.UTF-8` |

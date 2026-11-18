@@ -190,28 +190,56 @@ func installUmu() {
 
 // downloadUmuProton : UMU-Proton (SHA-512 vérifiée), dans protonInstallDir.
 func downloadUmuProton() bool {
-	tag := githubLatestTag("Open-Wine-Components/umu-proton", "UMU-Proton-10.0-4")
-	base := "https://github.com/Open-Wine-Components/umu-proton/releases/download/" + tag
+	return downloadProtonRelease("Open-Wine-Components/umu-proton", "UMU-Proton-10.0-4", "~470 Mo")
+}
+
+// downloadGEProton : dernière version de GE-Proton (SHA-512 vérifiée), dans
+// protonInstallDir (18/11 : plus de dépendance au GE-Proton de Heroic).
+// Choisie par PROTON=GE-Proton ; les versions précédentes sont gardées.
+func downloadGEProton() bool {
+	return downloadProtonRelease("GloriousEggroll/proton-ge-custom", "GE-Proton11-5", "~500 Mo")
+}
+
+// downloadProtonRelease : Proton d'une release GitHub, archive et somme
+// SHA-512 publiées côte à côte : <tag>-x86_64.tar.gz (GE-Proton depuis 11-x)
+// ou <tag>.tar.gz (UMU-Proton), dans protonInstallDir. Déjà installé : rien
+// n'est téléchargé.
+func downloadProtonRelease(repo, fallbackTag, size string) bool {
+	tag := githubLatestTag(repo, fallbackTag)
+	// Dossier nommé <tag> ou <tag>-x86_64 : reconnu par le fichier version.
+	dirs, _ := filepath.Glob(filepath.Join(protonInstallDir, "*"))
+	for _, d := range dirs {
+		if isExecutable(filepath.Join(d, "proton")) && protonRunnerIs(d, tag) {
+			setupHave(tag + " : " + d)
+			return true
+		}
+	}
+	base := "https://github.com/" + repo + "/releases/download/" + tag
+	file := tag + ".tar.gz"
+	if urlExists(base + "/" + tag + "-x86_64.tar.gz") {
+		file = tag + "-x86_64.tar.gz"
+	}
+	sum := strings.TrimSuffix(file, ".tar.gz") + ".sha512sum"
 	tmp, err := mkTempDir()
 	if err != nil {
 		return false
 	}
 	defer os.RemoveAll(tmp)
-	if fetch(base+"/"+tag+".tar.gz", filepath.Join(tmp, tag+".tar.gz"), tag+" (~470 Mo)") == nil && dryRun {
+	if fetch(base+"/"+file, filepath.Join(tmp, file), tag+" ("+size+")") == nil && dryRun {
 		setupDone(tag + " : " + doneWord())
 		return true
 	}
-	if !isFile(filepath.Join(tmp, tag+".tar.gz")) || downloadTo(base+"/"+tag+".sha512sum", filepath.Join(tmp, tag+".sha512sum")) != nil {
+	if !isFile(filepath.Join(tmp, file)) || downloadTo(base+"/"+sum, filepath.Join(tmp, sum)) != nil {
 		return false
 	}
-	check := exec.Command("sha512sum", "-c", "--quiet", tag+".sha512sum")
+	check := exec.Command("sha512sum", "-c", "--quiet", sum)
 	check.Dir = tmp
 	if check.Run() != nil {
 		setupErr("Somme de contrôle SHA-512 incorrecte, archive ignorée")
 		return false
 	}
 	x := filepath.Join(tmp, "x")
-	if os.MkdirAll(x, 0o755) == nil && extract(filepath.Join(tmp, tag+".tar.gz"), x) == nil {
+	if os.MkdirAll(x, 0o755) == nil && extract(filepath.Join(tmp, file), x) == nil {
 		top := topDirOf(x)
 		if top != "" && isExecutable(filepath.Join(top, "proton")) {
 			dest := filepath.Join(protonInstallDir, filepath.Base(top))
