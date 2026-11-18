@@ -27,6 +27,10 @@ _wsquashfs_launcher() {
 	mapfile -t COMPREPLY < <("${COMP_WORDS[0]}" --complete "$COMP_POINT" "$COMP_LINE" 2>/dev/null)
 }
 complete -o default -F _wsquashfs_launcher wsquashfs-launcher
+# Nom court « ws » : complété seulement si c'est le lien du lanceur (une autre commande ws ne l'est pas)
+if [ -n "$(command -v wsquashfs-launcher)" ] && [ "$(readlink -f "$(command -v ws)")" = "$(readlink -f "$(command -v wsquashfs-launcher)")" ]; then
+	complete -o default -F _wsquashfs_launcher ws
+fi
 `
 
 // completionCommands : commandes proposées après « wsquashfs-launcher -… ».

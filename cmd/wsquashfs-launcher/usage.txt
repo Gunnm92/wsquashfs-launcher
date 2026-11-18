@@ -56,5 +56,10 @@ Options :
   --wine <runner>   Runner Wine/Proton : nom, chemin d'un wine, ou "system"
   --set CLÉ=valeur  Réglage pour ce lancement seulement (répétable)
 
+Nom court :
+  ws --update  ·  ws --agent  ·  ws Jeu.wsquashfs
+        Même commande, plus courte (lien posé par --setup, sans écraser une
+        autre commande ws).
+
 Le reste (réglages par couches, variables WSQUASHFS_*, autres commandes) :
   https://github.com/Gunnm92/wsquashfs-launcher#readme

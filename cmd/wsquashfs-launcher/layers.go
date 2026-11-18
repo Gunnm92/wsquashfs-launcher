@@ -199,6 +199,9 @@ func loadLayers(image string) {
 		}
 	}
 	readLayer("image", image)
+	if launch.detectLayer != "" {
+		readLayer("détection", launch.detectLayer)
+	}
 	if launch.autorunOverride != "" && isFile(launch.autorunOverride) {
 		data, _ := os.ReadFile(launch.autorunOverride)
 		readLayer("surcharge", string(data))

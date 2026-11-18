@@ -5,6 +5,7 @@ package main
 // 10 (enchaînement).
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -108,6 +109,99 @@ func sameFile(a, b string) bool {
 	return errA == nil && errB == nil && os.SameFile(sa, sb)
 }
 
+// shortName : nom court du lanceur (« ws --update »), lien vers le binaire installé.
+const shortName = "ws"
+
+// shortNameTaken : « ws » est déjà une autre commande (fichier, lien étranger
+// dans installDir, ou commande du PATH).
+type shortNameTaken struct{ by string }
+
+func (e shortNameTaken) Error() string {
+	return "ws déjà pris par " + e.by + " : nom court non posé"
+}
+
+// isOwnShortName : link est un lien symbolique vers target (ou vers le même
+// fichier). Un fichier ordinaire ou un lien étranger n'est jamais le nôtre.
+func isOwnShortName(link, target string) bool {
+	lt, err := os.Readlink(link)
+	if err != nil {
+		return false
+	}
+	if !filepath.IsAbs(lt) {
+		lt = filepath.Join(filepath.Dir(link), lt)
+	}
+	return filepath.Clean(lt) == filepath.Clean(target) || sameFile(link, target)
+}
+
+// checkShortName : sans rien écrire. true si installDir/ws reste à poser,
+// false s'il est déjà notre lien, shortNameTaken s'il est pris par une autre
+// commande (dans installDir ou ailleurs dans le PATH).
+func checkShortName(installDir, target string) (bool, error) {
+	link := filepath.Join(installDir, shortName)
+	if _, err := os.Lstat(link); err == nil {
+		if isOwnShortName(link, target) {
+			return false, nil
+		}
+		by := link
+		if lt, err := os.Readlink(link); err == nil {
+			by = link + " → " + lt
+		}
+		return false, shortNameTaken{by: by}
+	}
+	if found, err := exec.LookPath(shortName); err == nil && !sameFile(found, target) {
+		return false, shortNameTaken{by: found}
+	}
+	return true, nil
+}
+
+// installShortName : pose installDir/ws → target, sans jamais écraser une autre
+// commande. Retourne true si le lien est créé, false s'il était déjà en place.
+// Lien relatif quand le lanceur est dans installDir (le dossier peut bouger).
+func installShortName(installDir, target string) (bool, error) {
+	created, err := checkShortName(installDir, target)
+	if err != nil || !created {
+		return false, err
+	}
+	dst := target
+	if filepath.Dir(target) == installDir {
+		dst = filepath.Base(target)
+	}
+	return true, os.Symlink(dst, filepath.Join(installDir, shortName))
+}
+
+// installShortNameLink : étape Lanceur, après le binaire. En simulation, rien
+// n'est écrit : seulement ce qui serait fait ou ce qui bloque.
+func installShortNameLink(target string) {
+	link := filepath.Join(installDir, shortName)
+	if dryRun {
+		created, err := checkShortName(installDir, target)
+		var taken shortNameTaken
+		switch {
+		case errors.As(err, &taken):
+			setupSkip(err.Error(), "wsquashfs-launcher reste la commande")
+		case err != nil:
+			setupFail("Nom court ws impossible : " + err.Error())
+		case created:
+			simLine(link + " → " + target)
+		default:
+			setupHave("Nom court ws déjà en place : " + link)
+		}
+		return
+	}
+	created, err := installShortName(installDir, target)
+	var taken shortNameTaken
+	switch {
+	case errors.As(err, &taken):
+		setupSkip(err.Error(), "wsquashfs-launcher reste la commande")
+	case err != nil:
+		setupFail("Nom court ws impossible : " + err.Error())
+	case created:
+		setupDone("Nom court : " + link + " → " + target)
+	default:
+		setupHave("Nom court ws déjà en place : " + link)
+	}
+}
+
 // installBridge : pont DualSense, pris à côté du binaire (dépôt cloné) ;
 // sinon téléchargé du dépôt.
 func installBridge(dest string) error {
@@ -130,7 +224,7 @@ func installBridge(dest string) error {
 
 // installLauncher : ce binaire s'installe lui-même (aucun téléchargement :
 // la version installée est celle qui tourne, « --update » la met à jour),
-// puis le pont DualSense.
+// puis le nom court et le pont DualSense.
 func installLauncher() bool {
 	dest := filepath.Join(installDir, "wsquashfs-launcher")
 	if err := installSelf(dest); err != nil {
@@ -138,6 +232,7 @@ func installLauncher() bool {
 		return false
 	}
 	setupDone("Lanceur : " + dest)
+	installShortNameLink(dest)
 	bridge := filepath.Join(installDir, "dualsense-usb-bridge")
 	if installBridge(bridge) == nil && !dryRun {
 		setupDone("Pont DualSense : " + bridge)
@@ -404,6 +499,15 @@ func uninstall() {
 	}
 	uiTitle("Désinstallation de WSquashFS Launcher", sub)
 	launcher := filepath.Join(installDir, "wsquashfs-launcher")
+	short := filepath.Join(installDir, shortName)
+	switch {
+	case isOwnShortName(short, launcher):
+		if removePaths(short) == nil {
+			uiItem(stOK, "Nom court ws retiré")
+		}
+	case pathExists(short):
+		uiItem(stSkip, "ws laissé : autre commande que ce lanceur")
+	}
 	if isFile(launcher) {
 		if removePaths(launcher) == nil {
 			uiItem(stOK, "Lanceur supprimé")

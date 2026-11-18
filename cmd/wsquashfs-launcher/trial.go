@@ -101,7 +101,7 @@ func launcherRunning() bool {
 		if comm == "umu-run" {
 			return true
 		}
-		if isLauncherComm(comm) && launchesGame(processArgs(pid)) {
+		if (isLauncherComm(comm) || (comm == shortName && isLauncherExe(pid))) && launchesGame(processArgs(pid)) {
 			return true
 		}
 	}
@@ -113,6 +113,14 @@ func launcherRunning() bool {
 func isLauncherComm(comm string) bool {
 	const name = "wsquashfs-launcher"
 	return comm == name || (len(comm) == 15 && strings.HasPrefix(name, comm))
+}
+
+// isLauncherExe : processus lancé par le nom court (comm « ws ») : le noyau garde le nom du lien, donc
+// c'est l'exécutable résolu (/proc/PID/exe) qui dit si c'est le lanceur. « (deleted) » : binaire
+// remplacé par --update pendant le jeu.
+func isLauncherExe(pid int) bool {
+	exe, err := os.Readlink(fmt.Sprintf("/proc/%d/exe", pid))
+	return err == nil && filepath.Base(strings.TrimSuffix(exe, " (deleted)")) == "wsquashfs-launcher"
 }
 
 // launchesGame : la ligne de commande d'un lanceur (args sans argv[0]) lance,

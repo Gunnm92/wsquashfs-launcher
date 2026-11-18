@@ -40,6 +40,13 @@ wsquashfs-launcher --saves                 # copier les sauvegardes dans la ludo
 wsquashfs-launcher --help
 ```
 
+Nom court : `ws` est la même commande (lien posé par `--setup`) :
+
+```bash
+ws --update                                # mettre à jour le lanceur
+ws --agent                                 # agent pour wsquashfs-manager, en arrière-plan
+```
+
 ## 🎮 Frontend (Pegasus, EmulationStation…)
 
 Commande de lancement : `wsquashfs-launcher "{file.path}"`.

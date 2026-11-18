@@ -76,6 +76,7 @@ type launchState struct {
 	fsr, fsr4, fsr4On                                         string
 	preCmd, attachCmd, attachProcess                          string
 	machineLayer, folderLayer                                 string
+	detectLayer                                               string // DIR/CMD trouvés dans le dossier (detect.go)
 
 	// ── Exécutable, runner, contrôleurs ────────────────────────────────────
 	execPath       string

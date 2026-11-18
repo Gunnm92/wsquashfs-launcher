@@ -261,6 +261,26 @@ wsquashfs-launcher --doctor
 wsquashfs-launcher --help
 ```
 
+### Lancer un dossier de jeu sans autorun.cmd
+
+Un dossier de jeu brut (par exemple un jeu GOG copié tel quel, `Jeu/` sans
+suffixe `.pc`) se lance comme un dossier `.pc` : monté en overlay, jamais
+modifié, prefix et sauvegardes dans `saves/Jeu` et `saves/.images/Jeu`. Le
+lanceur cherche l'exécutable parmi les `.exe` du dossier, en ignorant
+désinstalleurs, redistribuables et rapporteurs de plantage.
+
+- un seul exécutable (ou un seul à la racine) : utilisé, rien n'est écrit ;
+- plusieurs : le plus proche du nom du dossier est lancé, et `Jeu.autorun` est
+  écrit à côté du dossier (`DIR=` et `CMD=`, autres candidats en `REM`). Un
+  avertissement le signale : le vérifier ou le modifier, ou renommer le dossier
+  en `Jeu.pc` pour l'analyser dans le manager ;
+- aucun : arrêt avec la liste des fichiers écartés ; `--set CMD=Jeu.exe` ou
+  `--exec programme` permettent de lancer quand même.
+
+```
+wsquashfs-launcher /chemin/Jeu
+```
+
 ### Complétion (Tab)
 
 `--setup` installe une complétion bash (`~/.local/share/wsquashfs/completion.bash`,

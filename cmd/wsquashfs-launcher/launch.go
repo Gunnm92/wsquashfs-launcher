@@ -21,7 +21,8 @@ import (
 // readAutorun : lit l'autorun.cmd du prefix et fixe les réglages du jeu.
 func readAutorun() {
 	data, err := os.ReadFile(launch.winePoint + "/autorun.cmd")
-	if err != nil && launch.action != "exec" {
+	// Dossier sans autorun.cmd : CMD vient des couches (ensureFolderCmd).
+	if err != nil && launch.action != "exec" && !launch.folderOverlay {
 		die("autorun.cmd introuvable dans le wsquashfs")
 	}
 	loadLayers(string(data))
@@ -667,6 +668,7 @@ func launchGame() {
 	if launch.action == "mount" {
 		reportMountAndExit()
 	}
+	ensureFolderCmd()
 	readAutorun()
 	resolveExecutable()
 	selectRunner()

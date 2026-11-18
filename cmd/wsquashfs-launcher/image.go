@@ -66,10 +66,10 @@ func resolveGamePath() {
 	st, err := os.Stat(abs)
 	switch {
 	case err == nil && st.IsDir():
-		if !isFile(abs+"/autorun.cmd") && launch.action != "exec" {
-			die("pas d'autorun.cmd dans " + abs)
-		}
-		if strings.HasSuffix(strings.ToLower(abs), ".pc") {
+		// Dossier sans autorun.cmd (jeu brut, sans suffixe .pc) : lancé comme un
+		// dossier .pc, en overlay ; l'exécutable est cherché par ensureFolderCmd.
+		sansAutorun := !isFile(abs+"/autorun.cmd") && launch.action != "exec"
+		if sansAutorun || strings.HasSuffix(strings.ToLower(abs), ".pc") {
 			if strings.ContainsAny(abs, ",:") {
 				die("virgule ou deux-points dans " + abs + " : impossible en overlay")
 			}
@@ -100,7 +100,7 @@ func checkLauncherDeps() {
 	}
 	if launch.folderOverlay {
 		if _, err := exec.LookPath("fuse-overlayfs"); err != nil {
-			die("fuse-overlayfs requis pour essayer un dossier .pc sans le modifier",
+			die("fuse-overlayfs requis pour essayer un dossier de jeu sans le modifier",
 				"  → renommer le dossier en .wine pour le lancer sur place (il sera modifié)")
 		}
 	}
