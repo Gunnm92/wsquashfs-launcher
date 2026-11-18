@@ -58,45 +58,48 @@ const (
 	imagePrefetchBlocks = 8
 )
 
-// lru : cache à éviction du plus ancien, sûr entre goroutines.
-type lru struct {
+// lru : cache à éviction du plus ancien, sûr entre goroutines. Clés et
+// valeurs typées : pas de conversion en interface (allocation) à chaque accès.
+type lru[K comparable, V any] struct {
 	mu    sync.Mutex
 	max   int
 	order *list.List
-	items map[any]*list.Element
+	items map[K]*list.Element
 }
 
-type lruEntry struct {
-	key, val any
+type lruEntry[K comparable, V any] struct {
+	key K
+	val V
 }
 
-func newLRU(max int) *lru {
-	return &lru{max: max, order: list.New(), items: map[any]*list.Element{}}
+func newLRU[K comparable, V any](max int) *lru[K, V] {
+	return &lru[K, V]{max: max, order: list.New(), items: make(map[K]*list.Element, max)}
 }
 
-func (c *lru) get(k any) (any, bool) {
+func (c *lru[K, V]) get(k K) (V, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if e, ok := c.items[k]; ok {
 		c.order.MoveToFront(e)
-		return e.Value.(*lruEntry).val, true
+		return e.Value.(*lruEntry[K, V]).val, true
 	}
-	return nil, false
+	var zero V
+	return zero, false
 }
 
-func (c *lru) put(k, v any) {
+func (c *lru[K, V]) put(k K, v V) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if e, ok := c.items[k]; ok {
-		e.Value.(*lruEntry).val = v
+		e.Value.(*lruEntry[K, V]).val = v
 		c.order.MoveToFront(e)
 		return
 	}
-	c.items[k] = c.order.PushFront(&lruEntry{k, v})
+	c.items[k] = c.order.PushFront(&lruEntry[K, V]{k, v})
 	for c.order.Len() > c.max {
 		last := c.order.Back()
 		c.order.Remove(last)
-		delete(c.items, last.Value.(*lruEntry).key)
+		delete(c.items, last.Value.(*lruEntry[K, V]).key)
 	}
 }
 
@@ -107,8 +110,10 @@ type squashImage struct {
 	dec    sqDecompressor
 	uid    int
 	gid    int
-	blocks *lru // position → bloc de données ou de fragments décompressé
-	meta   *lru // position → *sqMetaBlock
+	blocks *lru[uint64, []byte]      // position → bloc de données ou de fragments décompressé
+	meta   *lru[int64, *sqMetaBlock] // position → bloc de métadonnées
+	zero   []byte                    // bloc creux : zéros partagés, en lecture seule
+	raw    sync.Pool                 // tampons des blocs compressés (*[]byte), rendus après décompression
 
 	fragOnce sync.Once
 	fragPtrs []uint64
@@ -141,7 +146,8 @@ func openSquashImage(path string, uid, gid int) (*squashImage, error) {
 		return nil, err
 	}
 	return &squashImage{rdr: rdr, file: f, dec: dec, uid: uid, gid: gid,
-		blocks: newLRU(imageCacheBlocks), meta: newLRU(imageCacheMeta),
+		blocks: newLRU[uint64, []byte](imageCacheBlocks), meta: newLRU[int64, *sqMetaBlock](imageCacheMeta),
+		zero:     make([]byte, rdr.Superblock.BlockSize),
 		inflight: map[uint64]*sqInflight{}, prefetchSlots: make(chan struct{}, runtime.NumCPU())}, nil
 }
 
@@ -172,6 +178,11 @@ var (
 	_ fs.NodeListxattrer = (*sqNode)(nil)
 	_ fs.NodeStatfser    = (*sqNode)(nil)
 	_ fs.NodeAccesser    = (*sqNode)(nil)
+
+	_ fs.NodeOpendirHandler = (*sqNode)(nil)
+	_ fs.FileReaddirenter   = (*sqDirHandle)(nil)
+	_ fs.FileSeekdirer      = (*sqDirHandle)(nil)
+	_ fs.FileReleasedirer   = (*sqDirHandle)(nil)
 )
 
 // ino : numéro d'inode FUSE (celui de l'image, + 1 : la racine FUSE est 1).
@@ -361,6 +372,58 @@ func (n *sqNode) Readdir(context.Context) (fs.DirStream, syscall.Errno) {
 	return fs.NewListDirStream(list), 0
 }
 
+// OpendirHandle : contenu immuable, le noyau garde la liste du dossier en
+// cache (FOPEN_CACHE_DIR) d'une ouverture à l'autre. Wine relit souvent les
+// dossiers (recherche de noms sans tenir compte de la casse).
+func (n *sqNode) OpendirHandle(context.Context, uint32) (fs.FileHandle, uint32, syscall.Errno) {
+	if !n.base.IsDir() {
+		return nil, 0, syscall.ENOTDIR
+	}
+	return &sqDirHandle{node: n}, fuse.FOPEN_CACHE_DIR | fuse.FOPEN_KEEP_CACHE, 0
+}
+
+// sqDirHandle : dossier ouvert ; liste construite à la première lecture.
+type sqDirHandle struct {
+	node *sqNode
+	ds   fs.DirStream
+}
+
+func (d *sqDirHandle) stream(ctx context.Context) syscall.Errno {
+	if d.ds != nil {
+		return 0
+	}
+	ds, errno := d.node.Readdir(ctx)
+	d.ds = ds
+	return errno
+}
+
+func (d *sqDirHandle) Readdirent(ctx context.Context) (*fuse.DirEntry, syscall.Errno) {
+	if errno := d.stream(ctx); errno != 0 {
+		return nil, errno
+	}
+	if !d.ds.HasNext() {
+		return nil, 0
+	}
+	e, errno := d.ds.Next()
+	return &e, errno
+}
+
+func (d *sqDirHandle) Seekdir(ctx context.Context, off uint64) syscall.Errno {
+	if errno := d.stream(ctx); errno != 0 {
+		return errno
+	}
+	if sd, ok := d.ds.(fs.FileSeekdirer); ok {
+		return sd.Seekdir(ctx, off)
+	}
+	return syscall.ENOTSUP
+}
+
+func (d *sqDirHandle) Releasedir(context.Context, uint32) {
+	if d.ds != nil {
+		d.ds.Close()
+	}
+}
+
 func sqLinkTarget(in inode.Inode) ([]byte, bool) {
 	switch s := in.Data.(type) {
 	case inode.Symlink:
@@ -453,6 +516,7 @@ func Serve(o Options) error {
 	srv, err := fs.Mount(o.Point, root, &fs.Options{
 		EntryTimeout:    &ttl,
 		AttrTimeout:     &ttl,
+		NegativeTimeout: &ttl, // nom absent : réponse gardée par le noyau (image immuable)
 		NullPermissions: true, // droits de l'image tels quels (0000 compris)
 		MountOptions: fuse.MountOptions{
 			FsName:       o.Image,

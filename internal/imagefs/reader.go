@@ -88,13 +88,22 @@ func newSqDecompressor(comp uint16) (sqDecompressor, error) {
 	return nil, fmt.Errorf("compression %d non prise en charge (mode copy)", comp)
 }
 
+// sqReadAll : flux décompressé d'au plus max octets, lu dans un seul tampon
+// (bytes.Buffer.ReadFrom le réallouait au double une fois plein).
 func sqReadAll(r io.Reader, max int) ([]byte, error) {
-	out := bytes.NewBuffer(make([]byte, 0, max))
-	_, err := out.ReadFrom(io.LimitReader(r, int64(max)+1))
-	if out.Len() > max {
+	out := make([]byte, max)
+	n, err := io.ReadFull(r, out)
+	switch {
+	case errors.Is(err, io.EOF), errors.Is(err, io.ErrUnexpectedEOF):
+		return out[:n], nil
+	case err != nil:
+		return nil, err
+	}
+	var extra [1]byte
+	if m, _ := r.Read(extra[:]); m > 0 {
 		return nil, errors.New("bloc décompressé trop grand")
 	}
-	return out.Bytes(), err
+	return out, nil
 }
 
 // sqMetaBlock : bloc de métadonnées décompressé et position du suivant.
@@ -105,8 +114,8 @@ type sqMetaBlock struct {
 
 // metaBlock : bloc de métadonnées à la position absolue off, en cache.
 func (s *squashImage) metaBlock(off int64) (*sqMetaBlock, error) {
-	if v, ok := s.meta.get(off); ok {
-		return v.(*sqMetaBlock), nil
+	if b, ok := s.meta.get(off); ok {
+		return b, nil
 	}
 	var hdr [2]byte
 	if _, err := s.file.ReadAt(hdr[:], off); err != nil {
@@ -242,8 +251,8 @@ type sqInflight struct {
 // que dans l'inode (bit 24 : non compressé), en cache ; un bloc déjà en cours
 // de décompression est attendu, pas refait.
 func (s *squashImage) dataBlock(off uint64, sizeField uint32) ([]byte, error) {
-	if v, ok := s.blocks.get(off); ok {
-		return v.([]byte), nil
+	if b, ok := s.blocks.get(off); ok {
+		return b, nil
 	}
 	s.inflightMu.Lock()
 	if c, ok := s.inflight[off]; ok {
@@ -289,17 +298,28 @@ func (s *squashImage) prefetch(l *sqFileLayout, from uint32, n int) {
 }
 
 func (s *squashImage) loadBlock(off uint64, sizeField uint32) ([]byte, error) {
-	size := sizeField &^ sqUncompressedBit
-	raw := make([]byte, size)
+	size := int(sizeField &^ sqUncompressedBit)
+	if sizeField&sqUncompressedBit != 0 { // stocké tel quel : le tampon lu est le bloc mis en cache
+		data := make([]byte, size)
+		if _, err := s.file.ReadAt(data, int64(off)); err != nil {
+			return nil, fmt.Errorf("lecture du bloc de données : %w", err)
+		}
+		return data, nil
+	}
+	// Compressé : le tampon lu ne sert que le temps de la décompression.
+	bp, _ := s.raw.Get().(*[]byte)
+	if bp == nil || cap(*bp) < size {
+		b := make([]byte, max(size, int(s.rdr.Superblock.BlockSize)))
+		bp = &b
+	}
+	defer s.raw.Put(bp)
+	raw := (*bp)[:size]
 	if _, err := s.file.ReadAt(raw, int64(off)); err != nil {
 		return nil, fmt.Errorf("lecture du bloc de données : %w", err)
 	}
-	data := raw
-	if sizeField&sqUncompressedBit == 0 {
-		var err error
-		if data, err = s.dec(raw, int(s.rdr.Superblock.BlockSize)); err != nil {
-			return nil, fmt.Errorf("décompression du bloc de données : %w", err)
-		}
+	data, err := s.dec(raw, int(s.rdr.Superblock.BlockSize))
+	if err != nil {
+		return nil, fmt.Errorf("décompression du bloc de données : %w", err)
 	}
 	return data, nil
 }
@@ -339,7 +359,7 @@ func (s *squashImage) fileBlock(l *sqFileLayout, i uint32) ([]byte, error) {
 	want := min(bs, l.size-uint64(i)*bs)
 	if int(i) < len(l.sizes) {
 		if l.sizes[i] == 0 {
-			return make([]byte, want), nil
+			return s.zero[:want], nil // lu seulement (copié dans la réponse)
 		}
 		b, err := s.dataBlock(l.offsets[i], l.sizes[i])
 		if err == nil && uint64(len(b)) < want {

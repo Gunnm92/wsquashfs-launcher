@@ -186,3 +186,60 @@ func sqTestImageXattr(t *testing.T, files map[string]map[string][]byte) *squashI
 		}
 	}, true)
 }
+
+// sqReadAll : flux plus court que le bloc rendu tel quel, flux trop long refusé.
+func TestSqReadAll(t *testing.T) {
+	if got, err := sqReadAll(bytes.NewReader([]byte("abc")), 8); err != nil || string(got) != "abc" {
+		t.Errorf("flux court : %q, %v", got, err)
+	}
+	if got, err := sqReadAll(bytes.NewReader([]byte("12345678")), 8); err != nil || string(got) != "12345678" {
+		t.Errorf("flux exact : %q, %v", got, err)
+	}
+	if _, err := sqReadAll(bytes.NewReader([]byte("123456789")), 8); err == nil {
+		t.Error("flux trop long accepté")
+	}
+}
+
+// Dossier ouvert (FOPEN_CACHE_DIR) : toutes les entrées, triées, puis
+// retour au début (Seekdir 0) qui les rend à nouveau.
+func TestImageOpendirHandle(t *testing.T) {
+	sq := sqTestImage(t, "zstd", func(d string) {
+		_ = os.MkdirAll(filepath.Join(d, "dossier"), 0o755)
+		for _, n := range []string{"b.dll", "a.exe", "c.ini"} {
+			_ = os.WriteFile(filepath.Join(d, "dossier", n), []byte(n), 0o644)
+		}
+	})
+	n := sqTestNode(t, sq, "dossier")
+	fh, flags, errno := n.OpendirHandle(context.Background(), 0)
+	if errno != 0 || flags&fuse.FOPEN_CACHE_DIR == 0 {
+		t.Fatalf("OpendirHandle : flags %#x, errno %v", flags, errno)
+	}
+	h := fh.(*sqDirHandle)
+	names := func() []string {
+		var out []string
+		for {
+			e, errno := h.Readdirent(context.Background())
+			if errno != 0 {
+				t.Fatalf("Readdirent : %v", errno)
+			}
+			if e == nil {
+				return out
+			}
+			out = append(out, e.Name)
+		}
+	}
+	want := "a.exe b.dll c.ini"
+	if got := strings.Join(names(), " "); got != want {
+		t.Errorf("entrées : %q, attendu %q", got, want)
+	}
+	if errno := h.Seekdir(context.Background(), 0); errno != 0 {
+		t.Fatalf("Seekdir : %v", errno)
+	}
+	if got := strings.Join(names(), " "); got != want {
+		t.Errorf("après Seekdir 0 : %q, attendu %q", got, want)
+	}
+	h.Releasedir(context.Background(), 0)
+	if _, _, errno := sqTestNode(t, sq, "dossier").OpendirHandle(context.Background(), 0); errno != 0 {
+		t.Errorf("réouverture : %v", errno)
+	}
+}
