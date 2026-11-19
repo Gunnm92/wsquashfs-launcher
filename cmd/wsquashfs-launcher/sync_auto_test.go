@@ -435,4 +435,20 @@ func TestAgentManagerPutUI(t *testing.T) {
 	if mgr := managersOf(savesync.LoadConfig()); len(mgr) != 1 || mgr[0].UI != "http://10.0.0.2:8765" {
 		t.Fatalf("manager déclaré : %+v", mgr)
 	}
+	// /v1/info rend l'adresse connue : le manager se redéclare si elle diffère de la sienne
+	// (déclaration antérieure à l'icône, sans ui : entrée « Ouvrir le manager » absente).
+	infoUI := func() any {
+		var info map[string]any
+		_ = json.Unmarshal(doSync(h, "GET", "/v1/info", "client-machine-01", nil).Body.Bytes(), &info)
+		return info["manager_ui"]
+	}
+	if got := infoUI(); got != "http://10.0.0.2:8765" {
+		t.Errorf("info manager_ui : %v", got)
+	}
+	if rec := doSync(h, "PUT", "/v1/saves/manager", "client-machine-01", body("")); rec.Code != http.StatusOK {
+		t.Fatalf("déclaration sans ui : code %d", rec.Code)
+	}
+	if got := infoUI(); got != "" {
+		t.Errorf("info manager_ui sans ui déclarée : %v, attendu \"\"", got)
+	}
 }

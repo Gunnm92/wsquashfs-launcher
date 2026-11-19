@@ -158,11 +158,13 @@ func writeDetail(w http.ResponseWriter, code int, detail string) {
 func (s *service) info(w http.ResponseWriter, r *http.Request) {
 	host, _ := os.Hostname()
 	gamesDir, gamesSet, _, _ := s.gamesDir()
-	// manager : empreinte du manager déclaré ("" sans déclaration) ; auto : synchro automatique avec le manager.
+	// manager : empreinte du manager déclaré ("" sans déclaration) ; manager_ui : adresse de son
+	// interface reçue avec la déclaration ("" : inconnue, le manager se redéclare) ; auto : synchro
+	// automatique avec le manager.
 	cfg := savesync.LoadConfig()
-	manager := ""
+	manager, managerUI := "", ""
 	if p, ok := savesync.ManagerPeer(cfg); ok {
-		manager = p.Fingerprint
+		manager, managerUI = p.Fingerprint, p.UI
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"version":         agentVersion,
@@ -175,6 +177,7 @@ func (s *service) info(w http.ResponseWriter, r *http.Request) {
 		"games_dir":       gamesDir,
 		"games_dir_set":   gamesSet,
 		"manager":         manager,
+		"manager_ui":      managerUI,
 		"auto":            cfg.Auto,
 	})
 }
