@@ -3,6 +3,7 @@ package main
 // Commandes --pack et --install : empaquetage d'un préfixe et installation d'un jeu.
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -29,7 +30,7 @@ func packPrefix(args []string) int {
 	for i := 0; i < len(args); i++ {
 		if i > 0 && args[i] == "cover" {
 			if i+1 >= len(args) {
-				usageError(os.Args[0] + " " + syntax)
+				return usage(os.Args[0] + " " + syntax)
 			}
 			cover, hasCover = args[i+1], true
 			i++
@@ -38,7 +39,7 @@ func packPrefix(args []string) int {
 		pos = append(pos, args[i])
 	}
 	if len(pos) == 0 || !isDirPath(pos[0]) {
-		usageError(os.Args[0] + " " + syntax)
+		return usage(os.Args[0] + " " + syntax)
 	}
 	src := strings.TrimSuffix(pos[0], "/")
 	out := ""
@@ -46,14 +47,17 @@ func packPrefix(args []string) int {
 		out = pos[1]
 	}
 	if _, err := exec.LookPath("mksquashfs"); err != nil {
-		die("mksquashfs absent (squashfs-tools)")
+		return fail("mksquashfs absent (squashfs-tools)")
 	}
 	var coverArgs []string
 	if hasCover {
 		if !isFile(cover) {
-			die("illustration introuvable (fichier attendu) : " + cover)
+			return fail("illustration introuvable (fichier attendu) : " + cover)
 		}
-		coverArgs = coverPseudoArgs(src, mustAbs(cover))
+		var err error
+		if coverArgs, err = coverPseudoArgs(src, mustAbs(cover)); err != nil {
+			return fail(err.Error())
+		}
 	}
 	if out == "" {
 		base := filepath.Base(src)
@@ -69,7 +73,7 @@ func packPrefix(args []string) int {
 	resetSaves := false
 	if pathExists(out) {
 		if !isTerminal() {
-			die(out + " existe déjà (jamais écrasé sans confirmation au terminal)")
+			return fail(out + " existe déjà (jamais écrasé sans confirmation au terminal)")
 		}
 		st, _ := os.Stat(out)
 		if !confirm(fmt.Sprintf("%s existe déjà (%s, %s). L'écraser ?", out, duHuman(out), st.ModTime().Format("02/01 15:04"))) {
@@ -89,11 +93,11 @@ func packPrefix(args []string) int {
 	mkArgs := append([]string{src, tmp, "-comp", "zstd", "-noappend", "-quiet"}, coverArgs...)
 	if err := runCmd("mksquashfs", mkArgs...); err != nil {
 		_ = os.Remove(tmp)
-		die("échec de mksquashfs, " + out + " inchangé")
+		return fail("échec de mksquashfs, " + out + " inchangé")
 	}
 	if err := os.Rename(tmp, out); err != nil {
 		_ = os.Remove(tmp)
-		die("remplacement de " + out + " impossible : " + err.Error())
+		return fail("remplacement de " + out + " impossible : " + err.Error())
 	}
 	if resetSaves {
 		if os.RemoveAll(saves) == nil {
@@ -115,20 +119,20 @@ func packPrefix(args []string) int {
 // coverPseudoArgs : options pseudo de mksquashfs qui ajoutent l'illustration
 // (imageCoverPath) à l'image, sans rien écrire dans le dossier source. Refus si
 // le dossier source contient déjà cette illustration ou un .wsquashfs non dossier.
-func coverPseudoArgs(src, cover string) []string {
+func coverPseudoArgs(src, cover string) ([]string, error) {
 	if pathExists(filepath.Join(src, imageCoverPath)) {
-		die("conflit : " + src + " contient déjà " + imageCoverPath + " (sous-option cover refusée)")
+		return nil, errors.New("conflit : " + src + " contient déjà " + imageCoverPath + " (sous-option cover refusée)")
 	}
 	uid, gid := os.Getuid(), os.Getgid()
 	var args []string
 	dir := filepath.Join(src, ".wsquashfs")
 	if !isDirPath(dir) {
 		if pathExists(dir) {
-			die("conflit : " + dir + " existe et n'est pas un dossier")
+			return nil, errors.New("conflit : " + dir + " existe et n'est pas un dossier")
 		}
 		args = append(args, "-p", fmt.Sprintf(".wsquashfs d 755 %d %d", uid, gid))
 	}
-	return append(args, "-p", fmt.Sprintf("%s f 644 %d %d cat %s", imageCoverPath, uid, gid, shQuote(cover)))
+	return append(args, "-p", fmt.Sprintf("%s f 644 %d %d cat %s", imageCoverPath, uid, gid, shQuote(cover))), nil
 }
 
 // shQuote : argument quoté pour /bin/sh (apostrophes internes échappées).
@@ -140,11 +144,11 @@ func shQuote(s string) string {
 // <dossier>/<Jeu>, pour jouer sans FUSE.
 func installGame(args []string) int {
 	if len(args) == 0 || !isFile(args[0]) || filepath.Ext(args[0]) != ".wsquashfs" {
-		usageError(os.Args[0] + " --install <jeu.wsquashfs> [dossier de destination]")
+		return usage(os.Args[0] + " --install <jeu.wsquashfs> [dossier de destination]")
 	}
 	img := args[0]
 	if _, err := exec.LookPath("unsquashfs"); err != nil {
-		die("unsquashfs absent (squashfs-tools)")
+		return fail("unsquashfs absent (squashfs-tools)")
 	}
 	name := strings.TrimSuffix(filepath.Base(img), ".wsquashfs")
 	parent := filepath.Dir(mustAbs(img))
@@ -152,22 +156,22 @@ func installGame(args []string) int {
 		parent = args[1]
 	}
 	if err := os.MkdirAll(parent, 0o755); err != nil {
-		die("impossible de créer " + parent)
+		return fail("impossible de créer " + parent)
 	}
 	dest := strings.TrimSuffix(parent, "/") + "/" + name
 	if pathExists(dest) {
-		die(dest + " existe déjà (jamais écrasé)")
+		return fail(dest + " existe déjà (jamais écrasé)")
 	}
 	tmp := dest + ".part"
 	_ = os.RemoveAll(tmp)
 	ui.StatusLine(ui.Info, "Installation de "+name+" dans "+dest+"...")
 	if err := runCmd("unsquashfs", "-no-xattrs", "-d", tmp, img); err != nil {
 		_ = os.RemoveAll(tmp)
-		die("échec de l'extraction, rien n'a été installé")
+		return fail("échec de l'extraction, rien n'a été installé")
 	}
 	if err := os.Rename(tmp, dest); err != nil {
 		_ = os.RemoveAll(tmp)
-		die("installation dans " + dest + " impossible : " + err.Error())
+		return fail("installation dans " + dest + " impossible : " + err.Error())
 	}
 	if dropsToTargetUser() {
 		_ = runCmd("chown", "-R", fmt.Sprintf("%d:%d", conf.wineUID, conf.wineGID), dest)

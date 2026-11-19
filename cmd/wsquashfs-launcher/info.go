@@ -75,11 +75,11 @@ func keyLine(content, key string) string {
 // showInfo : --info <jeu | dossier>.
 func showInfo(args []string) int {
 	if len(args) == 0 {
-		usageError(os.Args[0] + " --info <jeu.wsquashfs | dossier du jeu>")
+		return usage(os.Args[0] + " --info <jeu.wsquashfs | dossier du jeu>")
 	}
 	src, err := filepath.Abs(args[0])
 	if err != nil || !pathExists(src) {
-		usageError(os.Args[0] + " --info <jeu.wsquashfs | dossier du jeu>")
+		return usage(os.Args[0] + " --info <jeu.wsquashfs | dossier du jeu>")
 	}
 	if real, err := filepath.EvalSymlinks(src); err == nil {
 		src = real
@@ -193,18 +193,18 @@ func cmdShow(args []string) int {
 			if v, err := parseSet(argAt(args, i+1)); err == nil {
 				launch.setArgs = append(launch.setArgs, v)
 			} else {
-				die(err.Error())
+				return fail(err.Error())
 			}
 			i++
 			continue
 		}
 		if src != "" {
-			usageError(os.Args[0] + " --show <jeu.wsquashfs | dossier> [--set CLÉ=valeur]...")
+			return usage(os.Args[0] + " --show <jeu.wsquashfs | dossier> [--set CLÉ=valeur]...")
 		}
 		src = args[i]
 	}
 	if src == "" || !pathExists(src) {
-		usageError(os.Args[0] + " --show <jeu.wsquashfs | dossier> [--set CLÉ=valeur]...")
+		return usage(os.Args[0] + " --show <jeu.wsquashfs | dossier> [--set CLÉ=valeur]...")
 	}
 	if real, err := filepath.Abs(src); err == nil {
 		src = real

@@ -84,7 +84,7 @@ func copyPreserve(src, dst string) error {
 func cmdSave(args []string) int {
 	name := gameNameOf(args[0])
 	if !isDirPath(conf.savesDir + "/" + name) {
-		die("aucune sauvegarde pour " + name)
+		return fail("aucune sauvegarde pour " + name)
 	}
 	return copySavesTo([]string{name})
 }

@@ -79,7 +79,7 @@ func cmdUpdate() int {
 	base := updateBase()
 	self, err := os.Executable()
 	if err != nil {
-		die("chemin du lanceur inconnu")
+		return fail("chemin du lanceur inconnu")
 	}
 	sum, err := download.Bytes(base + "/wsquashfs-launcher.sha256")
 	want := ""
@@ -87,7 +87,7 @@ func cmdUpdate() int {
 		want = strings.ToLower(fields[0])
 	}
 	if len(want) != 64 || strings.Trim(want, "0123456789abcdef") != "" {
-		die("somme de contrôle du lanceur introuvable sur " + base + " : rien n'a été modifié")
+		return fail("somme de contrôle du lanceur introuvable sur " + base + " : rien n'a été modifié")
 	}
 	cur, curErr := download.SHA256(self)
 	if curErr != nil {
@@ -100,34 +100,34 @@ func cmdUpdate() int {
 	}
 	tmp, err := os.MkdirTemp("", "wsq-update.")
 	if err != nil {
-		die("dossier temporaire impossible")
+		return fail("dossier temporaire impossible")
 	}
 	defer os.RemoveAll(tmp)
 	ui.StatusLine(ui.Info, "Téléchargement depuis "+base+" ...")
 	fresh := tmp + "/wsquashfs-launcher"
 	if err := download.File(base+"/wsquashfs-launcher", fresh); err != nil {
-		die("téléchargement du lanceur impossible")
+		return fail("téléchargement du lanceur impossible")
 	}
 	if got, err := download.SHA256(fresh); err != nil || got != want {
-		die("somme de contrôle du lanceur téléchargé incorrecte : rien n'a été modifié " +
+		return fail("somme de contrôle du lanceur téléchargé incorrecte : rien n'a été modifié " +
 			"(cache de GitHub juste après une publication : réessayer dans 5 minutes)")
 	}
 	data, _ := os.ReadFile(fresh)
 	if !bytes.HasPrefix(data, []byte("\x7fELF")) {
-		die("lanceur téléchargé invalide : rien n'a été modifié")
+		return fail("lanceur téléchargé invalide : rien n'a été modifié")
 	}
 	if err := os.Chmod(fresh, 0o755); err != nil {
-		die("droits du lanceur téléchargé impossibles")
+		return fail("droits du lanceur téléchargé impossibles")
 	}
 	// /tmp peut être un autre système de fichiers : rename échouerait. Copie à
 	// côté du lanceur, puis renommage (le lanceur en cours garde son fichier).
 	if err := filetree.CopyFile(fresh, self+".new", 0o755); err != nil {
 		os.Remove(self + ".new")
-		die("remplacement du lanceur impossible : " + err.Error())
+		return fail("remplacement du lanceur impossible : " + err.Error())
 	}
 	if err := os.Rename(self+".new", self); err != nil {
 		os.Remove(self + ".new")
-		die("remplacement du lanceur impossible : " + err.Error())
+		return fail("remplacement du lanceur impossible : " + err.Error())
 	}
 	ui.StatusLine(ui.OK, "Lanceur mis à jour : "+self+" (version "+shortBuild(want)+")")
 	agentSrv().RemoveUnits() // démarrage automatique par systemd des anciennes versions
