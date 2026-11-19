@@ -54,7 +54,7 @@ import (
 )
 
 const (
-	agentVersion     = "10"
+	agentVersion     = "11"
 	agentDefaultPort = 8790
 )
 
@@ -68,6 +68,12 @@ type Env struct {
 	SetInterrupt func(hook func())                  // crochet appelé à la place de la sortie quand un signal arrive (nil : le retire), pendant que --pair attend ou que l'agent sert
 	StopGrace    time.Duration                      // délai laissé aux requêtes en cours à l'arrêt (signal) ; 0 : 3 s
 	MaxBody      func() int64                       // taille maximale d'une archive de sauvegardes reçue, relue à chaque envoi ; absent ou 0 : savesync.DefaultMaxBody
+	// Activité de la machine (GET /v1/info) et mise à jour (POST /v1/update), voir activity.go.
+	// Chacun est facultatif : absent, l'information est vide ou la route répond 501.
+	Build       func() string       // version du lanceur (début de l'empreinte SHA-256 du binaire)
+	Playing     func() []Playing    // jeux en cours sur cette machine
+	Controllers func() []Controller // manettes physiques branchées
+	Restart     func() error        // relance l'agent sur le binaire du lanceur (après une mise à jour)
 }
 
 // Server : l'agent de cette machine, avec son environnement : commandes --agent et --pair,

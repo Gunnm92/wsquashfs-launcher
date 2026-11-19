@@ -98,10 +98,11 @@ est retiré. Un code expiré, déjà utilisé ou faux : 401 (« relancer --pair 
 | Route | Rôle |
 |---|---|
 | `POST /v1/pair` | association (hors du contrôle de jeton), voir ci-dessous |
-| `GET /v1/info` | version, machine, utilisateur, dossiers roms/, `os` (ID de `/etc/os-release`, `linux` par défaut), `games_dir` (dossier d'installation effectif), `games_dir_set` (choix manuel en vigueur), `manager` (empreinte du manager déclaré, `""` sinon), `manager_ui` (adresse de son interface reçue avec la déclaration, `""` si inconnue : le manager se redéclare) et `auto` (synchro automatique avec le manager, `--sync auto on` : envoi à la sortie d'un jeu, réception de sa version la plus récente) |
+| `GET /v1/info` | version, machine, utilisateur, dossiers roms/, `os` (ID de `/etc/os-release`, `linux` par défaut), `games_dir` (dossier d'installation effectif), `games_dir_set` (choix manuel en vigueur), `manager` (empreinte du manager déclaré, `""` sinon), `manager_ui` (adresse de son interface reçue avec la déclaration, `""` si inconnue : le manager se redéclare) et `auto` (synchro automatique avec le manager, `--sync auto on` : envoi à la sortie d'un jeu, réception de sa version la plus récente), `build` (version du lanceur : 12 premiers caractères de l'empreinte SHA-256 du binaire, `""` si inconnue), `playing` (jeux en cours : `[{game, since}]`, début en secondes Unix ; une session dont le jeu ne tourne plus n'apparaît pas) et `controllers` (manettes physiques branchées : `[{kind, name, bus}]`, `kind` parmi `dualsense`, `playstation`, `xbox`, `steam`, `nintendo`, `gamepad`, `bus` `usb`, `bluetooth` ou `""` ; les manettes virtuelles de Steam Input ou du pont DualSense sont exclues). Ces trois champs sont lus au moment de la requête, rien n'est scruté en continu |
 | `GET /v1/doctor[?refresh=1]` | rapport `--doctor json` (mis en cache 5 min) |
 | `POST /v1/trial` `{rel, duration}` | essai : rapport `--trial` et capture (base64) |
 | `POST /v1/maintenance` `{action, rel?}` | voir la table ci-dessous |
+| `POST /v1/update` | met à jour le lanceur (`--update` : binaire publié, vérifié par son empreinte SHA-256 et son en-tête ELF, rien n'est remplacé sinon), puis relance l'agent sur le nouveau binaire (même processus) si la version a changé. Réponse `{code, output, before, after, restart}` (`code` : celui de `--update`, `-1` si interrompu). 409 pendant un envoi d'image ou une autre mise à jour |
 | `GET /v1/runner/list?path=` | fichiers d'un runner installé |
 | `GET /v1/runner/tar?path=` | runner en tar (liens conservés) |
 
@@ -161,7 +162,7 @@ avec `GET /v1/games/part`, puis `PUT` à partir de `part_size`.
 ### Maintenance (`POST /v1/maintenance`)
 
 Table fermée (`maintenanceActions` dans `internal/agent/actions.go`), contrat commun avec
-wsquashfs-manager (version de l'agent : **10**, route `GET /v1/info`).
+wsquashfs-manager (version de l'agent : **11**, route `GET /v1/info`).
 
 | `action` | Lanceur | `rel` (image du jeu) |
 |---|---|---|
@@ -213,3 +214,16 @@ Règle du conflit (comme Unison et le manager) : si un seul côté a changé dep
 Poussée du manager (synchro automatique active sur la machine) : le manager envoie aussi sa version la plus récente aux machines en retard, par `PUT /v1/saves/tar` puis `POST /v1/saves/state`, sous son identifiant (`X-Wsq-Machine`). Elle n'est envoyée que si la machine n'a pas de partie non envoyée ; sinon le conflit se règle dans le manager. L'agent doit tourner (`--agent`) pour recevoir. Un jeu en cours répond 409 et la poussée est retentée. Une fois reçue, la version n'est pas renvoyée au manager à la sortie du jeu.
 
 Un jeu verrouillé (lancé, monté, en maintenance) répond 409 `jeu en cours`.
+
+## Activité envoyée au manager
+
+Une machine qui a un manager déclaré (`PUT /v1/saves/manager`) lui signale ses parties, par
+`POST /v1/events` sur l'adresse du manager (même jeton, même identifiant `X-Wsq-Machine`, même
+certificat épinglé que la synchro automatique) :
+
+- `{event: "start", game, at, controllers}` au lancement, sans retarder le jeu ;
+- `{event: "exit", game, at, started, code}` à la sortie, après la synchro automatique, attendu 5 s au plus.
+
+Deux petites requêtes par partie, rien d'autre : pas d'interrogation périodique. Manager éteint,
+injoignable ou trop ancien (404) : rien n'est affiché, le jeu n'est pas touché. Seul le lancement
+normal est signalé (pas `--exec`, `--prepare`, `--mount`).

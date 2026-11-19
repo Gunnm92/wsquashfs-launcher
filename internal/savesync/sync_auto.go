@@ -6,6 +6,9 @@ package savesync
 // code de sortie du jeu ne change pas. Le manager garde la version qu'il remplace (archive).
 
 import (
+	"bytes"
+	"encoding/json"
+	"net/http"
 	"time"
 
 	"wsquashfs-launcher/internal/ui"
@@ -79,4 +82,26 @@ func (s *Syncer) sendConflictToManager(peerName, name string, t Target) string {
 		return " ; envoi de la copie d'ici au manager : " + err.Error()
 	}
 	return " ; copie d'ici envoyée au manager"
+}
+
+// NotifyManager : signale au manager déclaré une activité de cette machine (partie lancée, terminée :
+// POST /v1/events). Silencieux : sans manager déclaré, injoignable, ou trop ancien pour connaître la
+// route (404), rien n'est affiché et rien ne change pour le jeu. Indépendant de la synchro
+// automatique : le manager suit l'activité de toutes les machines qui l'ont déclaré.
+func (s *Syncer) NotifyManager(ev any) {
+	cfg := LoadConfig()
+	peer, ok := ManagerPeer(cfg)
+	if !ok {
+		return
+	}
+	body, err := json.Marshal(ev)
+	if err != nil {
+		return
+	}
+	client := s.NewClientDial(peer, cfg.ID, s.autoDialTimeout())
+	resp, err := client.raw(client.http, http.MethodPost, "/v1/events", nil, bytes.NewReader(body),
+		map[string]string{"Content-Type": "application/json"})
+	if err == nil {
+		resp.Body.Close()
+	}
 }

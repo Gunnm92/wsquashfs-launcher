@@ -42,8 +42,12 @@ func agentEnv() agent.Env {
 			}
 			interruptHook.Store(&hook)
 		},
-		MaxBody:   func() int64 { return syncMaxBody },
-		StopGrace: agentStopGrace,
+		MaxBody:     func() int64 { return syncMaxBody },
+		StopGrace:   agentStopGrace,
+		Build:       cachedBuild,
+		Playing:     playingGames,
+		Controllers: connectedControllers,
+		Restart:     restartAgent,
 	}
 }
 

@@ -30,6 +30,7 @@ type service struct {
 	cfg       Config
 	logOn     bool
 	trial     sync.Mutex // un essai à la fois
+	updating  sync.Mutex // une mise à jour du lanceur à la fois (POST /v1/update)
 	docMu     sync.Mutex
 	docOut    []byte
 	docAt     time.Time
@@ -55,6 +56,7 @@ func (s *service) httpServer() *http.Server {
 	mux.HandleFunc("GET /v1/doctor", s.auth(s.doctor))
 	mux.HandleFunc("POST /v1/trial", s.auth(s.trialRoute))
 	mux.HandleFunc("POST /v1/maintenance", s.auth(s.maintenance))
+	mux.HandleFunc("POST /v1/update", s.auth(s.update))
 	mux.HandleFunc("GET /v1/runner/list", s.auth(s.runnerList))
 	mux.HandleFunc("GET /v1/runner/tar", s.auth(s.runnerTar))
 	mux.HandleFunc("GET /v1/saves/list", s.syncMachine(s.savesList))
@@ -179,6 +181,9 @@ func (s *service) info(w http.ResponseWriter, r *http.Request) {
 		"manager":         manager,
 		"manager_ui":      managerUI,
 		"auto":            cfg.Auto,
+		"build":           s.build(),
+		"playing":         s.playing(),
+		"controllers":     s.controllers(),
 	})
 }
 

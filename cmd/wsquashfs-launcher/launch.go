@@ -627,14 +627,22 @@ func runGame() {
 		startAttachCommand()
 	}
 	ui.Rule("sortie du jeu")
+	// Session et événements (manager) : lancement normal seulement, pas --exec.
+	started, tracked := time.Now(), launch.action == "run"
+	if tracked {
+		writeSession(launch.gameName, started)
+		notifyGameStart(launch.gameName, started)
+	}
 	code := playGame()
 	if signalExiting.Load() {
 		select {} // sortie sur signal en cours : cleanup puis os.Exit
 	}
 	_ = runWineserver(launch.winePoint, "-w")
 	stopAttachCommand()
-	if launch.action == "run" { // lancement normal seulement (pas --exec)
+	if tracked {
+		removeSession(launch.gameName)
 		autoSyncAfterGame(launch.gameName)
+		notifyGameExit(launch.gameName, started, code)
 	}
 	ui.Rule("")
 	ui.Verdict(code == 0, fmt.Sprintf("Jeu terminé (code : %d)", code))
