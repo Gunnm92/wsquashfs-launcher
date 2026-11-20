@@ -16,7 +16,6 @@ import (
 	"strconv"
 	"strings"
 
-	"wsquashfs-launcher/internal/download"
 	"wsquashfs-launcher/internal/filetree"
 	"wsquashfs-launcher/internal/ui"
 )
@@ -77,29 +76,6 @@ func checkRoot() {
 	}
 	installDir = filepath.Join(os.Getenv("HOME"), ".local/bin")
 	sudoCmd = []string{"sudo"}
-}
-
-// installRepoFile : télécharge un fichier du dépôt dans dest, via un fichier
-// voisin renommé ensuite : un lanceur en cours d'exécution garde son fichier.
-func installRepoFile(rel, dest string) error {
-	if dryRun {
-		simLine(rel + " → " + dest)
-		return nil
-	}
-	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
-		return err
-	}
-	tmp := fmt.Sprintf("%s.new.%d", dest, os.Getpid())
-	if err := download.File("https://raw.githubusercontent.com/Gunnm92/wsquashfs-launcher/main/"+rel, tmp); err != nil {
-		os.Remove(tmp)
-		setupErr("Téléchargement de " + rel + " impossible")
-		return err
-	}
-	if err := os.Chmod(tmp, 0o755); err != nil {
-		os.Remove(tmp)
-		return err
-	}
-	return os.Rename(tmp, dest)
 }
 
 // installSelf : le lanceur installé est ce binaire lui-même (rien à faire
@@ -221,29 +197,9 @@ func installShortNameLink(target string) {
 	}
 }
 
-// installBridge : pont DualSense, pris à côté du binaire (dépôt cloné) ;
-// sinon téléchargé du dépôt.
-func installBridge(dest string) error {
-	const rel = "tools/dualsense-usb-bridge/dualsense-usb-bridge"
-	local := filepath.Join(filepath.Dir(exePath()), rel)
-	if !isFile(local) {
-		return installRepoFile(rel, dest)
-	}
-	if dryRun {
-		simLine(local + " → " + dest)
-		return nil
-	}
-	tmp := fmt.Sprintf("%s.new.%d", dest, os.Getpid())
-	if err := filetree.CopyFile(local, tmp, 0o755); err != nil {
-		os.Remove(tmp)
-		return err
-	}
-	return os.Rename(tmp, dest)
-}
-
 // installLauncher : ce binaire s'installe lui-même (aucun téléchargement :
 // la version installée est celle qui tourne, « --update » la met à jour),
-// puis le nom court et le pont DualSense.
+// puis le nom court (le pont DualSense est intégré au binaire).
 func installLauncher() bool {
 	dest := filepath.Join(installDir, "wsquashfs-launcher")
 	if err := installSelf(dest); err != nil {
@@ -252,10 +208,6 @@ func installLauncher() bool {
 	}
 	setupDone("Lanceur : " + dest)
 	installShortNameLink(dest)
-	bridge := filepath.Join(installDir, "dualsense-usb-bridge")
-	if installBridge(bridge) == nil && !dryRun {
-		setupDone("Pont DualSense : " + bridge)
-	}
 	return true
 }
 
@@ -518,6 +470,7 @@ func uninstall() {
 	} else {
 		ui.Item(ui.Skip, "Lanceur absent de "+installDir)
 	}
+	// Ancien pont DualSense (script), remplacé par la commande interne du lanceur.
 	if bridge := filepath.Join(installDir, "dualsense-usb-bridge"); pathExists(bridge) {
 		_ = removePaths(bridge)
 	}

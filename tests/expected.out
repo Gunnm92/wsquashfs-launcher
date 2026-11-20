@@ -102,7 +102,7 @@ Le reste (réglages par couches, variables WSQUASHFS_*, autres commandes) :
 
 ▍Manettes
   – hidraw : /dev/hidraw99 illisible (HIDRAW=1 retombe en XInput)
-  ✓ dualsense-usb-bridge (PATH)
+  ✓ pont DualSense Bluetooth → USB intégré (HIDRAW=1)
 
 ▍Dossiers
   – ROOT/saves : pas encore créé
@@ -147,7 +147,7 @@ WINE wine-tkg-fake cwd=ROOT args: [--version]
 
 ▍Manettes
   – hidraw : aucune manette Sony (HIDRAW=1 retombe en XInput)
-  ✓ dualsense-usb-bridge (PATH)
+  ✓ pont DualSense Bluetooth → USB intégré (HIDRAW=1)
 
 ▍Dossiers
   – ROOT/saves : pas encore créé
@@ -192,7 +192,7 @@ WINE wine-tkg-fake cwd=ROOT args: [--version]
 
 ▍Manettes
   – hidraw : aucune manette Sony (HIDRAW=1 retombe en XInput)
-  ✓ dualsense-usb-bridge (PATH)
+  ✓ pont DualSense Bluetooth → USB intégré (HIDRAW=1)
 
 ▍Dossiers
   – ROOT/saves : pas encore créé
@@ -239,7 +239,7 @@ WINE wine-tkg-fake cwd=ROOT args: [--version]
 
 ▍Manettes
   – hidraw : aucune manette Sony (HIDRAW=1 retombe en XInput)
-  ✓ dualsense-usb-bridge (PATH)
+  ✓ pont DualSense Bluetooth → USB intégré (HIDRAW=1)
 
 ▍Dossiers
   – ROOT/saves : pas encore créé
@@ -464,6 +464,7 @@ d cache ->
 d cache/locks -> 
 d cache/mnt -> 
 d cache/mnt/Arcade Game -> 
+d cache/sessions -> 
 d cache/shaders -> 
 d cache/shaders/dxvk -> 
 d cache/shaders/vkd3d -> 
@@ -1374,6 +1375,7 @@ d cache/locks ->
 d cache/mnt -> 
 d cache/mnt/Arcade Game -> 
 d cache/mnt/Solo Game -> 
+d cache/sessions -> 
 d cache/shaders -> 
 d cache/shaders/dxvk -> 
 d cache/shaders/vkd3d -> 
@@ -2580,6 +2582,7 @@ d cache/mnt/Arcade Game ->
 d cache/mnt/Old32 -> 
 d cache/mnt/Proton Game -> 
 d cache/mnt/Solo Game -> 
+d cache/sessions -> 
 d cache/shaders -> 
 d cache/shaders/dxvk -> 
 d cache/shaders/nvidia -> 
@@ -2939,6 +2942,7 @@ d cache/mnt/Arcade Game ->
 d cache/mnt/Old32 -> 
 d cache/mnt/Proton Game -> 
 d cache/mnt/Solo Game -> 
+d cache/sessions -> 
 d cache/shaders -> 
 d cache/shaders/dxvk -> 
 d cache/shaders/nvidia -> 
@@ -3480,6 +3484,7 @@ d cache/mnt/Hook Game ->
 d cache/mnt/Old32 -> 
 d cache/mnt/Proton Game -> 
 d cache/mnt/Solo Game -> 
+d cache/sessions -> 
 d cache/shaders -> 
 d cache/shaders/dxvk -> 
 d cache/shaders/nvidia -> 
@@ -4997,6 +5002,7 @@ d cache/mnt/Relative Runner Game ->
 d cache/mnt/Solo Game -> 
 d cache/mnt/Two Runners Game -> 
 d cache/mnt/Wine Joint Game -> 
+d cache/sessions -> 
 d cache/shaders -> 
 d cache/shaders/dxvk -> 
 d cache/shaders/nvidia -> 
@@ -5560,6 +5566,7 @@ l src/Arcade Game.wine/drive_c/windows/system32/dxgi.dll -> /userdata/system/win
 d cache -> 
 d cache/locks -> 
 d cache/mnt -> 
+d cache/sessions -> 
 d cache/shaders -> 
 d cache/shaders/dxvk -> 
 d cache/shaders/nvidia -> 
@@ -6110,6 +6117,7 @@ l src/Arcade Game.wine/drive_c/windows/system32/dxgi.dll -> /userdata/system/win
 d cache -> 
 d cache/locks -> 
 d cache/mnt -> 
+d cache/sessions -> 
 d cache/shaders -> 
 d cache/shaders/dxvk -> 
 d cache/shaders/nvidia -> 
@@ -6556,6 +6564,7 @@ d cache ->
 d cache/locks -> 
 d cache/mnt -> 
 d cache/mnt/Arcade Game -> 
+d cache/sessions -> 
 d cache/shaders -> 
 d cache/shaders/dxvk -> 
 d cache/shaders/nvidia -> 
@@ -7029,6 +7038,7 @@ d cache/copy-users/Arcade Game/steamuser/Music ->
 d cache/copy-users/Arcade Game/wsqtest -> 
 d cache/locks -> 
 d cache/mnt -> 
+d cache/sessions -> 
 d cache/shaders -> 
 d cache/shaders/dxvk -> 
 d cache/shaders/nvidia -> 
@@ -8417,6 +8427,7 @@ d cache/locks ->
 d cache/mnt -> 
 d cache/mnt/Old32 -> 
 d cache/mnt/Solo Game -> 
+d cache/sessions -> 
 d cache/shaders -> 
 d cache/shaders/dxvk -> 
 d cache/shaders/nvidia -> 
@@ -9031,6 +9042,7 @@ d cache/copy-users/Arcade Game/steamuser/Music ->
 d cache/copy-users/Arcade Game/wsqtest -> 
 d cache/locks -> 
 d cache/mnt -> 
+d cache/sessions -> 
 d cache/shaders -> 
 d cache/shaders/dxvk -> 
 d cache/shaders/nvidia -> 
@@ -10036,6 +10048,7 @@ d cache ->
 d cache/copy-users -> 
 d cache/locks -> 
 d cache/mnt -> 
+d cache/sessions -> 
 d cache/shaders -> 
 d cache/shaders/dxvk -> 
 d cache/shaders/nvidia -> 

@@ -1,8 +1,9 @@
-# dualsense-usb-bridge — DualSense Bluetooth vue comme une DualSense USB
+# Pont DualSense Bluetooth → USB
 
-Pont uhid (Python 3, sans dépendance) qui présente chaque DualSense
-**Bluetooth** comme une DualSense **USB**. `wsquashfs-launcher` le démarre pour
-les jeux en `HIDRAW=1` et l'arrête avec eux.
+Pont uhid, intégré au lanceur (paquet `internal/dsbridge`, commande interne
+`--dualsense-bridge`), qui présente chaque DualSense **Bluetooth** comme une
+DualSense **USB**. `wsquashfs-launcher` le démarre pour les jeux en
+`HIDRAW=1` et l'arrête avec eux.
 
 ## Le problème
 
@@ -41,7 +42,7 @@ reliée à la même manette USB : le jeu ne la perd pas.
 ## Utilisation
 
 ```bash
-dualsense-usb-bridge --hide --parent $$ --ready-file /tmp/pret
+wsquashfs-launcher --dualsense-bridge --hide --parent $$ --ready-file /tmp/pret
 ```
 
 - `--hide` : masque les DualSense Bluetooth tant que le pont tourne.
@@ -50,3 +51,12 @@ dualsense-usb-bridge --hide --parent $$ --ready-file /tmp/pret
 
 `/dev/uhid` doit être accessible en écriture, et les `/dev/hidrawN` des DualSense
 en lecture et écriture.
+
+## Implémentation
+
+Le paquet `internal/dsbridge` reprend octet pour octet l'ancien script Python
+(rapports `report.go`, périphériques uhid `bridge.go`, boucle `dsbridge.go`).
+La boucle est une seule goroutine sur `unix.Poll` (délai de 1 s : nouvelles
+manettes, surveillance du parent) ; une goroutine de signaux (SIGTERM, SIGINT,
+SIGHUP) vit le temps de `Serve`. À l'arrêt, les périphériques uhid sont
+détruits et les droits des `hidraw` restaurés.

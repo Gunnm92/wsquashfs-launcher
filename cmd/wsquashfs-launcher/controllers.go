@@ -1,7 +1,7 @@
 package main
 
 // Manettes (script bash, section 7) : choix entre hidraw et XInput pour les manettes Sony, pont
-// DualSense Bluetooth → USB (dualsense-usb-bridge), correctif GE-Proton, réglage du registre.
+// DualSense Bluetooth → USB (commande interne --dualsense-bridge), correctif GE-Proton, réglage du registre.
 
 import (
 	"fmt"
@@ -13,8 +13,6 @@ import (
 	"strings"
 	"syscall"
 	"time"
-
-	"wsquashfs-launcher/internal/ui"
 )
 
 // ── 7. Manettes ────────────────────────────────────────────────────────
@@ -52,21 +50,8 @@ func hidrawUsable() bool {
 	return true
 }
 
-// findDualsenseBridge : dualsense-usb-bridge dans le PATH, sinon à côté du
-// lanceur (dépôt).
-func findDualsenseBridge() string {
-	if p, err := exec.LookPath("dualsense-usb-bridge"); err == nil {
-		return p
-	}
-	p := filepath.Dir(conf.selfPath) + "/tools/dualsense-usb-bridge/dualsense-usb-bridge"
-	if isExecutable(p) {
-		return p
-	}
-	return ""
-}
-
 // startDualsenseBridge : DualSense Bluetooth présentée en DualSense USB pendant
-// le jeu (HIDRAW=1). Faux s'il n'y a pas de DualSense Bluetooth ou pas de pont.
+// le jeu (HIDRAW=1). Faux s'il n'y a pas de DualSense Bluetooth.
 func startDualsenseBridge() bool {
 	bt, _ := filepath.Glob(hidrawSysfs() + "/*/device/uevent")
 	isBT := false
@@ -78,13 +63,8 @@ func startDualsenseBridge() bool {
 	if !isBT {
 		return false
 	}
-	bridge := findDualsenseBridge()
-	if bridge == "" {
-		ui.Warn("dualsense-usb-bridge introuvable, DualSense Bluetooth en direct")
-		return false
-	}
 	ready := fmt.Sprintf("%s/dualsense-usb-bridge.%d", envOr("TMPDIR", "/tmp"), os.Getpid())
-	cmd := exec.Command(bridge, "--hide", "--parent", strconv.Itoa(os.Getpid()), "--ready-file", ready)
+	cmd := exec.Command(conf.selfPath, "--dualsense-bridge", "--hide", "--parent", strconv.Itoa(os.Getpid()), "--ready-file", ready)
 	if err := cmd.Start(); err != nil {
 		return false
 	}

@@ -122,6 +122,7 @@ d cache/locks ->
 d cache/mnt -> 
 d cache/mnt/Arcade Game -> 
 d cache/ns -> 
+d cache/sessions -> 
 d cache/shaders -> 
 d cache/shaders/dxvk -> 
 d cache/shaders/nvidia -> 

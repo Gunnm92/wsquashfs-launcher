@@ -33,7 +33,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 #  - montage des images (lecteur intégré au lanceur) : fuse3 (fusermount3), fuse-overlayfs,
 #    squashfs-tools (mode copy, --info, --pack) ;
 #  - outils du lanceur : attr (--clean), zstd (archive de VKD3D-Proton), util-linux (flock),
-#    procps (pgrep), python3 (dualsense-usb-bridge) ;
+#    procps (pgrep) ;
 #  - Wine de Debian (64 et 32 bits) : ses dépendances i386 servent aussi à
 #    wine-tkg (non WoW64) ; libxkbcommon0:i386 pour son pilote Wayland 32 bits ;
 #  - pilotes Vulkan/OpenGL Mesa 64 et 32 bits (DXVK, VKD3D, d7vk).
@@ -42,7 +42,7 @@ RUN dpkg --add-architecture i386 \
     && apt-get install -y --no-install-recommends \
         ca-certificates curl xz-utils zstd unzip \
         fuse3 fuse-overlayfs squashfs-tools \
-        attr util-linux procps python3 \
+        attr util-linux procps \
         wine wine64 wine32:i386 libxkbcommon0:i386 \
         mesa-vulkan-drivers mesa-vulkan-drivers:i386 \
         libgl1-mesa-dri libgl1-mesa-dri:i386 \
@@ -85,7 +85,6 @@ RUN groupadd -o -g "${GID}" wineuser \
     && useradd -m -o -u "${UID}" -g "${GID}" -s /bin/bash wineuser
 
 COPY wsquashfs-launcher /usr/local/bin/wsquashfs-launcher
-COPY tools/dualsense-usb-bridge/dualsense-usb-bridge /usr/local/bin/dualsense-usb-bridge
 
 USER wineuser
 WORKDIR /home/wineuser

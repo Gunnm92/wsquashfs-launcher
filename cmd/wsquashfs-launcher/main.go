@@ -14,6 +14,7 @@ import (
 	"sync/atomic"
 	"syscall"
 
+	"wsquashfs-launcher/internal/dsbridge"
 	"wsquashfs-launcher/internal/setup"
 	"wsquashfs-launcher/internal/ui"
 )
@@ -33,6 +34,9 @@ func run(args []string) int {
 	}
 	if len(args) > 0 && args[0] == "--serve-image" { // serveur FUSE d'une image (imagefs.go), interne
 		return serveImage(args[1:])
+	}
+	if len(args) > 0 && args[0] == "--dualsense-bridge" { // pont DualSense Bluetooth → USB (dsbridge), interne
+		return dsbridge.Run(args[1:])
 	}
 	opts, err := parseArgs(args)
 	if err != nil {
