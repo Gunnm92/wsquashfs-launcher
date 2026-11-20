@@ -470,12 +470,12 @@ Sans `WINE`, `PROTON`, `RUNNER`, runner joint ni `--wine` :
 Cinnamon… ; sous GNOME, l'extension AppIndicator). Son menu montre si l'agent tourne, le
 démarre ou l'arrête, lance une synchro, ouvre le manager (si celui-ci a donné l'adresse de son interface), associe une machine (le code
 `wsq://…` part dans le presse-papiers), lance un jeu (les derniers lancés d'abord), copie ses sauvegardes, fait le
-diagnostic, le ménage et la mise à jour. Les résultats arrivent en notifications.
+diagnostic, le ménage et la mise à jour. Les résultats arrivent en notifications. À son lancement, l'icône démarre l'agent s'il ne tourne pas : avec `--tray on`, l'agent est donc lancé à chaque ouverture de session.
 
 ```bash
 wsquashfs-launcher --tray           # l'icône, en arrière-plan (une seule à la fois)
 wsquashfs-launcher --tray stop      # l'arrêter
-wsquashfs-launcher --tray on        # la lancer à l'ouverture de session
+wsquashfs-launcher --tray on        # la lancer à l'ouverture de session (elle lance l'agent)
 wsquashfs-launcher --tray off       # ne plus la lancer à l'ouverture de session
 ```
 

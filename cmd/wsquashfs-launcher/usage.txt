@@ -44,8 +44,8 @@ Machines et wsquashfs-manager :
   wsquashfs-launcher --agent  |  --agent stop  |  --agent status
         Lance l'agent en arrière-plan ; l'arrête ; son état.
   wsquashfs-launcher --tray  |  --tray stop  |  --tray on | off
-        Icône de zone de notification en arrière-plan ; l'arrête ;
-        la lance à l'ouverture de session (on) ou plus (off).
+        Icône de zone de notification en arrière-plan, qui lance aussi
+        l'agent ; l'arrête ; la lance à l'ouverture de session (on) ou plus (off).
 
 Installation :
   wsquashfs-launcher --doctor

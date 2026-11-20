@@ -304,3 +304,18 @@ func TestTrayStop(t *testing.T) {
 		t.Fatalf("--tray stop x : code %d ; voulu 1", code)
 	}
 }
+
+// TestTrayEnsureAgent : l'icône lance l'agent s'il ne tourne pas, une seule fois ; rien s'il tourne.
+func TestTrayEnsureAgent(t *testing.T) {
+	oldRunning, oldStart := trayAgentRunning, trayAgentStart
+	t.Cleanup(func() { trayAgentRunning, trayAgentStart = oldRunning, oldStart })
+	running, starts := false, 0
+	trayAgentRunning = func() bool { return running }
+	trayAgentStart = func() (string, error) { starts++; running = true; return "", nil }
+	if !trayEnsureAgent() || starts != 1 {
+		t.Fatalf("agent arrêté : lancé %d fois, attendu 1", starts)
+	}
+	if trayEnsureAgent() || starts != 1 {
+		t.Fatalf("agent en marche : relancé (%d lancements)", starts)
+	}
+}

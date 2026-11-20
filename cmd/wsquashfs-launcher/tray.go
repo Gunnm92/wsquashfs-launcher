@@ -395,6 +395,26 @@ func (a *trayApp) gameAt(i int) string {
 	return ""
 }
 
+// trayAgentRunning, trayAgentStart : état et démarrage de l'agent (variables : remplacées dans les tests).
+var (
+	trayAgentRunning = func() bool { _, ok := agentSrv().Running(); return ok }
+	trayAgentStart   = func() (string, error) { return launcherRun("--agent") }
+)
+
+// trayEnsureAgent : l'icône démarre l'agent s'il ne tourne pas (ouverture de session : --tray on lance
+// l'icône, qui lance l'agent ; arrêté depuis le menu, il le reste jusqu'au prochain lancement de
+// l'icône). Notification seulement en cas d'échec. Vrai si l'agent a été lancé.
+func trayEnsureAgent() bool {
+	if trayAgentRunning() {
+		return false
+	}
+	if out, err := trayAgentStart(); err != nil {
+		notify("Agent : démarrage"+resultSuffix(err), summarize(out))
+		return false
+	}
+	return true
+}
+
 func (a *trayApp) toggleAgent() {
 	if _, running := agentSrv().Running(); running {
 		a.runAction("Agent : arrêt", "--agent", "stop")
@@ -585,6 +605,11 @@ func (a *trayApp) ready() {
 	a.build()
 	a.mu.Unlock()
 	a.refresh()
+	go func() {
+		if trayEnsureAgent() {
+			a.refresh()
+		}
+	}()
 	go func() {
 		t := time.NewTicker(trayRefresh)
 		defer t.Stop()
