@@ -271,8 +271,10 @@ func cleanCache() (freed int64) {
 	return freed
 }
 
-// pruneOldProtons : --clean (18/11) — anciennes versions de GE-Proton et
-// UMU-Proton installées par --setup (~/.local/share/Steam/compatibilitytools.d),
+// pruneOldProtons : --clean (18/11) — anciennes versions de GE-Proton,
+// UMU-Proton et proton-cachyos (20/11, dossiers proton-cachyos-* seulement :
+// pas les Proton dérivés comme DenuvOwO-cachyos) installées par --setup
+// (~/.local/share/Steam/compatibilitytools.d),
 // la plus récente de chaque famille gardée. Un Proton en cours d'utilisation
 // (chemin dans la ligne de commande ou l'environnement d'un processus) est
 // gardé. Les prefixes créés par une version retirée passent à la plus récente
@@ -288,7 +290,10 @@ func pruneOldProtons() (removed []string, freed int64) {
 			continue
 		}
 		fam := protonFamilyOf(filepath.Base(d))
-		if fam != "GE-Proton" && fam != "UMU-Proton" {
+		if fam == "proton-cachyos" && !strings.HasPrefix(strings.ToLower(filepath.Base(d)), "proton-cachyos-") {
+			continue
+		}
+		if fam != "GE-Proton" && fam != "UMU-Proton" && fam != "proton-cachyos" {
 			continue
 		}
 		candidates = append(candidates, d)

@@ -164,7 +164,7 @@ func completeWords(args []string, cur string) []string {
 			return []string{"off", "on", "stop"}
 		}
 	case "--setup":
-		return []string{"dry-run", "ge-proton", "help", "uninstall", "yes"}
+		return []string{"dry-run", "ge-proton", "help", "proton-cachyos", "uninstall", "yes"}
 	case "--trial":
 		if len(rest) >= 1 && rest[len(rest)-1] != "session" && rest[len(rest)-1] != "screenshot" {
 			return []string{"screenshot", "session"}

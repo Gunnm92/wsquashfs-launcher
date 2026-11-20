@@ -480,9 +480,10 @@ func TestProtonFamilyLatest(t *testing.T) {
 	}
 }
 
-// TestPruneOldProtons : --clean retire les anciens GE-Proton et UMU-Proton de
-// compatibilitytools.d, garde le plus récent de chaque famille et ne touche
-// ni aux autres Proton ni à Heroic (18/11).
+// TestPruneOldProtons : --clean retire les anciens GE-Proton, UMU-Proton et
+// proton-cachyos de compatibilitytools.d, garde le plus récent de chaque
+// famille et ne touche ni aux autres Proton (DenuvOwO-cachyos) ni à Heroic
+// (18/11, proton-cachyos le 20/11).
 func TestPruneOldProtons(t *testing.T) {
 	isolateState(t)
 	home := t.TempDir()
@@ -501,20 +502,22 @@ func TestPruneOldProtons(t *testing.T) {
 	oldGE := mk(c + "GE-Proton11-5")
 	newGE := mk(c + "GE-Proton11-12-x86_64")
 	oldUMU := mk(c + "UMU-Proton-9.0-3")
-	newUMU := mk(c + "UMU-Proton-10.0-4")
+	newUMU := mk(c + "UMU-Proton-11.0-2e-x86_64")
+	oldCachy := mk(c + "proton-cachyos-11.0-20261005-slr-x86_64_v3")
+	newCachy := mk(c + "proton-cachyos-11.0-20261015-slr-x86_64_v3")
 	other := mk(c + "DenuvOwO-cachyos-11.0")
 	heroic := mk(".config/heroic/tools/proton/GE-Proton8-25")
 
 	removed, freed := pruneOldProtons()
-	if strings.Join(removed, ",") != "GE-Proton11-5,UMU-Proton-9.0-3" || freed <= 0 {
+	if strings.Join(removed, ",") != "GE-Proton11-5,UMU-Proton-9.0-3,proton-cachyos-11.0-20261005-slr-x86_64_v3" || freed <= 0 {
 		t.Fatalf("retirés = %v (%d octets)", removed, freed)
 	}
-	for _, gone := range []string{oldGE, oldUMU} {
+	for _, gone := range []string{oldGE, oldUMU, oldCachy} {
 		if _, err := os.Stat(gone); err == nil {
 			t.Fatalf("%s devait être retiré", gone)
 		}
 	}
-	for _, kept := range []string{newGE, newUMU, other, heroic} {
+	for _, kept := range []string{newGE, newUMU, newCachy, other, heroic} {
 		if _, err := os.Stat(kept); err != nil {
 			t.Fatalf("%s devait être gardé", kept)
 		}

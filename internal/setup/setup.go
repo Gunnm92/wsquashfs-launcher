@@ -533,7 +533,7 @@ func pathExists(p string) bool {
 
 // ── Point d'entrée (section 10) ────────────────────────────────────────
 
-const setupUsage = `Usage : wsquashfs-launcher --setup [yes] [dry-run] [uninstall] [ge-proton] [help]
+const setupUsage = `Usage : wsquashfs-launcher --setup [yes] [dry-run] [uninstall] [proton-cachyos] [ge-proton] [help]
 
   --setup            installe wsquashfs-launcher et ce dont il a besoin
                      (paquets système, runners Wine et Proton, DXVK, VKD3D,
@@ -541,6 +541,10 @@ const setupUsage = `Usage : wsquashfs-launcher --setup [yes] [dry-run] [uninstal
   yes                répond oui à toutes les questions (installation complète)
   dry-run            montre ce qui serait fait, sans rien installer ni modifier
   uninstall          désinstalle le lanceur (sauvegardes et runners gardés)
+  proton-cachyos     installe seulement la dernière version de proton-cachyos,
+                     le Proton par défaut (release GitHub de CachyOS, somme
+                     SHA-512 vérifiée, x86-64-v3 si le processeur le permet) ;
+                     à relancer pour passer à une version plus récente
   ge-proton          installe seulement la dernière version de GE-Proton (somme
                      SHA-512 vérifiée), choisie par PROTON=GE-Proton ; à relancer
                      pour passer à une version plus récente
@@ -664,12 +668,12 @@ func Run(args []string, e Env) int {
 			dryRun = true
 		case "uninstall":
 			action = "uninstall"
-		case "ge-proton":
-			action = "ge-proton"
+		case "ge-proton", "proton-cachyos":
+			action = a
 		case "help":
 			action = "help"
 		default:
-			ui.Error("Option inconnue pour --setup : " + a + " (yes, dry-run, uninstall, ge-proton, help)")
+			ui.Error("Option inconnue pour --setup : " + a + " (yes, dry-run, uninstall, proton-cachyos, ge-proton, help)")
 			ui.Help(setupUsage)
 			return 1
 		}
@@ -689,6 +693,14 @@ func Run(args []string, e Env) int {
 		setupStage("GE-Proton")
 		if !downloadGEProton() {
 			return setupEnd("GE-Proton non installé")
+		}
+		return setupEnd("")
+	case "proton-cachyos":
+		checkRoot()
+		stageTotal = 1
+		setupStage("proton-cachyos")
+		if !downloadProtonCachyos() {
+			return setupEnd("proton-cachyos non installé")
 		}
 		return setupEnd("")
 	}

@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 
 	"wsquashfs-launcher/internal/download"
@@ -127,20 +128,26 @@ func checkWineRunners() {
 
 // findProton : Proton préféré du lanceur (proton-cachyos, puis UMU-Proton).
 func findProton() string {
+	if d := findProtonMatching("proton-cachyos*"); d != "" {
+		return d
+	}
+	return findProtonMatching("UMU-Proton*")
+}
+
+// findProtonMatching : premier Proton complet (proton et files/bin/wine) dont
+// le dossier correspond au motif, dans les dossiers de Proton connus.
+func findProtonMatching(pattern string) string {
 	home := os.Getenv("HOME")
-	bases := []string{
+	for _, base := range []string{
 		protonInstallDir,
 		filepath.Join(home, ".steam/root/compatibilitytools.d"),
 		filepath.Join(home, ".config/heroic/tools/proton"),
 		"/usr/share/steam/compatibilitytools.d",
-	}
-	for _, base := range bases {
-		for _, pattern := range []string{"proton-cachyos*", "UMU-Proton*"} {
-			dirs, _ := filepath.Glob(filepath.Join(base, pattern))
-			for _, d := range dirs {
-				if isExecutable(filepath.Join(d, "proton")) && isExecutable(filepath.Join(d, "files/bin/wine")) {
-					return d
-				}
+	} {
+		dirs, _ := filepath.Glob(filepath.Join(base, pattern))
+		for _, d := range dirs {
+			if isExecutable(filepath.Join(d, "proton")) && isExecutable(filepath.Join(d, "files/bin/wine")) {
+				return d
 			}
 		}
 	}
@@ -204,13 +211,59 @@ func downloadGEProton() bool {
 	return downloadProtonRelease("GloriousEggroll/proton-ge-custom", "GE-Proton11-5", "~500 Mo")
 }
 
-// downloadProtonRelease : Proton d'une release GitHub, archive et somme
-// SHA-512 publiées côte à côte : <tag>-x86_64.tar.gz (GE-Proton depuis 11-x)
-// ou <tag>.tar.gz (UMU-Proton), dans protonInstallDir. Déjà installé : rien
-// n'est téléchargé.
-func downloadProtonRelease(repo, fallbackTag, size string) bool {
-	tag := githubLatestTag(repo, fallbackTag)
-	// Dossier nommé <tag> ou <tag>-x86_64 : reconnu par le fichier version.
+// downloadProtonCachyos : dernière version de proton-cachyos (variante
+// « slr », release GitHub de CachyOS, SHA-512 vérifiée), dans
+// protonInstallDir (20/11 : plus seulement le paquet pacman, qu'une image
+// Docker perd à chaque mise à jour). Archive optimisée x86-64-v3 si le
+// processeur la permet. Proton par défaut du lanceur ; les versions
+// précédentes sont gardées (--clean les retire).
+func downloadProtonCachyos() bool {
+	repo := "CachyOS/proton-cachyos"
+	tag := githubLatestTag(repo, "cachyos-11.0-20261015-slr")
+	if protonInstalled(tag) {
+		return true
+	}
+	name := "proton-" + tag + "-" + cachyosArch()
+	return installProtonArchive(repo, tag, name+".tar.xz", name+".sha512sum", "proton-"+tag, "~330 Mo")
+}
+
+// cachyosArch : suffixe d'architecture des archives proton-cachyos.
+func cachyosArch() string {
+	if runtime.GOARCH == "arm64" {
+		return "arm64"
+	}
+	if cpuinfo, err := os.ReadFile("/proc/cpuinfo"); err == nil && cpuHasX86_64V3(string(cpuinfo)) {
+		return "x86_64_v3"
+	}
+	return "x86_64"
+}
+
+// cpuHasX86_64V3 : le processeur (drapeaux de /proc/cpuinfo) a toutes les
+// instructions du niveau x86-64-v3 (AVX2 et compagnie).
+func cpuHasX86_64V3(cpuinfo string) bool {
+	for _, line := range strings.Split(cpuinfo, "\n") {
+		key, val, ok := strings.Cut(line, ":")
+		if !ok || strings.TrimSpace(key) != "flags" {
+			continue
+		}
+		flags := map[string]bool{}
+		for _, f := range strings.Fields(val) {
+			flags[f] = true
+		}
+		for _, need := range []string{"avx", "avx2", "bmi1", "bmi2", "f16c", "fma", "abm", "movbe", "xsave"} {
+			if !flags[need] {
+				return false
+			}
+		}
+		return true
+	}
+	return false
+}
+
+// protonInstalled : cette version est déjà dans protonInstallDir (dossier
+// nommé d'après elle, avec ou sans suffixe d'architecture : reconnu aussi par
+// le fichier version).
+func protonInstalled(tag string) bool {
 	dirs, _ := filepath.Glob(filepath.Join(protonInstallDir, "*"))
 	for _, d := range dirs {
 		if isExecutable(filepath.Join(d, "proton")) && protonRunnerIs(d, tag) {
@@ -218,22 +271,41 @@ func downloadProtonRelease(repo, fallbackTag, size string) bool {
 			return true
 		}
 	}
+	return false
+}
+
+// downloadProtonRelease : Proton d'une release GitHub, archive et somme
+// SHA-512 publiées côte à côte : <tag>-x86_64.tar.gz (GE-Proton depuis 11-x,
+// UMU-Proton depuis 11.0-2e) ou <tag>.tar.gz (UMU-Proton avant), dans
+// protonInstallDir. Déjà installé : rien n'est téléchargé.
+func downloadProtonRelease(repo, fallbackTag, size string) bool {
+	tag := githubLatestTag(repo, fallbackTag)
+	if protonInstalled(tag) {
+		return true
+	}
 	base := "https://github.com/" + repo + "/releases/download/" + tag
 	file := tag + ".tar.gz"
 	if download.Exists(base + "/" + tag + "-x86_64.tar.gz") {
 		file = tag + "-x86_64.tar.gz"
 	}
-	sum := strings.TrimSuffix(file, ".tar.gz") + ".sha512sum"
+	return installProtonArchive(repo, tag, file, strings.TrimSuffix(file, ".tar.gz")+".sha512sum", tag, size)
+}
+
+// installProtonArchive : télécharge l'archive file d'une release et sa somme
+// SHA-512 sum, la vérifie et installe son dossier racine dans protonInstallDir.
+func installProtonArchive(repo, tag, file, sum, label, size string) bool {
+	base := "https://github.com/" + repo + "/releases/download/" + tag
 	tmp, err := mkTempDir()
 	if err != nil {
 		return false
 	}
 	defer os.RemoveAll(tmp)
-	if fetch(base+"/"+file, filepath.Join(tmp, file), tag+" ("+size+")") == nil && dryRun {
-		setupDone(tag + " : " + doneWord())
+	if fetch(base+"/"+file, filepath.Join(tmp, file), label+" ("+size+")") == nil && dryRun {
+		setupDone(label + " : " + doneWord())
 		return true
 	}
 	if !isFile(filepath.Join(tmp, file)) || download.File(base+"/"+sum, filepath.Join(tmp, sum)) != nil {
+		setupFail(label + " : téléchargement échoué")
 		return false
 	}
 	check := exec.Command("sha512sum", "-c", "--quiet", sum)
@@ -248,35 +320,36 @@ func downloadProtonRelease(repo, fallbackTag, size string) bool {
 		if top != "" && isExecutable(filepath.Join(top, "proton")) {
 			dest := filepath.Join(protonInstallDir, filepath.Base(top))
 			if installTree(top, dest) == nil {
-				setupDone(tag + " installé : " + dest)
+				setupDone(label + " installé : " + dest)
 				return true
 			}
 		}
 	}
-	setupFail(tag + " : extraction échouée (archive corrompue ?)")
+	setupFail(label + " : extraction échouée (archive corrompue ?)")
 	return false
 }
 
+// installProton : proton-cachyos depuis GitHub (toutes distributions, dans
+// le dossier de l'utilisateur : rien dans le système, rien de perdu à la mise
+// à jour d'une image Docker), sinon UMU-Proton.
 func installProton() {
-	if distro == "arch" && pacmanSynced() {
-		for _, pkg := range []string{"proton-cachyos-slr", "proton-cachyos"} {
-			if pacmanAvailable(pkg) {
-				_ = pacmanEnsure(pkg, pkg)
-				return
-			}
-		}
+	if !downloadProtonCachyos() {
+		downloadUmuProton()
 	}
-	downloadUmuProton()
 }
 
 func checkProton() {
 	umu, _ := exec.LookPath("umu-run")
-	proton := findProton()
+	// proton-cachyos est le Proton par défaut : un UMU-Proton seul ne suffit
+	// pas, proton-cachyos est proposé quand même.
+	proton := findProtonMatching("proton-cachyos*")
 	if umu != "" {
 		setupHave("umu-run : " + umu)
 	}
 	if proton != "" {
 		setupHave("Proton  : " + proton)
+	} else if other := findProtonMatching("UMU-Proton*"); other != "" {
+		setupHave("Proton  : " + other + " (en attendant proton-cachyos)")
 	}
 	if umu != "" && proton != "" {
 		return
@@ -288,7 +361,7 @@ func checkProton() {
 		setupTodo("umu-run manquant")
 	}
 	if proton == "" {
-		setupTodo("Proton manquant", "proton-cachyos ou UMU-Proton")
+		setupTodo("proton-cachyos manquant", "Proton par défaut, ~330 Mo, sinon UMU-Proton")
 	}
 	if askYesNo("Installer ce qui manque ?", true) {
 		if umu == "" {

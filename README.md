@@ -72,17 +72,23 @@ Puis il propose, quelle que soit la distribution :
 
 - **wine-tkg / wine-ge** (jeux arcade Batocera) dans `~/.local/share/wsquashfs/wine`
 - **umu-run** (paquet `umu-launcher` sous Arch/CachyOS, sinon zipapp avec un
-  lien dans le dossier d'installation) et un **Proton** : `proton-cachyos-slr`
-  ou `proton-cachyos` sous CachyOS, sinon **UMU-Proton** (Proton de Valve,
-  empreinte SHA-512 vérifiée) dans `~/.local/share/Steam/compatibilitytools.d`
-  — nécessaires aux jeux PC récents (images sans prefix, prefixes créés par
-  Proton), inutiles pour l'arcade seule ;
+  lien dans le dossier d'installation) et un **Proton** : **proton-cachyos**
+  (variante « slr », dernière release GitHub de CachyOS, archive x86-64-v3 si
+  le processeur le permet), sinon **UMU-Proton** (Proton de Valve), empreintes
+  SHA-512 vérifiées, dans `~/.local/share/Steam/compatibilitytools.d` — dans
+  le dossier de l'utilisateur et sur toutes les distributions, pas par le
+  gestionnaire de paquets : rien n'est perdu à la mise à jour d'une image
+  Docker. proton-cachyos est proposé même si un UMU-Proton est déjà là. Ces
+  Proton sont nécessaires aux jeux PC récents (images sans prefix, prefixes
+  créés par Proton), inutiles pour l'arcade seule ;
 - **DXVK, VKD3D-Proton et d7vk** (dernières versions GitHub) dans
   `~/.local/share/wsquashfs/{dxvk,vkd3d-proton,d7vk}` : rendu Vulkan des jeux
   lancés par Wine.
 
 Il termine par `wsquashfs-launcher --doctor`. Options, sans tirets : `dry-run` (montre ce
 qui serait fait sans rien modifier), `yes` (sans questions), `uninstall`,
+`proton-cachyos` (installe seulement la dernière version de **proton-cachyos**,
+le Proton par défaut, même dossier ; à relancer pour la mettre à jour),
 `ge-proton` (installe seulement la dernière version de **GE-Proton**, SHA-512
 vérifiée, dans `~/.local/share/Steam/compatibilitytools.d` ; à relancer pour
 passer à une version plus récente, les précédentes sont gardées). GE-Proton
@@ -102,7 +108,7 @@ sudo apt install squashfs-tools wine
 # Arch Linux
 sudo pacman -S fuse3 fuse-overlayfs wine
 # jeux PC récents (images sans prefix, prefixes Proton) : umu + un Proton
-sudo pacman -S umu-launcher        # + proton-cachyos-slr (CachyOS), sinon UMU-Proton ou GE-Proton
+sudo pacman -S umu-launcher        # Proton : wsquashfs-launcher --setup proton-cachyos
 # wine-tkg (Kron4ek, non WoW64) : jeux 32 bits
 sudo pacman -S lib32-libxkbcommon
 # MangoHud (facultatif : mangohud wsquashfs-launcher jeu.wsquashfs)
@@ -225,7 +231,7 @@ wsquashfs-launcher --pack MonJeu.pc            # → MonJeu.wsquashfs
 # cours exceptés. Ne garde que les 3 dernières archives de --erase par jeu.
 # Retire aussi les jeux sans image (renommée ou retirée) qui n'ont plus rien
 # d'écrit : overlay vide (dossiers et marqueurs seulement) et chemin mémorisé.
-# Retire enfin les anciennes versions de GE-Proton et UMU-Proton installées par
+# Retire enfin les anciennes versions de GE-Proton, UMU-Proton et proton-cachyos installées par
 # --setup (~/.local/share/Steam/compatibilitytools.d) : la plus récente de
 # chaque famille est gardée, ainsi qu'un Proton en cours d'utilisation ; un
 # prefix créé par une version retirée passe à la plus récente de sa famille.
