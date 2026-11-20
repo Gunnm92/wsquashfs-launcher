@@ -111,9 +111,10 @@ func (s *service) update(w http.ResponseWriter, r *http.Request) {
 	if f, ok := w.(http.Flusher); ok {
 		f.Flush()
 	}
-	restartFn := s.env.Restart
+	// Délai lu ici, pas dans la goroutine : un test le remet à sa valeur pendant qu'elle attend.
+	restartFn, delay := s.env.Restart, restartDelay
 	go func() {
-		time.Sleep(restartDelay)
+		time.Sleep(delay)
 		if err := restartFn(); err != nil {
 			// La relance a échoué : l'agent continue sur l'ancien binaire (le nouveau servira au
 			// prochain démarrage).
