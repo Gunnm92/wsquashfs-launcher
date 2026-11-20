@@ -67,8 +67,8 @@ info:
     Les erreurs des deux serveurs sont `{"detail": "<message en français>"}` en
     `application/json; charset=utf-8`. Quelques erreurs de l'agent ajoutent un champ
     (`part_size`, `free`). Exceptions : le routeur Go répond 404 et 405 en texte brut (sans
-    `detail`) pour une route ou une méthode inconnue ; le manager répond 422 sur un corps mal
-    formé avec le format de validation de FastAPI (`detail` est alors une liste).
+    `detail`) pour une route ou une méthode inconnue. Un corps illisible ou invalide donne 400
+    `{"detail": "requête illisible"}` aux deux serveurs.
 servers:
   - url: https://{hote}:{port}
     description: Agent du lanceur (port 8790 par défaut) ou manager (`machine_port`).
@@ -327,8 +327,9 @@ paths:
         l'empreinte de contenu sans les dates, `""` si un fichier est illisible. `state` est
         l'empreinte commune enregistrée pour la machine appelante lors de la dernière synchro.
         `newest` : date du plus récent fichier (secondes Unix) ; `size` : octets.
-        Le manager ne renvoie pas `content` ni `label` (écart connu : le client Go traite
-        `content` absent comme inconnu).
+        Le manager rend aussi `content` : l'empreinte de contenu de la version qu'il a en
+        réserve (celle que le lanceur lui a envoyée dans `X-Wsq-Content`), pour que la détection
+        « même contenu » joue avec lui. Il ne rend pas `label`, facultatif.
       x-since-agent: 3
       x-served-by: [agent, manager]
       parameters:
@@ -339,7 +340,6 @@ paths:
           content:
             application/json:
               schema: {$ref: "#/components/schemas/SavesList"}
-              x-pair-schema: {$ref: "#/components/schemas/SavesListPair"}
         "400": {$ref: "#/components/responses/BadRequest"}
         "401": {$ref: "#/components/responses/Unauthorized"}
 
@@ -490,9 +490,9 @@ paths:
       description: |
         La machine appelante dit qu'elle a reçu `fingerprint` pour `game` : l'état de synchro
         est enregistré. 409 si le jeu a changé entre-temps (l'agent compare à l'empreinte
-        courante ; le manager aussi, sans tenir compte de la casse). Corps de 4096 octets au
-        plus côté agent. Un corps sans `game` ou `fingerprint` : 400 côté agent (`jeu invalide`
-        ou 409), 422 côté manager (format de validation de FastAPI).
+        courante ; le manager aussi, sans tenir compte de la casse). 404 si le jeu est absent
+        (aucune sauvegarde côté manager). Corps de 4096 octets au plus côté agent. Un corps
+        illisible ou invalide : 400.
       x-since-agent: 3
       x-served-by: [agent, manager]
       parameters:
@@ -512,7 +512,6 @@ paths:
         "401": {$ref: "#/components/responses/Unauthorized"}
         "404": {$ref: "#/components/responses/NotFound"}
         "409": {$ref: "#/components/responses/Conflict"}
-        "422": {$ref: "#/components/responses/Validation"}
         "500": {$ref: "#/components/responses/ServerError"}
 
   /v1/saves/dirs:
@@ -820,7 +819,6 @@ paths:
               schema: {$ref: "#/components/schemas/EventReply"}
         "400": {$ref: "#/components/responses/BadRequest"}
         "401": {$ref: "#/components/responses/Unauthorized"}
-        "422": {$ref: "#/components/responses/Validation"}
 
 components:
   securitySchemes:
@@ -915,11 +913,6 @@ components:
       content:
         application/json:
           schema: {$ref: "#/components/schemas/Error"}
-    Validation:
-      description: Corps mal formé, côté manager seulement (format de validation de FastAPI).
-      content:
-        application/json:
-          schema: {$ref: "#/components/schemas/ValidationError"}
     BadRequestPart:
       description: Requête invalide ; `part_size` accompagne `envoi interrompu`.
       content:
@@ -969,20 +962,6 @@ components:
       properties:
         detail: {type: string}
         free: {type: integer, description: "Octets disponibles."}
-    ValidationError:
-      type: object
-      description: Corps de 422 de FastAPI.
-      required: [detail]
-      properties:
-        detail:
-          type: array
-          items:
-            type: object
-            required: [loc, msg, type]
-            properties:
-              loc: {type: array, items: {type: [string, integer]}}
-              msg: {type: string}
-              type: {type: string}
 
     PairRequest:
       type: object
@@ -1174,24 +1153,6 @@ components:
       required: [games]
       properties:
         games: {type: array, items: {$ref: "#/components/schemas/SavesListItem"}}
-    SavesListPair:
-      type: object
-      description: Réponse du manager, sans `content` ni `label`.
-      required: [games]
-      properties:
-        games:
-          type: array
-          items:
-            type: object
-            required: [name, fingerprint, newest, size, state]
-            properties:
-              name: {type: string}
-              dir: {type: string}
-              fingerprint: {type: string}
-              newest: {type: integer, minimum: 0}
-              size: {type: integer, minimum: 0}
-              state: {type: string}
-
     SavesPutReply:
       type: object
       additionalProperties: false

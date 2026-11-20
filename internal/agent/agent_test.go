@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -669,5 +670,27 @@ func TestManagerUIURL(t *testing.T) {
 func TestSyncMaintenanceAction(t *testing.T) {
 	if spec, ok := maintenanceActions["sync"]; !ok || spec.game != gameOptional || spec.args[0] != "--sync" {
 		t.Errorf("« sync » de l'agent : %+v, attendu --sync avec jeu facultatif", spec)
+	}
+}
+
+// TestPairCodeHostForms : l'hôte IPv6 est entre crochets dans le code (sinon le port se confond avec
+// l'adresse) ; IPv4 et nom d'hôte restent tels quels. --sync wsq:// relit les trois.
+func TestPairCodeHostForms(t *testing.T) {
+	fp := strings.Repeat("AB", 32)
+	for host, want := range map[string]string{
+		"192.168.1.20":  "wsq://jeton_1@192.168.1.20:8790#" + fp,
+		"poste-jeu":     "wsq://jeton_1@poste-jeu:8790#" + fp,
+		"2001:db8::1":   "wsq://jeton_1@[2001:db8::1]:8790#" + fp,
+		"fd00:1:2:3::9": "wsq://jeton_1@[fd00:1:2:3::9]:8790#" + fp,
+	} {
+		code := pairCode("jeton_1", host, 8790, fp)
+		if code != want {
+			t.Errorf("hôte %s : %q, attendu %q", host, code, want)
+		}
+		p, err := savesync.ParsePairCode(code)
+		wantURL := "https://" + net.JoinHostPort(host, "8790")
+		if err != nil || p.URL != wantURL {
+			t.Errorf("hôte %s relu : %+v, %v (attendu %s)", host, p, err, wantURL)
+		}
 	}
 }

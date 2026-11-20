@@ -24,7 +24,8 @@ import (
 // pairCode : code d'association wsq://SECRET@HÔTE:PORT#EMPREINTE. Le secret est celui du code
 // en attente (pair.json) : il ne sert qu'une fois.
 func pairCode(secret, host string, port int, fp string) string {
-	return fmt.Sprintf("wsq://%s@%s:%d#%s", secret, host, port, fp)
+	// JoinHostPort entoure de crochets un hôte IPv6 : wsq://SECRET@[fe80::1]:8790#…
+	return fmt.Sprintf("wsq://%s@%s#%s", secret, net.JoinHostPort(host, strconv.Itoa(port)), fp)
 }
 
 // Pair : --pair [reset] [roms DIR]... [port N], ou --pair forget <machine>. Initialise si besoin,
