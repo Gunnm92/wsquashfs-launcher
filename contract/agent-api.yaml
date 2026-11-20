@@ -1,0 +1,1369 @@
+openapi: 3.1.0
+jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
+info:
+  title: Contrat de l'agent du lanceur et du manager
+  version: "11"
+  description: |
+    Source de vérité du dialogue entre wsquashfs-manager (Python, FastAPI) et l'agent de
+    wsquashfs-launcher (Go, `--agent`). Chaque côté code les formats de son côté : ce fichier est
+    ce que les deux tests de concordance valident (Go : `internal/contracttest`, Python :
+    `backend/tests/test_contract.py`). Il décrit ce que fait le serveur réel, pas ce qu'on aimerait
+    qu'il fasse. Un écart connu entre les deux côtés est dit dans la description de la route.
+
+    `info.version` est la version de protocole : la valeur de `version` de `GET /v1/info` (11).
+    Elle est montée à chaque évolution du protocole. L'extension `x-since-agent: N` d'une route
+    donne la première version de l'agent qui la sert. Un client qui reçoit un 404 en texte brut
+    (`404 page not found`, sans `detail`) sait que la route manque : agent plus ancien.
+
+    ## Deux rôles
+
+    - Tag `agent` : routes servies par le lanceur (`--agent`, port 8790 par défaut), appelées par
+      le manager.
+    - Tag `pair` : sous-ensemble du protocole que le manager sert aussi aux lanceurs, sur son
+      `machine_port`, pour que le lanceur le traite comme un pair de `--sync` : `GET /v1/info`,
+      `GET /v1/saves/list`, `GET` et `PUT /v1/saves/tar`, `POST /v1/saves/state`, plus
+      `POST /v1/events` (servi par le manager seulement). `x-served-by` donne le ou les serveurs
+      d'une route. Quand le manager répond autrement que l'agent, le schéma côté manager est
+      dans `x-pair-schema` de la réponse (le schéma principal est celui de l'agent).
+
+    ## Authentification
+
+    Toutes les routes, sauf `POST /v1/pair`, portent `Authorization: Bearer <jeton>`. Le jeton est
+    durable et propre à une machine cliente : l'agent ne garde que son SHA-256 (`agent.json`), le
+    manager de même (`manager_token_sha256`). Un jeton inconnu donne 401
+    `{"detail": "jeton refusé"}`.
+
+    `X-Wsq-Machine` est l'identifiant de la machine cliente (`[A-Za-z0-9_-]{1,64}`).
+    - Agent : facultatif sur les routes hors `/v1/saves/*`, mais s'il est présent il doit être
+      celui de la machine du jeton (401 sinon, depuis l'agent 7). Obligatoire sur `/v1/saves/*`
+      (400 s'il est absent ; présent mais différent de celui du jeton, 401).
+    - Manager : obligatoire sur toutes ses routes (400), contrôlé seulement par sa forme, sans
+      le comparer à la machine du jeton (écart connu avec l'agent).
+
+    ## TLS épinglé
+
+    L'agent et le manager servent en HTTPS (TLS 1.3 minimum) avec un certificat auto-signé
+    ECDSA P-256. Il n'y a pas de chaîne de confiance : le client accepte le certificat si
+    l'empreinte SHA-256 de son DER est celle qu'il connaît (64 caractères hexadécimaux,
+    majuscules pour le lanceur, sans deux-points dans les échanges ; le manager l'affiche avec
+    des deux-points). Le nom d'hôte n'est pas contrôlé. Côté manager l'empreinte vient du code
+    d'association puis du certificat gardé (`agent-cert.pem`) ; côté lanceur, de l'association ou
+    de `PUT /v1/saves/manager`.
+
+    ## Appairage
+
+    1. `wsquashfs-launcher --pair` affiche un code `wsq://SECRET@HÔTE:PORT#EMPREINTE` à usage
+       unique et de durée courte (`pair.json` : seulement le SHA-256 du secret).
+    2. Le client lit le certificat de l'agent, vérifie son empreinte contre celle du code, et
+       seulement alors envoie le secret : `POST /v1/pair` avec `Authorization: Bearer <secret>`.
+    3. L'agent consomme le code, crée un jeton durable pour l'identifiant `X-Wsq-Machine` et le
+       rend une seule fois.
+    4. Le manager se déclare à l'agent avec `PUT /v1/saves/manager` (adresse, jeton propre à
+       ce lanceur, empreinte du certificat du manager) : le lanceur peut alors lui parler
+       (rôle `pair`, `POST /v1/events`, synchro automatique).
+
+    ## Format d'erreur
+
+    Les erreurs des deux serveurs sont `{"detail": "<message en français>"}` en
+    `application/json; charset=utf-8`. Quelques erreurs de l'agent ajoutent un champ
+    (`part_size`, `free`). Exceptions : le routeur Go répond 404 et 405 en texte brut (sans
+    `detail`) pour une route ou une méthode inconnue ; le manager répond 422 sur un corps mal
+    formé avec le format de validation de FastAPI (`detail` est alors une liste).
+servers:
+  - url: https://{hote}:{port}
+    description: Agent du lanceur (port 8790 par défaut) ou manager (`machine_port`).
+    variables:
+      hote: {default: 192.168.1.20}
+      port: {default: "8790"}
+tags:
+  - name: agent
+    description: Servi par le lanceur (`wsquashfs-launcher --agent`).
+  - name: pair
+    description: Servi aussi par le manager aux lanceurs (pair de `--sync`, événements).
+security:
+  - bearer: []
+
+paths:
+  /v1/pair:
+    post:
+      tags: [agent]
+      operationId: pair
+      summary: Association par code à usage unique
+      description: |
+        Hors du contrôle de jeton. `Authorization: Bearer` porte le secret du code, pas un
+        jeton. Sous un verrou : un code absent, expiré (il est alors retiré), ou un secret faux
+        (comparé à temps constant) donne 401 ; un mauvais secret ne consomme pas le code. Le
+        code est retiré avant de délivrer le jeton (usage unique). L'entrée de même identifiant
+        est remplacée dans `agent.json`. Le jeton ne sort de l'agent que dans cette réponse.
+        `name` est nettoyé (caractères de contrôle et espaces de bord retirés, 64 caractères
+        au plus) ; vide, l'adresse du client est gardée. Un 404 en texte brut : l'agent est
+        antérieur à la version 7.
+      x-since-agent: 7
+      x-served-by: [agent]
+      security:
+        - pairingSecret: []
+      parameters:
+        - $ref: "#/components/parameters/MachineRequired"
+      requestBody:
+        required: true
+        description: Corps de 4096 octets au plus.
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/PairRequest"}
+      responses:
+        "200":
+          description: Association faite.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/PairReply"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "413": {$ref: "#/components/responses/TooLarge"}
+        "500": {$ref: "#/components/responses/ServerError"}
+
+  /v1/info:
+    get:
+      tags: [agent, pair]
+      operationId: info
+      summary: État de l'agent
+      description: |
+        Version du protocole, machine, dossiers, manager déclaré et activité. Les champs
+        `build`, `playing` et `controllers` (agent 11) sont lus au moment de la requête.
+        `os` existe depuis l'agent 4, `games_dir` et `games_dir_set` depuis le 6, `manager` et
+        `auto` depuis le 9, `manager_ui` est un ajout de la version 10. Le manager répond
+        seulement `{host, version: "manager"}` (voir `x-pair-schema`).
+      x-since-agent: 1
+      x-served-by: [agent, manager]
+      parameters:
+        - $ref: "#/components/parameters/Machine"
+      responses:
+        "200":
+          description: État.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Info"}
+              x-pair-schema: {$ref: "#/components/schemas/InfoPair"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+
+  /v1/doctor:
+    get:
+      tags: [agent]
+      operationId: doctor
+      summary: Rapport de `--doctor json`
+      description: |
+        Rapport structuré du lanceur, mis en cache 5 minutes ; `refresh=1` le refait. Le corps est
+        la sortie du lanceur telle quelle : le schéma ne garantit que ce que le manager lit.
+        Les listes peuvent valoir `null` quand le lanceur n'a rien à y mettre.
+      x-since-agent: 2
+      x-served-by: [agent]
+      parameters:
+        - $ref: "#/components/parameters/Machine"
+        - name: refresh
+          in: query
+          required: false
+          description: "`1` : ignore le cache."
+          schema: {type: string}
+      responses:
+        "200":
+          description: Rapport.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Doctor"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "503": {$ref: "#/components/responses/ServerError"}
+
+  /v1/trial:
+    post:
+      tags: [agent]
+      operationId: trial
+      summary: Essai chronométré d'une image
+      description: |
+        Lance `--trial` sur une image des dossiers roms/, attend la fin et rend le rapport et la
+        capture. Un seul essai à la fois (409). Corps de 65536 octets au plus. `duration` : 10 à
+        600 s, 60 par défaut. 409 aussi si un jeu tourne déjà (le lanceur sort avec le code 3) ;
+        404 si l'image est introuvable. 504 si l'essai dépasse sa durée plus 180 s ou si le client
+        part. 500 si le lanceur ne rend pas de JSON.
+      x-since-agent: 1
+      x-served-by: [agent]
+      parameters:
+        - $ref: "#/components/parameters/Machine"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/TrialRequest"}
+      responses:
+        "200":
+          description: Rapport d'essai.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/TrialReply"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+        "500": {$ref: "#/components/responses/ServerError"}
+        "504": {$ref: "#/components/responses/GatewayTimeout"}
+
+  /v1/maintenance:
+    post:
+      tags: [agent]
+      operationId: maintenance
+      summary: Action de maintenance du lanceur
+      description: |
+        Liste fermée d'actions (`--list`, `--umount`, `--clean`, `--save`, `--saves`, `--sync`,
+        `--sync status`). `rel` : interdit pour `list`, `umount`, `clean`, `saves`,
+        `sync-status`, obligatoire pour `save`, facultatif pour `sync` ; résolu comme une image
+        des dossiers roms/. Le code HTTP est 200 même si le lanceur échoue : `code` est son code
+        de sortie (`-1` : pas démarré ou tué par le délai de 900 s, le motif est ajouté à
+        `output`). La sortie est en couleurs ANSI (`CLICOLOR_FORCE=1`). Corps de 65536 octets au
+        plus.
+      x-since-agent: 1
+      x-served-by: [agent]
+      parameters:
+        - $ref: "#/components/parameters/Machine"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/MaintenanceRequest"}
+      responses:
+        "200":
+          description: Résultat de l'action.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/MaintenanceReply"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
+  /v1/update:
+    post:
+      tags: [agent]
+      operationId: update
+      summary: Met à jour le lanceur
+      description: |
+        Lance `--update` (binaire publié, vérifié par son empreinte SHA-256 et son en-tête ELF),
+        puis, si la version a changé (`restart`), relance l'agent sur le nouveau binaire une fois la
+        réponse partie. Pas de corps. 409 pendant un envoi d'image ou une autre mise à jour,
+        501 si la mise à jour n'est pas disponible dans cet environnement. `code` : celui de
+        `--update` (`-1` : pas démarré ou interrompu). Un agent d'avant la version 11 répond 404
+        en texte brut.
+      x-since-agent: 11
+      x-served-by: [agent]
+      parameters:
+        - $ref: "#/components/parameters/Machine"
+      responses:
+        "200":
+          description: Résultat de la mise à jour.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/UpdateReply"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "409": {$ref: "#/components/responses/Conflict"}
+        "501": {$ref: "#/components/responses/ServerError"}
+
+  /v1/runner/list:
+    get:
+      tags: [agent]
+      operationId: runnerList
+      summary: Fichiers d'un runner installé
+      description: |
+        `path` : chemin absolu d'un dossier d'un runner Wine installé (liens résolus). 403 s'il
+        n'est pas un runner installé, 404 s'il n'existe pas.
+      x-since-agent: 1
+      x-served-by: [agent]
+      parameters:
+        - $ref: "#/components/parameters/Machine"
+        - $ref: "#/components/parameters/RunnerPath"
+      responses:
+        "200":
+          description: Fichiers, chemin relatif vers taille (0 pour un dossier ou un lien).
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/RunnerList"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
+  /v1/runner/tar:
+    get:
+      tags: [agent]
+      operationId: runnerTar
+      summary: Runner en tar
+      description: |
+        Archive tar non compressée du dossier, en flux, liens symboliques conservés. La première
+        entrée est le dossier lui-même. Les fichiers illisibles sont omis. Si l'archive échoue
+        après le 200, la connexion est coupée (pas d'archive tronquée présentée comme complète).
+      x-since-agent: 1
+      x-served-by: [agent]
+      parameters:
+        - $ref: "#/components/parameters/Machine"
+        - $ref: "#/components/parameters/RunnerPath"
+      responses:
+        "200":
+          description: Archive tar.
+          content:
+            application/x-tar:
+              schema: {type: string, contentEncoding: base64, description: "Octets du tar."}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
+  /v1/saves/list:
+    get:
+      tags: [agent, pair]
+      operationId: savesList
+      summary: Jeux à sauvegardes et état par machine
+      description: |
+        Jeux dont le périmètre de sauvegardes n'est pas vide, plus ceux qui ont un état pour la
+        machine appelante, triés par nom. Les noms sont des jeux, `dossier:<nom>` (dossiers
+        déclarés, agent 8) ou `switch:<TitleID>` (Eden, agent 8). `content` (agent 10) est
+        l'empreinte de contenu sans les dates, `""` si un fichier est illisible. `state` est
+        l'empreinte commune enregistrée pour la machine appelante lors de la dernière synchro.
+        `newest` : date du plus récent fichier (secondes Unix) ; `size` : octets.
+        Le manager ne renvoie pas `content` ni `label` (écart connu : le client Go traite
+        `content` absent comme inconnu).
+      x-since-agent: 3
+      x-served-by: [agent, manager]
+      parameters:
+        - $ref: "#/components/parameters/MachineRequired"
+      responses:
+        "200":
+          description: Liste.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/SavesList"}
+              x-pair-schema: {$ref: "#/components/schemas/SavesListPair"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+
+  /v1/saves/tar:
+    get:
+      tags: [agent, pair]
+      operationId: savesGet
+      summary: Archive des sauvegardes d'un jeu
+      description: |
+        `tar.gz` du périmètre, préparé en entier avant la réponse (la taille et les en-têtes
+        partent avant le corps). 404 sans sauvegarde ou nom inconnu de cette machine, 409
+        `jeu en cours` si le jeu est lancé, monté ou en maintenance (aussi un jeu Switch tant
+        qu'Eden tourne). Côté agent, le périmètre est celui de `--save` (sous `users/`, sans
+        caches ni comptes système).
+      x-since-agent: 3
+      x-served-by: [agent, manager]
+      parameters:
+        - $ref: "#/components/parameters/MachineRequired"
+        - $ref: "#/components/parameters/Game"
+      responses:
+        "200":
+          description: Archive tar.gz.
+          headers:
+            X-Wsq-Fingerprint:
+              required: true
+              description: Empreinte du périmètre envoyé.
+              schema: {type: string, minLength: 1}
+            X-Wsq-Profile:
+              required: false
+              description: Nom du profil Wine des sauvegardes. Absent pour un dossier simple.
+              schema: {type: string}
+          content:
+            application/gzip:
+              schema: {type: string, contentEncoding: base64, description: "Octets du tar.gz."}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+        "500": {$ref: "#/components/responses/ServerError"}
+    put:
+      tags: [agent, pair]
+      operationId: savesPut
+      summary: Remplace les sauvegardes d'un jeu
+      description: |
+        Corps : archive tar.gz. Si le périmètre local a changé depuis la dernière synchro avec
+        l'appelant, il est archivé d'abord (dossier backups, chemin dans `archived`) : rien ne
+        disparaît. Archive refusée (vide, illisible, plus de 4 Gio décompressés) : 400, rien
+        n'est modifié ; plus de 2 Gio : 413. Le délai de lecture de l'agent est de 10 minutes.
+        Dossier déclaré ailleurs mais pas ici : l'en-tête `X-Wsq-Dir` (agent 8) le déclare.
+
+        Le manager répond autrement (`x-pair-schema`) : il exige `X-Wsq-Fingerprint`
+        (64 hexadécimaux, 400 sinon), lit `X-Wsq-Content`, `X-Wsq-Size`, `X-Wsq-Newest`
+        (l'agent les ignore), répond 413 au-delà de 2 Gio, et peut répondre `conflict`
+        (les deux côtés ont changé : la copie est rangée à part, rien n'est remplacé), `same`
+        (même contenu) ou `behind` (copie plus ancienne que celle du manager), avec le même
+        code 200. Le manager n'archive pas de chemin : `archived` y est un nom de fichier ou `""`.
+        Le client Go ne lit que `fingerprint` et `archived`.
+      x-since-agent: 3
+      x-served-by: [agent, manager]
+      parameters:
+        - $ref: "#/components/parameters/MachineRequired"
+        - $ref: "#/components/parameters/Game"
+        - name: X-Wsq-Fingerprint
+          in: header
+          required: false
+          description: |
+            Empreinte du périmètre envoyé. Ignorée par l'agent, obligatoire pour le manager
+            (64 caractères hexadécimaux).
+          schema: {type: string, pattern: "^[0-9A-Fa-f]{64}$"}
+        - name: X-Wsq-Content
+          in: header
+          required: false
+          description: |
+            Empreinte de contenu (agent 10). Ignorée par l'agent. Le manager l'accepte vide ou
+            en 64 hexadécimaux.
+          schema: {type: string, pattern: "^([0-9A-Fa-f]{64})?$"}
+        - name: X-Wsq-Size
+          in: header
+          required: false
+          description: Taille des fichiers en octets. Ignorée par l'agent, gardée par le manager.
+          schema: {type: string, pattern: "^[0-9]{1,18}$"}
+        - name: X-Wsq-Newest
+          in: header
+          required: false
+          description: Date du fichier le plus récent, secondes Unix. Ignorée par l'agent.
+          schema: {type: string, pattern: "^[0-9]{1,18}$"}
+        - name: X-Wsq-Profile
+          in: header
+          required: false
+          description: Profil Wine des sauvegardes (ASCII). Absent pour un dossier simple.
+          schema: {type: string}
+        - name: X-Wsq-Dir
+          in: header
+          required: false
+          description: |
+            Chemin d'un dossier déclaré à partir de HOME, encodé en pourcentage
+            (agent 8). Sert à déclarer le dossier sur une machine qui ne l'a pas.
+          schema: {type: string, maxLength: 1024}
+      requestBody:
+        required: true
+        content:
+          application/gzip:
+            schema: {type: string, contentEncoding: base64, description: "Octets du tar.gz."}
+      responses:
+        "200":
+          description: Archive reçue et appliquée.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/SavesPutReply"}
+              x-pair-schema: {$ref: "#/components/schemas/SavesPutReplyPair"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+        "413": {$ref: "#/components/responses/TooLarge"}
+        "500": {$ref: "#/components/responses/ServerError"}
+    delete:
+      tags: [agent]
+      operationId: savesDelete
+      summary: Supprime les sauvegardes d'un jeu
+      description: |
+        Le périmètre est archivé d'abord (500 sans rien supprimer si l'archivage échoue) ; seuls
+        les fichiers du périmètre partent, puis les dossiers devenus vides. L'état de synchro de
+        la machine appelante pour ce jeu est effacé. Sans sauvegarde ou nom non déclaré ici :
+        200 avec `removed: 0` et `archived: ""`. Un agent d'avant la version 5 répond 404 ou 405
+        en texte brut.
+      x-since-agent: 5
+      x-served-by: [agent]
+      parameters:
+        - $ref: "#/components/parameters/MachineRequired"
+        - $ref: "#/components/parameters/Game"
+      responses:
+        "200":
+          description: Suppression faite.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/SavesDeleteReply"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "409": {$ref: "#/components/responses/Conflict"}
+        "500": {$ref: "#/components/responses/ServerError"}
+
+  /v1/saves/state:
+    post:
+      tags: [agent, pair]
+      operationId: savesState
+      summary: Confirme l'empreinte commune après une réception
+      description: |
+        La machine appelante dit qu'elle a reçu `fingerprint` pour `game` : l'état de synchro
+        est enregistré. 409 si le jeu a changé entre-temps (l'agent compare à l'empreinte
+        courante ; le manager aussi, sans tenir compte de la casse). Corps de 4096 octets au
+        plus côté agent. Un corps sans `game` ou `fingerprint` : 400 côté agent (`jeu invalide`
+        ou 409), 422 côté manager (format de validation de FastAPI).
+      x-since-agent: 3
+      x-served-by: [agent, manager]
+      parameters:
+        - $ref: "#/components/parameters/MachineRequired"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/StateRequest"}
+      responses:
+        "200":
+          description: État enregistré.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/StateReply"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+        "422": {$ref: "#/components/responses/Validation"}
+        "500": {$ref: "#/components/responses/ServerError"}
+
+  /v1/saves/dirs:
+    get:
+      tags: [agent]
+      operationId: savesDirs
+      summary: Dossiers déclarés
+      description: |
+        Dossiers synchronisés comme des jeux (`dossier:<nom>`), chemins à partir de HOME, et
+        dossier d'Eden détecté (`""` s'il n'y en a pas). Un agent d'avant la version 8 répond
+        404 en texte brut.
+      x-since-agent: 8
+      x-served-by: [agent]
+      parameters:
+        - $ref: "#/components/parameters/MachineRequired"
+      responses:
+        "200":
+          description: Dossiers.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Dirs"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+    put:
+      tags: [agent]
+      operationId: savesDirPut
+      summary: Déclare ou remplace un dossier à synchroniser
+      description: |
+        `path` : à partir de HOME (`.local/share/x`, aussi `~/…` ou absolu sous HOME ; HOME
+        exclu), peut ne pas exister encore. `name` : lettres, chiffres, espace, `_` et `-`,
+        48 caractères au plus. 400 sinon. Corps de 8192 octets au plus. Rend la liste à jour.
+      x-since-agent: 8
+      x-served-by: [agent]
+      parameters:
+        - $ref: "#/components/parameters/MachineRequired"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/DirDeclaration"}
+      responses:
+        "200":
+          description: Liste à jour.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Dirs"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "500": {$ref: "#/components/responses/ServerError"}
+    delete:
+      tags: [agent]
+      operationId: savesDirDelete
+      summary: Retire la déclaration d'un dossier
+      description: Les fichiers restent sur la machine. 404 si le nom est inconnu. Rend la liste à jour.
+      x-since-agent: 8
+      x-served-by: [agent]
+      parameters:
+        - $ref: "#/components/parameters/MachineRequired"
+        - name: name
+          in: query
+          required: true
+          description: Nom du dossier déclaré.
+          schema: {type: string}
+      responses:
+        "200":
+          description: Liste à jour.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Dirs"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "500": {$ref: "#/components/responses/ServerError"}
+
+  /v1/saves/manager:
+    put:
+      tags: [agent]
+      operationId: savesManagerPut
+      summary: Le manager se déclare comme pair de cette machine
+      description: |
+        Écrit le manager dans `sync.json` comme pair `manager` (remplace le précédent, les autres
+        machines restent). `X-Wsq-Machine` est gardé comme l'identifiant que porteront ses envois.
+        `url` : `https://hôte:port` (port obligatoire, sans chemin) ; `token` : lettres, chiffres,
+        `_` et `-` ; `fingerprint` : 64 hexadécimaux, mis en majuscules. `ui` (facultatif) :
+        adresse http(s) de l'interface web, 512 caractères au plus. Corps de 8192 octets au plus.
+        Un agent d'avant la version 9 répond 404 en texte brut.
+      x-since-agent: 9
+      x-served-by: [agent]
+      parameters:
+        - $ref: "#/components/parameters/MachineRequired"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/ManagerDeclaration"}
+      responses:
+        "200":
+          description: Manager déclaré.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ManagerReply"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "500": {$ref: "#/components/responses/ServerError"}
+
+  /v1/games/list:
+    get:
+      tags: [agent]
+      operationId: gamesList
+      summary: Images installées et envois en cours
+      description: |
+        Dossier d'installation effectif (toujours sous HOME), espace libre, images
+        `.wsquashfs` et envois en cours (`.wsquashfs.part`). Dossier absent : listes vides et
+        espace du premier parent existant. Un agent d'avant la version 6 répond 404 en texte brut.
+      x-since-agent: 6
+      x-served-by: [agent]
+      parameters:
+        - $ref: "#/components/parameters/Machine"
+      responses:
+        "200":
+          description: Liste.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/GamesList"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "500": {$ref: "#/components/responses/ServerError"}
+
+  /v1/games/dir:
+    post:
+      tags: [agent]
+      operationId: gamesSetDir
+      summary: Choisit le dossier d'installation
+      description: |
+        `dir` : chemin absolu d'un dossier existant, sous HOME (400 sinon) ; `""` revient à la
+        détection. Corps de 4096 octets au plus.
+      x-since-agent: 6
+      x-served-by: [agent]
+      parameters:
+        - $ref: "#/components/parameters/Machine"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/GamesDirRequest"}
+      responses:
+        "200":
+          description: Dossier effectif.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/GamesDirReply"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "500": {$ref: "#/components/responses/ServerError"}
+
+  /v1/games/part:
+    get:
+      tags: [agent]
+      operationId: gamesPart
+      summary: Envoi partiel d'une image
+      description: Taille de l'envoi en cours (0 sans envoi), image installée ou non, et sa taille.
+      x-since-agent: 6
+      x-served-by: [agent]
+      parameters:
+        - $ref: "#/components/parameters/Machine"
+        - $ref: "#/components/parameters/ImageName"
+      responses:
+        "200":
+          description: Envoi partiel.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/GamesPartReply"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "500": {$ref: "#/components/responses/ServerError"}
+
+  /v1/games/file:
+    put:
+      tags: [agent]
+      operationId: gamesPut
+      summary: Ajoute un morceau d'image
+      description: |
+        Ajoute le corps au fichier `<nom>.part`. `offset` doit être la taille déjà reçue : sinon
+        409 `{detail: "décalage", part_size}` (on reprend là). 409 aussi si l'image est déjà
+        installée ou si un envoi du même nom est en cours. 507 `{detail, free}` si l'espace libre
+        ne couvre pas le reste plus 1 Gio. 413 `{detail, part_size}` si le corps dépasse la taille
+        annoncée ; 400 `{detail: "envoi interrompu", part_size}` si la lecture échoue : ce qui a
+        été reçu reste sur disque. Le délai de lecture de l'agent est de 10 minutes.
+      x-since-agent: 6
+      x-served-by: [agent]
+      parameters:
+        - $ref: "#/components/parameters/Machine"
+        - $ref: "#/components/parameters/ImageName"
+        - name: offset
+          in: query
+          required: true
+          description: Octets déjà reçus (entier, de 0 à la taille totale).
+          schema: {type: string, pattern: "^[0-9]+$"}
+        - name: X-Wsq-Total-Size
+          in: header
+          required: true
+          description: Taille totale de l'image en octets (supérieure à 0).
+          schema: {type: string, pattern: "^[0-9]+$"}
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema: {type: string, contentEncoding: base64, description: "Octets du morceau."}
+      responses:
+        "200":
+          description: Morceau ajouté.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/GamesPutReply"}
+        "400": {$ref: "#/components/responses/BadRequestPart"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "409": {$ref: "#/components/responses/ConflictPart"}
+        "413": {$ref: "#/components/responses/TooLargePart"}
+        "500": {$ref: "#/components/responses/ServerError"}
+        "507":
+          description: Espace insuffisant.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ErrorFree"}
+    delete:
+      tags: [agent]
+      operationId: gamesDelete
+      summary: Désinstalle une image
+      description: |
+        Supprime l'image installée et son `.part`. 409 si un envoi du même nom est en cours ou
+        si le jeu est monté, lancé ou verrouillé.
+      x-since-agent: 6
+      x-served-by: [agent]
+      parameters:
+        - $ref: "#/components/parameters/Machine"
+        - $ref: "#/components/parameters/ImageName"
+      responses:
+        "200":
+          description: "Suppression faite (`removed` faux : il n'y avait rien)."
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/GamesDeleteReply"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "409": {$ref: "#/components/responses/Conflict"}
+        "500": {$ref: "#/components/responses/ServerError"}
+
+  /v1/games/commit:
+    post:
+      tags: [agent]
+      operationId: gamesCommit
+      summary: Valide un envoi d'image
+      description: |
+        Vérifie la taille puis l'empreinte du `.part`, et le range en image installée. 404 sans
+        envoi en cours ; 409 `{detail: "taille", part_size}` si la taille diffère ; 422 si
+        l'empreinte est fausse (le `.part` est supprimé, envoi à refaire) ; 409 si l'image est
+        déjà installée ou si un envoi du même nom est en cours. Corps de 4096 octets au plus.
+      x-since-agent: 6
+      x-served-by: [agent]
+      parameters:
+        - $ref: "#/components/parameters/Machine"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/GamesCommitRequest"}
+      responses:
+        "200":
+          description: Image installée.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/GamesCommitReply"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/ConflictPart"}
+        "422": {$ref: "#/components/responses/Unprocessable"}
+        "500": {$ref: "#/components/responses/ServerError"}
+
+  /v1/events:
+    post:
+      tags: [pair]
+      operationId: events
+      summary: Activité d'une machine (servi par le manager)
+      description: |
+        Envoyé par le lanceur au manager qui l'a déclaré (`PUT /v1/saves/manager`), même jeton,
+        même identifiant, même certificat épinglé que la synchro automatique : `start` au
+        lancement, sans retarder le jeu ; `exit` à la sortie, attendu 5 s au plus. Le lanceur
+        ignore la réponse. Un manager d'avant l'agent 11 répond 404 : rien n'est affiché. Le
+        lanceur envoie toujours `at` ; le manager l'accepte absent.
+      x-since-agent: 11
+      x-served-by: [manager]
+      parameters:
+        - $ref: "#/components/parameters/MachineRequired"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/Event"}
+      responses:
+        "200":
+          description: Événement enregistré.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/EventReply"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "422": {$ref: "#/components/responses/Validation"}
+
+components:
+  securitySchemes:
+    bearer:
+      type: http
+      scheme: bearer
+      description: Jeton durable de la machine (voir l'introduction).
+    pairingSecret:
+      type: http
+      scheme: bearer
+      description: Secret à usage unique du code `wsq://`, seulement pour `POST /v1/pair`.
+
+  parameters:
+    Machine:
+      name: X-Wsq-Machine
+      in: header
+      required: false
+      description: |
+        Identifiant de la machine cliente. S'il est présent, l'agent exige celui de la machine du
+        jeton (401 sinon).
+      schema: {$ref: "#/components/schemas/MachineId"}
+    MachineRequired:
+      name: X-Wsq-Machine
+      in: header
+      required: true
+      description: Identifiant de la machine cliente (400 s'il est absent ; 401 s'il n'est pas celui du jeton).
+      schema: {$ref: "#/components/schemas/MachineId"}
+    Game:
+      name: game
+      in: query
+      required: true
+      description: |
+        Nom de l'entrée de synchro : un jeu, `dossier:<nom>` ou `switch:<TitleID>`. Pas de
+        chemin, pas de point initial.
+      schema: {type: string, minLength: 1, maxLength: 200}
+    ImageName:
+      name: name
+      in: query
+      required: true
+      description: Nom de fichier seul d'une image, `Jeu.wsquashfs` (400 sinon).
+      schema: {type: string, pattern: "\\.wsquashfs$"}
+    RunnerPath:
+      name: path
+      in: query
+      required: true
+      description: Chemin absolu d'un dossier de runner installé.
+      schema: {type: string, pattern: "^/"}
+
+  responses:
+    BadRequest:
+      description: Requête invalide (`detail` en français).
+      content:
+        application/json:
+          schema: {$ref: "#/components/schemas/Error"}
+    Unauthorized:
+      description: Jeton refusé (ou identifiant de machine qui n'est pas celui du jeton).
+      content:
+        application/json:
+          schema: {$ref: "#/components/schemas/Error"}
+    Forbidden:
+      description: Refusé.
+      content:
+        application/json:
+          schema: {$ref: "#/components/schemas/Error"}
+    NotFound:
+      description: Introuvable. Un 404 en texte brut sans `detail` est une route inconnue.
+      content:
+        application/json:
+          schema: {$ref: "#/components/schemas/Error"}
+    Conflict:
+      description: Conflit (par exemple `jeu en cours`, `un essai est déjà en cours`).
+      content:
+        application/json:
+          schema: {$ref: "#/components/schemas/Error"}
+    TooLarge:
+      description: Corps trop volumineux.
+      content:
+        application/json:
+          schema: {$ref: "#/components/schemas/Error"}
+    ServerError:
+      description: Erreur de l'agent ou service indisponible (`detail` en français).
+      content:
+        application/json:
+          schema: {$ref: "#/components/schemas/Error"}
+    GatewayTimeout:
+      description: Délai dépassé.
+      content:
+        application/json:
+          schema: {$ref: "#/components/schemas/Error"}
+    Unprocessable:
+      description: Empreinte incorrecte, envoi à refaire.
+      content:
+        application/json:
+          schema: {$ref: "#/components/schemas/Error"}
+    Validation:
+      description: Corps mal formé, côté manager seulement (format de validation de FastAPI).
+      content:
+        application/json:
+          schema: {$ref: "#/components/schemas/ValidationError"}
+    BadRequestPart:
+      description: Requête invalide ; `part_size` accompagne `envoi interrompu`.
+      content:
+        application/json:
+          schema:
+            anyOf:
+              - {$ref: "#/components/schemas/Error"}
+              - {$ref: "#/components/schemas/ErrorPart"}
+    ConflictPart:
+      description: Conflit ; `part_size` accompagne `décalage` et `taille`.
+      content:
+        application/json:
+          schema:
+            anyOf:
+              - {$ref: "#/components/schemas/Error"}
+              - {$ref: "#/components/schemas/ErrorPart"}
+    TooLargePart:
+      description: Corps au-delà de la taille annoncée.
+      content:
+        application/json:
+          schema: {$ref: "#/components/schemas/ErrorPart"}
+
+  schemas:
+    MachineId:
+      type: string
+      pattern: "^[A-Za-z0-9_-]{1,64}$"
+      description: Identifiant aléatoire d'une machine cliente.
+
+    Error:
+      type: object
+      description: |
+        Erreur. Le serveur peut ajouter des champs (voir `ErrorPart`, `ErrorFree`) : seul `detail`
+        est garanti.
+      required: [detail]
+      properties:
+        detail: {type: string}
+    ErrorPart:
+      type: object
+      description: "Erreur d'un envoi d'image : `part_size` est la taille reçue (où reprendre)."
+      required: [detail, part_size]
+      properties:
+        detail: {type: string}
+        part_size: {type: integer, minimum: 0}
+    ErrorFree:
+      type: object
+      required: [detail, free]
+      properties:
+        detail: {type: string}
+        free: {type: integer, description: "Octets disponibles."}
+    ValidationError:
+      type: object
+      description: Corps de 422 de FastAPI.
+      required: [detail]
+      properties:
+        detail:
+          type: array
+          items:
+            type: object
+            required: [loc, msg, type]
+            properties:
+              loc: {type: array, items: {type: [string, integer]}}
+              msg: {type: string}
+              type: {type: string}
+
+    PairRequest:
+      type: object
+      description: Les champs inconnus sont ignorés par l'agent.
+      properties:
+        name:
+          type: string
+          description: Nom de la machine qui s'associe (nettoyé, 64 caractères au plus).
+    PairReply:
+      type: object
+      additionalProperties: false
+      required: [token, host, version]
+      properties:
+        token: {type: string, minLength: 1, pattern: "^[A-Za-z0-9_-]+$", description: "Jeton durable, rendu une seule fois."}
+        host: {type: string, description: "Nom d'hôte de l'agent."}
+        version: {type: string, pattern: "^[0-9]+$", description: "Version du protocole."}
+
+    Playing:
+      type: object
+      additionalProperties: false
+      required: [game, since]
+      properties:
+        game: {type: string, description: "Nom du jeu (image sans `.wsquashfs`)."}
+        since: {type: integer, description: "Début de la partie, secondes Unix."}
+    Controller:
+      type: object
+      additionalProperties: false
+      required: [kind, name, bus]
+      properties:
+        kind: {enum: [dualsense, playstation, xbox, steam, nintendo, gamepad]}
+        name: {type: string, description: "Nom donné par le pilote."}
+        bus: {enum: [usb, bluetooth, ""]}
+    Info:
+      type: object
+      description: Réponse de l'agent.
+      additionalProperties: false
+      required: [version, host, user, launcher, roms, session_process, os, games_dir, games_dir_set, manager, manager_ui, auto, build, playing, controllers]
+      properties:
+        version: {type: string, pattern: "^[0-9]+$", description: "Version du protocole de l'agent."}
+        host: {type: string}
+        user: {type: string, description: "Utilisateur de la session."}
+        launcher: {type: string, description: "Chemin du binaire du lanceur."}
+        roms: {type: [array, "null"], items: {type: string}, description: "Dossiers roms/ (null si agent.json n'en a pas)."}
+        session_process: {type: string}
+        os: {type: string, description: "ID de /etc/os-release en minuscules, `linux` par défaut."}
+        games_dir: {type: string, description: "Dossier d'installation effectif."}
+        games_dir_set: {type: boolean, description: "Choix manuel en vigueur."}
+        manager: {type: string, description: "Empreinte du manager déclaré, `\"\"` sans déclaration."}
+        manager_ui: {type: string, description: "Adresse de l'interface du manager reçue avec la déclaration, `\"\"` si inconnue."}
+        auto: {type: boolean, description: "Synchro automatique avec le manager."}
+        build: {type: string, description: "Version du lanceur : 12 premiers caractères du SHA-256 du binaire, `\"\"` si inconnue."}
+        playing: {type: array, items: {$ref: "#/components/schemas/Playing"}}
+        controllers: {type: array, items: {$ref: "#/components/schemas/Controller"}}
+    InfoPair:
+      type: object
+      description: Réponse du manager.
+      required: [host, version]
+      properties:
+        host: {type: string}
+        version: {const: manager}
+
+    DoctorItem:
+      type: object
+      required: [status, text]
+      properties:
+        status: {enum: [ok, missing, optional]}
+        text: {type: string}
+        details: {type: array, items: {type: string}}
+    Doctor:
+      type: object
+      description: Sortie de `--doctor json`, relayée telle quelle (champs ajoutés possibles).
+      required: [code, sections, runners, verdict]
+      properties:
+        code: {type: integer, description: "0 si le lanceur peut lancer des jeux, 1 sinon."}
+        sections:
+          type: [array, "null"]
+          items:
+            type: object
+            required: [title, items]
+            properties:
+              title: {type: string}
+              items: {type: array, items: {$ref: "#/components/schemas/DoctorItem"}}
+        runners:
+          type: [array, "null"]
+          items:
+            type: object
+            required: [name, path]
+            properties:
+              name: {type: string}
+              path: {type: string}
+        verdict: {type: string}
+
+    TrialRequest:
+      type: object
+      required: [rel]
+      properties:
+        rel: {type: string, minLength: 1, description: "Chemin d'une image `.wsquashfs` relatif à un dossier roms/."}
+        duration: {type: integer, minimum: 10, maximum: 600, default: 60, description: "Durée de l'essai en secondes (0 : 60)."}
+    TrialReport:
+      type: object
+      description: |
+        Sortie JSON de `--trial`, relayée telle quelle. `error` (`busy`, `noimage`,
+        `interrupted`) n'est présent qu'en cas d'échec ; les autres champs sont alors à zéro.
+      properties:
+        error: {enum: [busy, noimage, interrupted]}
+        code: {type: integer, description: "Code de sortie du lanceur (-1 si arrêté par signal)."}
+        elapsed: {type: integer}
+        launcher_alive: {type: boolean}
+        game_seen: {type: boolean}
+        games: {type: [array, "null"], items: {type: string}}
+        windows:
+          type: [array, "null"]
+          items:
+            type: object
+            properties:
+              id: {type: string}
+              name: {type: string}
+              state: {type: string}
+        left:
+          type: object
+          properties:
+            procs: {type: integer}
+            mounts: {type: integer}
+        screenshot: {type: boolean}
+        log: {type: string}
+    TrialReply:
+      type: object
+      additionalProperties: false
+      required: [report, screenshot]
+      properties:
+        report: {$ref: "#/components/schemas/TrialReport"}
+        screenshot:
+          type: [string, "null"]
+          contentEncoding: base64
+          description: Capture PNG en base64, `null` s'il n'y en a pas.
+
+    MaintenanceRequest:
+      type: object
+      required: [action]
+      properties:
+        action: {enum: [list, umount, clean, save, saves, sync, sync-status]}
+        rel: {type: string, description: "Image du jeu relative à un dossier roms/ (voir la route pour la règle par action)."}
+    MaintenanceReply:
+      type: object
+      additionalProperties: false
+      required: [action, code, output]
+      properties:
+        action: {type: string}
+        code: {type: integer, description: "Code de sortie du lanceur ; -1 : pas démarré ou tué par le délai."}
+        output: {type: string, description: "Sortie standard et d'erreur mêlées, avec codes ANSI."}
+
+    UpdateReply:
+      type: object
+      additionalProperties: false
+      required: [code, output, before, after, restart]
+      properties:
+        code: {type: integer, description: "Code de sortie de `--update` (-1 : pas démarré ou interrompu)."}
+        output: {type: string}
+        before: {type: string, description: "Version du lanceur avant."}
+        after: {type: string, description: "Version du lanceur après."}
+        restart: {type: boolean, description: "L'agent se relance une fois la réponse partie."}
+
+    RunnerList:
+      type: object
+      additionalProperties: false
+      required: [path, entries]
+      properties:
+        path: {type: string, description: "Chemin réel du dossier, liens résolus."}
+        entries:
+          type: object
+          additionalProperties: {type: integer, minimum: 0}
+
+    SavesListItem:
+      type: object
+      additionalProperties: false
+      required: [name, fingerprint, content, newest, size, state]
+      properties:
+        name: {type: string}
+        label: {type: string, description: "Nom lisible d'un dossier déclaré ou d'un jeu Switch. Absent pour un jeu."}
+        dir: {type: string, description: "Dossier déclaré, chemin à partir de HOME. Absent pour un jeu."}
+        fingerprint: {type: string, description: "Empreinte du périmètre (avec les dates), `\"\"` s'il n'y a rien."}
+        content: {type: string, description: "Empreinte de contenu sans les dates, `\"\"` si inconnue."}
+        newest: {type: integer, minimum: 0}
+        size: {type: integer, minimum: 0}
+        state: {type: string, description: "Empreinte commune enregistrée pour la machine appelante, `\"\"` si aucune."}
+    SavesList:
+      type: object
+      additionalProperties: false
+      required: [games]
+      properties:
+        games: {type: array, items: {$ref: "#/components/schemas/SavesListItem"}}
+    SavesListPair:
+      type: object
+      description: Réponse du manager, sans `content` ni `label`.
+      required: [games]
+      properties:
+        games:
+          type: array
+          items:
+            type: object
+            required: [name, fingerprint, newest, size, state]
+            properties:
+              name: {type: string}
+              dir: {type: string}
+              fingerprint: {type: string}
+              newest: {type: integer, minimum: 0}
+              size: {type: integer, minimum: 0}
+              state: {type: string}
+
+    SavesPutReply:
+      type: object
+      additionalProperties: false
+      required: [fingerprint, archived]
+      properties:
+        fingerprint: {type: string, description: "Empreinte du périmètre après remplacement."}
+        archived: {type: string, description: "Chemin de l'archive de la version locale remplacée, `\"\"` si rien n'a été archivé."}
+    SavesPutReplyPair:
+      type: object
+      description: Réponse du manager.
+      required: [fingerprint, archived]
+      properties:
+        fingerprint: {type: string}
+        archived: {type: string, description: "Nom de l'archive de la version précédente, `\"\"` sinon."}
+        conflict: {type: boolean, description: "Les deux côtés ont changé, copie rangée à part."}
+        version: {type: string, description: "Nom de la version de conflit (avec `conflict`)."}
+        same: {type: boolean, description: "Même contenu, rien d'écrit."}
+        behind: {type: boolean, description: "Copie plus ancienne que celle du manager, rien remplacé."}
+    SavesDeleteReply:
+      type: object
+      additionalProperties: false
+      required: [archived, removed]
+      properties:
+        archived: {type: string, description: "Chemin de l'archive, `\"\"` si rien n'a été supprimé."}
+        removed: {type: integer, minimum: 0, description: "Nombre de fichiers supprimés."}
+
+    StateRequest:
+      type: object
+      description: Les champs inconnus sont ignorés par l'agent.
+      required: [game, fingerprint]
+      properties:
+        game: {type: string, maxLength: 200}
+        fingerprint: {type: string, minLength: 1, maxLength: 128}
+    StateReply:
+      type: object
+      additionalProperties: false
+      required: [fingerprint]
+      properties:
+        fingerprint: {type: string}
+
+    DirDeclaration:
+      type: object
+      description: Les champs inconnus sont ignorés par l'agent.
+      required: [name, path]
+      properties:
+        name: {type: string, pattern: "^[A-Za-z0-9][A-Za-z0-9 _-]{0,47}$"}
+        path: {type: string, minLength: 1}
+    Dirs:
+      type: object
+      additionalProperties: false
+      required: [dirs, eden]
+      properties:
+        dirs:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [name, path]
+            properties:
+              name: {type: string}
+              path: {type: string, description: "À partir de HOME."}
+        eden: {type: string, description: "Dossier d'Eden détecté, à partir de HOME, `\"\"` sinon."}
+
+    ManagerDeclaration:
+      type: object
+      description: Les champs inconnus sont ignorés par l'agent.
+      required: [url, token, fingerprint]
+      properties:
+        name: {type: string, description: "Nom du manager (64 caractères au plus) ; vide, l'adresse."}
+        url: {type: string, pattern: "^https://[^/?#@]+:[0-9]{1,5}/?$"}
+        token: {type: string, pattern: "^[A-Za-z0-9_-]+$"}
+        fingerprint: {type: string, pattern: "^[0-9A-Fa-f]{64}$"}
+        ui: {type: string, maxLength: 512, pattern: "^(https?://.+)?$"}
+    ManagerReply:
+      type: object
+      additionalProperties: false
+      required: [manager, auto]
+      properties:
+        manager: {type: string, pattern: "^[0-9A-F]{64}$", description: "Empreinte déclarée, en majuscules."}
+        auto: {type: boolean, description: "Synchro automatique activée sur cette machine."}
+
+    GamesList:
+      type: object
+      additionalProperties: false
+      required: [dir, set, free, games, parts]
+      properties:
+        dir: {type: string}
+        set: {type: boolean, description: "Choix manuel en vigueur."}
+        free: {type: integer, minimum: 0, description: "Octets disponibles."}
+        games:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [name, size, mtime]
+            properties:
+              name: {type: string}
+              size: {type: integer, minimum: 0}
+              mtime: {type: integer, description: "Secondes Unix."}
+        parts:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [name, size]
+            properties:
+              name: {type: string}
+              size: {type: integer, minimum: 0}
+    GamesDirRequest:
+      type: object
+      description: Les champs inconnus sont ignorés par l'agent.
+      required: [dir]
+      properties:
+        dir: {type: string}
+    GamesDirReply:
+      type: object
+      additionalProperties: false
+      required: [dir, set]
+      properties:
+        dir: {type: string}
+        set: {type: boolean}
+    GamesPartReply:
+      type: object
+      additionalProperties: false
+      required: [part_size, installed, size]
+      properties:
+        part_size: {type: integer, minimum: 0}
+        installed: {type: boolean}
+        size: {type: integer, minimum: 0, description: "Taille de l'image installée, 0 sinon."}
+    GamesPutReply:
+      type: object
+      additionalProperties: false
+      required: [part_size]
+      properties:
+        part_size: {type: integer, minimum: 0}
+    GamesCommitRequest:
+      type: object
+      description: Les champs inconnus sont ignorés par l'agent.
+      required: [name, size, sha256]
+      properties:
+        name: {type: string, pattern: "\\.wsquashfs$"}
+        size: {type: integer, minimum: 0}
+        sha256: {type: string, pattern: "^[0-9A-Fa-f]{64}$"}
+    GamesCommitReply:
+      type: object
+      additionalProperties: false
+      required: [name, size]
+      properties:
+        name: {type: string}
+        size: {type: integer, minimum: 0}
+    GamesDeleteReply:
+      type: object
+      additionalProperties: false
+      required: [removed]
+      properties:
+        removed: {type: boolean}
+
+    Event:
+      type: object
+      description: |
+        Événement de partie. `at` : secondes Unix ; `started` et `code` seulement pour `exit` ;
+        `controllers` seulement pour `start` (le lanceur l'omet s'il n'y en a pas).
+      required: [event, game]
+      properties:
+        event: {enum: [start, exit]}
+        game: {type: string, minLength: 1, maxLength: 200}
+        at: {type: integer}
+        started: {type: integer}
+        code: {type: integer}
+        controllers: {type: array, maxItems: 32, items: {$ref: "#/components/schemas/Controller"}}
+    EventReply:
+      type: object
+      required: [ok]
+      properties:
+        ok: {const: true}

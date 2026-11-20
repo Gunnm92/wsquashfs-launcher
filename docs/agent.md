@@ -93,6 +93,17 @@ est retiré. Un code expiré, déjà utilisé ou faux : 401 (« relancer --pair 
 - `last-pair.json` (droits 600) : dernière association réussie, `{"at", "addr", "id", "name"}`.
 - `cert.pem`, `key.pem` (droits 600).
 
+## Contrat
+
+Le contrat du dialogue entre l'agent et wsquashfs-manager est [`contract/agent-api.yaml`](../contract/agent-api.yaml)
+(OpenAPI 3.1, schémas JSON Schema 2020-12). C'est la source de vérité des routes, en-têtes, codes de
+réponse, formats JSON et versions minimales (`x-since-agent`) ; ce document ne les répète que pour
+l'usage. `info.version` du contrat est `agentVersion` (`GET /v1/info`). Les tests Go valident les
+réponses de l'agent et ce que `--sync` envoie à un pair contre ce fichier (`internal/contracttest`,
+`internal/agent/contract_test.go`, `cmd/wsquashfs-launcher/contract_test.go`) ; le manager en garde une
+copie (`make contract` dans son dépôt) et valide les siens. Changer une route, un champ ou la version :
+modifier le contrat dans le même commit, puis recopier la copie du manager.
+
 ## Routes
 
 | Route | Rôle |
@@ -123,7 +134,7 @@ Toutes les routes sauf `POST /v1/pair` exigent un jeton de machine associée (40
 - Succès : `pair.json` est retiré d'abord (usage unique ; s'il ne peut l'être, 500 et
   rien n'est délivré) ; un jeton durable est créé ; l'entrée de même identifiant de
   `agent.json` est remplacée, ou ajoutée ; `last-pair.json` est écrit ; réponse **200**
-  `{"token": "<jeton durable>", "host": "<nom d'hôte de l'agent>", "version": "10"}`.
+  `{"token": "<jeton durable>", "host": "<nom d'hôte de l'agent>", "version": "<version du protocole>"}`.
   C'est la seule fois où le jeton sort de l'agent.
 - 404 : la machine qui s'associe a un lanceur trop ancien (`--update` là-bas).
 ### Installation des images (`/v1/games/*`)
