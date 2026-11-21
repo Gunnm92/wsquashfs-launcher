@@ -39,6 +39,45 @@ func Path() string {
 	return filepath.Join(filepath.Dir(file), "..", "..", "contract", "agent-api.yaml")
 }
 
+// CasesDir : dossier des tables de cas partagées (contract/cases/), copiées dans le manager.
+func CasesDir() string {
+	_, file, _, _ := runtime.Caller(0)
+	return filepath.Join(filepath.Dir(file), "..", "..", "contract", "cases")
+}
+
+// Text : valeur d'un cas de table : une chaîne YAML, ou {repeat: "a", count: 200} (texte répété, pour
+// les bornes de longueur). Le manager lit les mêmes tables (backend/tests/test_contract_cases.py).
+type Text string
+
+// UnmarshalYAML : chaîne, ou texte répété.
+func (t *Text) UnmarshalYAML(n *yaml.Node) error {
+	if n.Kind == yaml.ScalarNode {
+		*t = Text(n.Value)
+		return nil
+	}
+	var rep struct {
+		Repeat string `yaml:"repeat"`
+		Count  int    `yaml:"count"`
+	}
+	if err := n.Decode(&rep); err != nil {
+		return err
+	}
+	*t = Text(strings.Repeat(rep.Repeat, rep.Count))
+	return nil
+}
+
+// LoadCases : lit la table contract/cases/<name> dans out (YAML).
+func LoadCases(t testing.TB, name string, out any) {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join(CasesDir(), name))
+	if err != nil {
+		t.Fatalf("table de cas illisible : %v", err)
+	}
+	if err := yaml.Unmarshal(raw, out); err != nil {
+		t.Fatalf("table de cas %s : YAML invalide : %v", name, err)
+	}
+}
+
 // Load : lit et prépare le contrat.
 func Load(t testing.TB) *Contract {
 	t.Helper()

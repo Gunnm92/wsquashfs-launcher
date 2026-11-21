@@ -26,6 +26,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"archive/tar"
 
@@ -123,11 +124,50 @@ func (t Target) RelDir() string {
 	return ""
 }
 
+// maxDirRunes : longueur maximale d'un chemin de dossier déclaré, en caractères (comme le manager).
+const maxDirRunes = 512
+
+// checkDeclaredRel : règle du chemin d'un dossier déclaré reçu d'une autre machine (contract/cases/
+// names.yaml, « dossier_paths », la même que le manager) : relatif à HOME, non vide, 512 caractères au
+// plus, sans caractère de contrôle, sans espace en début ni en fin, sans « .. » (« / » ou « \ »
+// séparateurs), et pas seulement « . » (la racine HOME n'est pas un dossier déclarable). Plus strict
+// que checkSyncDirPath, qui accepte ce que l'utilisateur tape en local (chemin absolu, « ~/ »).
+func checkDeclaredRel(rel string) error {
+	if rel == "" || utf8.RuneCountInString(rel) > maxDirRunes {
+		return fmt.Errorf("chemin invalide : %d caractères au plus", maxDirRunes)
+	}
+	if strings.TrimSpace(rel) != rel || strings.HasPrefix(rel, "/") || strings.HasPrefix(rel, "~") {
+		return fmt.Errorf("chemin invalide : %q (relatif à HOME, sans espace au bord)", rel)
+	}
+	for _, r := range rel {
+		if r < 0x20 {
+			return errors.New("chemin invalide : caractère de contrôle")
+		}
+	}
+	parts := strings.FieldsFunc(rel, func(r rune) bool { return r == '/' || r == '\\' })
+	meaningful := false
+	for _, part := range parts {
+		if part == ".." {
+			return fmt.Errorf("chemin invalide : %q (« .. » interdit)", rel)
+		}
+		if part != "." {
+			meaningful = true
+		}
+	}
+	if !meaningful {
+		return fmt.Errorf("chemin invalide : %q (la racine HOME ne se déclare pas)", rel)
+	}
+	return nil
+}
+
 // DeclareFromPeer : déclare ici le dossier « dossier:<nom> » reçu d'une autre machine, avec le chemin
-// qu'elle donne (à partir de HOME, vérifié par checkSyncDirPath). Rend la cible.
+// qu'elle donne (à partir de HOME, vérifié par checkDeclaredRel puis par checkSyncDirPath). Rend la cible.
 func (s *Syncer) DeclareFromPeer(name, rel string) (Target, error) {
 	if !strings.HasPrefix(name, syncDirPrefix) || rel == "" {
 		return Target{}, ErrAbsent
+	}
+	if err := checkDeclaredRel(rel); err != nil {
+		return Target{}, err
 	}
 	cfg, err := AddDir(LoadConfig(), strings.TrimPrefix(name, syncDirPrefix), rel)
 	if err != nil {

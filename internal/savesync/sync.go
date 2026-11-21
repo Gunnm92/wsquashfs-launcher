@@ -24,6 +24,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"wsquashfs-launcher/internal/ui"
 )
@@ -680,11 +681,26 @@ func ValidID(id string) bool {
 	return syncIDRe.MatchString(id)
 }
 
-// ValidGame : nom de jeu tel que la ludothèque le connaît (pas de chemin, pas de caché).
+// ValidGame : nom de jeu sûr (règle commune avec le manager, contract/cases/names.yaml) : non vide,
+// 200 caractères au plus, ni « / », ni « \ », ni caractère de contrôle, pas de « . » initial, pas de
+// « .. », et pas de suffixe .wsquashfs ni .pc (casse ignorée) : un nom de fichier d'image ou de
+// dossier Windows n'est pas un nom de jeu.
 func ValidGame(name string) bool {
-	return name != "" && !strings.ContainsAny(name, "/\x00") && !strings.HasPrefix(name, ".") &&
-		gameNameOf(name) == name
+	if name == "" || utf8.RuneCountInString(name) > maxGameRunes || strings.HasPrefix(name, ".") ||
+		strings.Contains(name, "..") || strings.ContainsAny(name, `/\`) {
+		return false
+	}
+	for _, r := range name {
+		if r < 0x20 {
+			return false
+		}
+	}
+	lower := strings.ToLower(name)
+	return !strings.HasSuffix(lower, ".wsquashfs") && !strings.HasSuffix(lower, ".pc")
 }
+
+// maxGameRunes : longueur maximale d'un nom de jeu (en caractères), comme le manager.
+const maxGameRunes = 200
 
 // syncStatePath : <stateRoot>/<peerID>/<jeu>.json
 func syncStatePath(stateRoot, peerID, game string) string {

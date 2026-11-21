@@ -11,6 +11,8 @@ import (
 	"strings"
 	"syscall"
 	"unsafe"
+
+	"wsquashfs-launcher/internal/savesync"
 )
 
 // maintenanceMain : dispatch des commandes de maintenance.
@@ -24,7 +26,7 @@ func maintenanceMain() int {
 		return cmdErase(launch.cmdArgs)
 	case "umount":
 		if len(launch.cmdArgs) > 0 {
-			umountGame(gameNameOf(launch.cmdArgs[0]))
+			umountGame(savesync.GameNameOf(launch.cmdArgs[0]))
 			return 0
 		}
 		entries, _ := os.ReadDir(conf.cacheDir + "/wine")

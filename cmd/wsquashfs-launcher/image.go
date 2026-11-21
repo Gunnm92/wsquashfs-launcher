@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"wsquashfs-launcher/internal/savesync"
 	"wsquashfs-launcher/internal/ui"
 )
 
@@ -20,7 +21,7 @@ import (
 
 // initGamePaths : nom du jeu et chemins de ses montages et sauvegardes.
 func initGamePaths() {
-	launch.gameName = gameNameOf(launch.wsquashfsFile)
+	launch.gameName = savesync.GameNameOf(launch.wsquashfsFile)
 	launch.autorunOverride = strings.TrimSuffix(launch.wsquashfsFile, "/") + ".autorun"
 	if !isFile(launch.autorunOverride) {
 		launch.autorunOverride = ""
@@ -30,19 +31,6 @@ func initGamePaths() {
 	launch.savePoint = filepath.Join(conf.savesDir, launch.gameName)
 	// workdir sur le même système de fichiers que l'upperdir (13/10)
 	launch.workPoint = filepath.Join(conf.savesDir, ".work", launch.gameName)
-}
-
-// gameNameOf : nom du jeu d'après une image, un dossier ou un nom.
-// Un dossier Jeu.pc a le nom de l'image qu'il donnera (Jeu.wsquashfs).
-func gameNameOf(p string) string {
-	n := filepath.Base(strings.TrimSuffix(p, "/"))
-	switch {
-	case strings.HasSuffix(n, ".wsquashfs"):
-		return strings.TrimSuffix(n, ".wsquashfs")
-	case strings.HasSuffix(strings.ToLower(n), ".pc"):
-		return n[:len(n)-3]
-	}
-	return n
 }
 
 // resolveGamePath : GAME_ARG en wsquashfsFile (image ou dossier) ; sortie avec
@@ -62,7 +50,7 @@ func resolveGamePath() {
 	launch.wsquashfsFile = abs
 	// « .wsquashfs » ou « ..wsquashfs » : le dossier des sauvegardes du jeu
 	// serait celui de tous les jeux.
-	if n := gameNameOf(abs); n == "" || n == "." || n == ".." {
+	if n := savesync.GameNameOf(abs); n == "" || n == "." || n == ".." {
 		die("nom de jeu invalide : " + filepath.Base(abs))
 	}
 	st, err := os.Stat(abs)

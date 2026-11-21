@@ -82,7 +82,7 @@ func copyPreserve(src, dst string) error {
 
 // cmdSave : --save <jeu>, les sauvegardes d'un seul jeu vers la ludothèque.
 func cmdSave(args []string) int {
-	name := gameNameOf(args[0])
+	name := savesync.GameNameOf(args[0])
 	if !isDirPath(conf.savesDir + "/" + name) {
 		return fail("aucune sauvegarde pour " + name)
 	}

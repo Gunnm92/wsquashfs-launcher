@@ -1,0 +1,139 @@
+# Tables de cas partagées du contrat (contract/cases/). Règle codée des deux côtés : les deux suites la
+# vérifient (Go : internal/savesync, decideSync ; Python : backend/tests/test_contract_cases.py, decide).
+#
+# Chaque cas donne les mêmes entrées aux deux fonctions, du point de vue de la machine cliente (celle qui
+# lance --sync côté lanceur ; le client du manager côté manager) face à l'autre côté (le manager, ou le
+# pair). Les empreintes sont des chaînes libres (abrégées) ; `base` est l'empreinte commune au dernier
+# échange, "" si elle est inconnue (la même des deux côtés dans cette table).
+#
+# Correspondance des vocabulaires (le sens est toujours celui de la machine cliente) :
+#   go « envoi »       (decideSync : syncSend)    <->  manager « remonter »  (le client envoie au manager)
+#   go « réception »   (decideSync : syncReceive) <->  manager « descendre » (le manager envoie au client)
+#   go « réception »   (le client n'a pas le jeu) <->  manager « absente »    (même décision, autre nom)
+#   go « envoi »       (le manager n'a pas le jeu) <->  manager « remonter »
+#   go « à jour »      (même empreinte, même contenu) <->  manager « à jour »
+#   go « à jour »      (ni l'un ni l'autre : Go ne décide pas, rien à transférer) <->  manager « rien »
+#   go « conflit »     <->  manager « conflit »
+# Règle commune : base connue, un seul côté a changé depuis la base : il gagne ; les deux : conflit.
+# Base inconnue : la copie la plus récente gagne (remonter / envoi), la plus ancienne reçoit (descendre /
+# réception), à égalité de date : conflit. Même contenu (non vide des deux côtés) : à jour.
+cases:
+  - name: identiques, base connue
+    base: "ab"
+    client: {fingerprint: "ab", newest: 10}
+    manager: {fingerprint: "ab", newest: 10}
+    expect: {go: "à jour", manager: "à jour"}
+
+  - name: identiques, base inconnue
+    base: ""
+    client: {fingerprint: "ab", newest: 10}
+    manager: {fingerprint: "ab", newest: 10}
+    expect: {go: "à jour", manager: "à jour"}
+
+  - name: contenus identiques malgré des empreintes différentes, deux changés
+    base: "ef"
+    client: {fingerprint: "cd", newest: 9, content: "C1"}
+    manager: {fingerprint: "ab", newest: 1, content: "C1"}
+    expect: {go: "à jour", manager: "à jour"}
+
+  - name: contenus identiques, base inconnue
+    base: ""
+    client: {fingerprint: "cd", newest: 9, content: "C1"}
+    manager: {fingerprint: "ab", newest: 1, content: "C1"}
+    expect: {go: "à jour", manager: "à jour"}
+
+  - name: contenus différents, deux changés
+    base: "ef"
+    client: {fingerprint: "cd", newest: 9, content: "C1"}
+    manager: {fingerprint: "ab", newest: 1, content: "C2"}
+    expect: {go: "conflit", manager: "conflit"}
+
+  - name: contenu du manager inconnu, deux changés
+    base: "ef"
+    client: {fingerprint: "cd", newest: 9, content: "C1"}
+    manager: {fingerprint: "ab", newest: 1, content: ""}
+    expect: {go: "conflit", manager: "conflit"}
+
+  - name: rien ni chez le client ni chez le manager, base inconnue
+    base: ""
+    client: {fingerprint: "", newest: 0}
+    manager: {fingerprint: "", newest: 0}
+    expect: {go: "à jour", manager: "rien"}
+
+  - name: rien ni chez le client ni chez le manager, base connue
+    base: "ab"
+    client: {fingerprint: "", newest: 0}
+    manager: {fingerprint: "", newest: 0}
+    expect: {go: "à jour", manager: "rien"}
+
+  - name: client sans le jeu, base inconnue
+    base: ""
+    client: {fingerprint: "", newest: 0}
+    manager: {fingerprint: "ab", newest: 5}
+    expect: {go: "réception", manager: "absente"}
+
+  - name: client sans le jeu, base connue
+    base: "ab"
+    client: {fingerprint: "", newest: 0}
+    manager: {fingerprint: "ab", newest: 5}
+    expect: {go: "réception", manager: "absente"}
+
+  - name: manager sans le jeu, base inconnue
+    base: ""
+    client: {fingerprint: "ab", newest: 5}
+    manager: {fingerprint: "", newest: 0}
+    expect: {go: "envoi", manager: "remonter"}
+
+  - name: manager sans le jeu, base connue
+    base: "ef"
+    client: {fingerprint: "cd", newest: 5}
+    manager: {fingerprint: "", newest: 0}
+    expect: {go: "envoi", manager: "remonter"}
+
+  - name: client seul changé
+    base: "ab"
+    client: {fingerprint: "cd", newest: 10}
+    manager: {fingerprint: "ab", newest: 5}
+    expect: {go: "envoi", manager: "remonter"}
+
+  - name: manager seul changé
+    base: "ab"
+    client: {fingerprint: "ab", newest: 10}
+    manager: {fingerprint: "cd", newest: 5}
+    expect: {go: "réception", manager: "descendre"}
+
+  - name: deux changés
+    base: "ef"
+    client: {fingerprint: "cd", newest: 10}
+    manager: {fingerprint: "ab", newest: 5}
+    expect: {go: "conflit", manager: "conflit"}
+
+  - name: deux changés, base qui n'est ni l'une ni l'autre
+    base: "zz"
+    client: {fingerprint: "cd", newest: 10}
+    manager: {fingerprint: "ab", newest: 5}
+    expect: {go: "conflit", manager: "conflit"}
+
+  - name: base inconnue, client plus récent
+    base: ""
+    client: {fingerprint: "cd", newest: 20}
+    manager: {fingerprint: "ab", newest: 10}
+    expect: {go: "envoi", manager: "remonter"}
+
+  - name: base inconnue, client plus récent, contenus différents
+    base: ""
+    client: {fingerprint: "cd", newest: 20, content: "C1"}
+    manager: {fingerprint: "ab", newest: 10, content: "C2"}
+    expect: {go: "envoi", manager: "remonter"}
+
+  - name: base inconnue, client plus ancien
+    base: ""
+    client: {fingerprint: "cd", newest: 10}
+    manager: {fingerprint: "ab", newest: 20}
+    expect: {go: "réception", manager: "descendre"}
+
+  - name: base inconnue, même date
+    base: ""
+    client: {fingerprint: "cd", newest: 10}
+    manager: {fingerprint: "ab", newest: 10}
+    expect: {go: "conflit", manager: "conflit"}

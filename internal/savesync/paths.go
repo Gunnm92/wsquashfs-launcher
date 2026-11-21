@@ -35,9 +35,9 @@ func (s *Syncer) copyUsersStash(name string) string {
 	return filepath.Join(s.env.CacheDir, "copy-users", name)
 }
 
-// gameNameOf : nom du jeu d'après une image, un dossier ou un nom. Un dossier Jeu.pc a le nom de
+// GameNameOf : nom du jeu d'après une image, un dossier ou un nom. Un dossier Jeu.pc a le nom de
 // l'image qu'il donnera (Jeu.wsquashfs).
-func gameNameOf(p string) string {
+func GameNameOf(p string) string {
 	n := filepath.Base(strings.TrimSuffix(p, "/"))
 	switch {
 	case strings.HasSuffix(n, ".wsquashfs"):

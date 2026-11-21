@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 
+	"wsquashfs-launcher/internal/savesync"
 	"wsquashfs-launcher/internal/ui"
 )
 
@@ -494,7 +495,7 @@ func saveTargetsOf(args []string) ([]string, bool) {
 	if len(args) == 0 {
 		return savedGames(), true
 	}
-	name := gameNameOf(args[0])
+	name := savesync.GameNameOf(args[0])
 	if !isDirPath(conf.savesDir+"/"+name) && !isDirPath(copyUsersStash(name)) {
 		ui.StatusLine(ui.Skip, "Aucune sauvegarde pour "+name)
 		return nil, false

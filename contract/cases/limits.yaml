@@ -1,0 +1,23 @@
+# Tables de cas partagées du contrat (contract/cases/). Règle codée des deux côtés : les deux suites la
+# vérifient (Go : internal/savesync/contract_cases_test.go ; Python : backend/tests/test_contract_cases.py).
+#
+# Taille maximale d'une archive de sauvegardes reçue (2 Gio) : MAX_ARCHIVE côté manager
+# (services/machine_api.py), DefaultMaxBody côté lanceur (internal/savesync).
+archive_max_bytes: 2147483648
+
+# Empreinte SHA-256 en hexadécimal (64 caractères, majuscules ou minuscules) : X-Wsq-Fingerprint et
+# X-Wsq-Content côté manager, empreinte de certificat côté lanceur (ValidFingerprint).
+fingerprint:
+  pattern: "[0-9A-Fa-f]{64}"
+  valid:
+    - "ab01cd23ef45ab01cd23ef45ab01cd23ef45ab01cd23ef45ab01cd23ef45ab01"
+    - "AB01CD23EF45AB01CD23EF45AB01CD23EF45AB01CD23EF45AB01CD23EF45AB01"
+    - "aB01cd23EF45ab01cd23ef45ab01cd23ef45ab01cd23ef45ab01cd23ef45ab01"
+  invalid:
+    - ""
+    - "abc"
+    - "ab01cd23ef45ab01cd23ef45ab01cd23ef45ab01cd23ef45ab01cd23ef45ab0"
+    - "ab01cd23ef45ab01cd23ef45ab01cd23ef45ab01cd23ef45ab01cd23ef45ab012"
+    - "gb01cd23ef45ab01cd23ef45ab01cd23ef45ab01cd23ef45ab01cd23ef45ab01"
+    - "ab01cd23ef45ab01cd23ef45ab01cd23ef45ab01cd23ef45ab01cd23ef45ab01\n"
+    - "ab01cd23ef45:ab01cd23ef45ab01cd23ef45ab01cd23ef45ab01cd23ef45ab01"

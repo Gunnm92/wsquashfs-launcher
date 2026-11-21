@@ -1,0 +1,88 @@
+# Tables de cas partagées du contrat (contract/cases/). Règle codée des deux côtés : les deux suites la
+# vérifient (Go : internal/savesync, internal/savesync/contract_cases_test.go ; Python :
+# backend/tests/test_contract_cases.py).
+#
+# Un cas est une chaîne, ou {repeat: "a", count: 200} pour une longueur (texte répété : bornes).
+# Les « dossier:<nom> » et « switch:<TitleID> » sont des noms de synchro (jeu ou dossier) : le manager les
+# relaie comme des jeux, le lanceur vérifie leur suffixe. Ils ne sont pas dans la table des jeux.
+
+# Nom de jeu : non vide, 200 caractères au plus, ni « / », ni « \ », ni caractère de contrôle (< 0x20),
+# pas de « . » initial, pas de « .. », ne se termine ni par « .wsquashfs » ni par « .pc » (casse ignorée).
+games:
+  valid:
+    - "Jeu"
+    - "Jeu Deux"
+    - "Pokémon Écarlate"
+    - "Mr. Robot"
+    - "Jeu: édition"
+    - "Jeu (v1.2) [PAL]"
+    - "Jeu.pcx"
+    - "Jeu.wsquashfs.bak"
+    - {repeat: "a", count: 200}
+  invalid:
+    - ""
+    - "."
+    - ".."
+    - ".sync"
+    - "../x"
+    - "a/b"
+    - "a\\b"
+    - "x\x00"
+    - "x\n"
+    - "x\t"
+    - "Jeu..."
+    - "a..b"
+    - "Jeu.wsquashfs"
+    - "Jeu.WSQUASHFS"
+    - "Jeu.pc"
+    - "Jeu.PC"
+    - "jeu.wsquashfs.pc"
+    - {repeat: "a", count: 201}
+
+# Identifiant de machine (en-tête X-Wsq-Machine, état de synchro) : [A-Za-z0-9_-], 1 à 64 caractères.
+machines:
+  valid:
+    - "steambox"
+    - "AIBox-1"
+    - "deck_2"
+    - {repeat: "a", count: 64}
+  invalid:
+    - ""
+    - "../x"
+    - "a/b"
+    - ".sync"
+    - "a b"
+    - "é"
+    - "steambox\n"
+    - {repeat: "a", count: 65}
+
+# Chemin d'un dossier déclaré, relatif à HOME, relayé d'une machine à l'autre (X-Wsq-Dir, manager clean_dir
+# et lanceur checkDeclaredRel) : non vide, 512 caractères au plus, ni « / » ni « ~ » en tête, sans
+# caractère de contrôle, sans espace en début ni en fin, sans « .. » (« / » ou « \ » séparateurs), et pas
+# seulement « . » (la racine HOME ne se déclare pas). Le lanceur accepte en local la forme absolue ou « ~/ »
+# que checkSyncDirPath convertit ; ce qui circule, lui, est toujours cette forme relative.
+dossier_paths:
+  valid:
+    - ".local/share/zelda"
+    - "Jeux/Saves 2"
+    - "a"
+    - "./a"
+    - {repeat: "a", count: 512}
+  invalid:
+    - ""
+    - "."
+    - "./"
+    - "~"
+    - "~/x"
+    - "/etc"
+    - "/home/u/x"
+    - ".."
+    - "../x"
+    - "a/../b"
+    - "a/.."
+    - ".local\\..\\x"
+    - " .local"
+    - ".local "
+    - "a\nb"
+    - "a\x00"
+    - {repeat: "a", count: 513}

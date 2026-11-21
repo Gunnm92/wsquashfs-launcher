@@ -99,7 +99,7 @@ func syncGameArg(arg string) (string, bool) {
 		}
 		return arg, true
 	}
-	game := gameNameOf(arg)
+	game := GameNameOf(arg)
 	if !ValidGame(game) {
 		fail("jeu invalide : " + arg)
 		return "", false

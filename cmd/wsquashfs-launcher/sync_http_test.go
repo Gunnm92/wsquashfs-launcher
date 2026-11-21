@@ -643,3 +643,32 @@ func TestSyncPairTooOldLauncher(t *testing.T) {
 		t.Errorf("lanceur ancien : erreur %v, attendu savesync.ErrPairOld", err)
 	}
 }
+
+// TestSyncPutArchivesLocalWithoutState : première synchro avec ce manager (aucun état pour cette
+// machine) : le manager pousse son archive, la copie locale est mise de côté (backups) avant d'être
+// remplacée. Une fois l'état enregistré, une nouvelle réception sans changement local n'archive rien.
+func TestSyncPutArchivesLocalWithoutState(t *testing.T) {
+	r := newSyncRig(t)
+	if err := os.Remove(filepath.Join(syncer().StateRoot(), "client-machine-01", syncRigGame+".json")); err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	rec := doSync(r.h, http.MethodPut, "/v1/saves/tar?game="+syncRigGame, "client-machine-01", syncTestSaveArchive(t))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT : code %d, %s", rec.Code, rec.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	archived, _ := body["archived"].(string)
+	if archived == "" || filepath.Dir(archived) != r.backups {
+		t.Fatalf("copie locale non archivée (archived %q)", archived)
+	}
+	if out, err := exec.Command("tar", "-tf", archived).CombinedOutput(); err != nil || !strings.Contains(string(out), "save1.sav") {
+		t.Errorf("archive sans la copie locale (%v) : %s", err, out)
+	}
+	rec = doSync(r.h, http.MethodPut, "/v1/saves/tar?game="+syncRigGame, "client-machine-01", syncTestSaveArchive(t))
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil || body["archived"] != "" {
+		t.Errorf("deuxième envoi : archive %v, attendu aucune (%v)", body["archived"], err)
+	}
+}

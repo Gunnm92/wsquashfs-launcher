@@ -69,6 +69,17 @@ info:
     (`part_size`, `free`). Exceptions : le routeur Go répond 404 et 405 en texte brut (sans
     `detail`) pour une route ou une méthode inconnue. Un corps illisible ou invalide donne 400
     `{"detail": "requête illisible"}` aux deux serveurs.
+
+    ## Règles codées des deux côtés
+
+    Le schéma ne dit pas tout : des règles sont codées de chaque côté, et les tables de
+    `contract/cases/` (copiées dans `backend/contract/cases/` par `make contract`) en donnent les
+    cas. `sync-decisions.yaml` : la décision de synchro pour une même paire d'entrées, avec la
+    correspondance entre le vocabulaire du lanceur (`decideSync`) et celui du manager (`decide`).
+    `names.yaml` : noms de jeu, identifiants de machine, chemins de dossiers déclarés.
+    `limits.yaml` : taille maximale d'archive et format d'empreinte. Règle codée des deux côtés : les
+    deux suites (Go : `internal/savesync`, Python : `backend/tests/test_contract_cases.py`) les
+    vérifient.
 servers:
   - url: https://{hote}:{port}
     description: Agent du lanceur (port 8790 par défaut) ou manager (`machine_port`).

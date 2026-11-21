@@ -18,6 +18,7 @@ import (
 	"syscall"
 	"time"
 
+	"wsquashfs-launcher/internal/savesync"
 	"wsquashfs-launcher/internal/setup"
 )
 
@@ -290,7 +291,7 @@ func runTrial(image string, seconds int, session, shot string) int {
 		report.Error = "noimage"
 		return emit()
 	}
-	stem := gameNameOf(image)
+	stem := savesync.GameNameOf(image)
 
 	out, err := os.CreateTemp("", "wsfs-trial.*.out")
 	if err != nil {

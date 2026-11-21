@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 
+	"wsquashfs-launcher/internal/savesync"
 	"wsquashfs-launcher/internal/ui"
 )
 
@@ -111,7 +112,7 @@ func showInfo(args []string) int {
 	default:
 		typ = "jeu seul (prefix créé au premier lancement)"
 	}
-	ui.Title(gameNameOf(src))
+	ui.Title(savesync.GameNameOf(src))
 	if version == "" {
 		version = "non renseignée (GAME_VERSION= dans l'autorun.cmd)"
 	}
@@ -210,7 +211,7 @@ func cmdShow(args []string) int {
 		src = real
 	}
 	launch.wsquashfsFile = src
-	launch.gameName = gameNameOf(src)
+	launch.gameName = savesync.GameNameOf(src)
 	launch.autorunOverride = strings.TrimSuffix(src, "/") + ".autorun"
 	if !isFile(launch.autorunOverride) {
 		launch.autorunOverride = ""
