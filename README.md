@@ -269,7 +269,7 @@ wsquashfs-launcher --saves
 wsquashfs-launcher --list
 
 # Vérifier l'installation : FUSE, Wine/Proton et runners, umu, DXVK, VKD3D,
-# d7vk, manettes (hidraw, pont DualSense), dossiers. Code 1 si aucun
+# d7vk, manettes (hidraw), dossiers. Code 1 si aucun
 # jeu ne peut être lancé.
 wsquashfs-launcher --doctor
 
@@ -336,8 +336,6 @@ export WSQUASHFS_DXVK=0        # désactive DXVK (activé par défaut)
 export WSQUASHFS_HIDRAW=1      # manettes Sony par hidraw ("DisableHidraw"=0)
                                # si lisibles ; défaut XInput (Xbox), comme
                                # Batocera — jeux gérant la DualSense seulement.
-                               # DualSense Bluetooth présentée en USB
-                               # (pont intégré) ; =bt : en direct
 export WSQUASHFS_D7VK=0        # désactive d7vk (DirectDraw → Vulkan, activé par
                                # défaut si /usr/share/d7vk/x32/ddraw.dll existe)
 export WSQUASHFS_BATOCERA_SAVES=/chemin/saves/<système>   # dossier des
@@ -403,7 +401,7 @@ fonctionnera pas tel quel.
 | `ARCH` | Architecture Wine (défaut : `win64`) | `win32`, `win64` |
 | `LANG` | Langue (`LC_ALL`) | `fr_FR.UTF-8` |
 | `ENV` | Variables d'environnement additionnelles | `VAR1=val1 VAR2=val2` |
-| `HIDRAW` | `1` : manettes Sony par hidraw pour ce jeu s'il gère la DualSense **lui-même**, sans Steam Input (repli XInput si illisible) ; défaut XInput. Une DualSense Bluetooth (par exemple celle d'un streaming à distance) est présentée au jeu en DualSense USB par [pont DualSense intégré](docs/dualsense-bridge.md) : les `libScePad` de 2022 refusent la Bluetooth. `bt` : DualSense Bluetooth en direct, pour les jeux dont les haptiques passent en Bluetooth — en USB, elles partent en audio, non transmis. Sous GE-Proton, le mode XInput passe aussi par hidraw : GE confie toujours les manettes Sony à hidraw et les convertit en XInput (`PROTON_SONY_HIDRAW_XINPUT=1`, posé par le lanceur) | `1` |
+| `HIDRAW` | `1` : manettes Sony par hidraw pour ce jeu s'il gère la DualSense **lui-même**, sans Steam Input (repli XInput si illisible) ; défaut XInput. La DualSense elle-même vient de Sunshine : une DualSense USB, avec sa carte son et ses haptiques HD sous SteamBox ([sunshine-ds](https://github.com/Gunnm92/sunshine-ds), [ds5-usbip](https://github.com/Gunnm92/ds5-usbip)) ; le lanceur ne fait que régler le préfixe. Sous GE-Proton, le mode XInput passe aussi par hidraw : GE confie toujours les manettes Sony à hidraw et les convertit en XInput (`PROTON_SONY_HIDRAW_XINPUT=1`, posé par le lanceur) | `1` |
 
 ### Runner joint au jeu
 

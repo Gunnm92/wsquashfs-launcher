@@ -14,7 +14,6 @@ import (
 	"sync/atomic"
 	"syscall"
 
-	"wsquashfs-launcher/internal/dsbridge"
 	"wsquashfs-launcher/internal/setup"
 	"wsquashfs-launcher/internal/ui"
 )
@@ -34,9 +33,6 @@ func run(args []string) int {
 	}
 	if len(args) > 0 && args[0] == "--serve-image" { // serveur FUSE d'une image (imagefs.go), interne
 		return serveImage(args[1:])
-	}
-	if len(args) > 0 && args[0] == "--dualsense-bridge" { // pont DualSense Bluetooth → USB (dsbridge), interne
-		return dsbridge.Run(args[1:])
 	}
 	opts, err := parseArgs(args)
 	if err != nil {
@@ -156,14 +152,13 @@ func installSignals() {
 	}()
 }
 
-// cleanup : fin du lanceur (normale, erreur ou signal) : arrêt de ATTACH, du
-// pont DualSense, de Wine, puis démontage (copie et dossier non concernés).
+// cleanup : fin du lanceur (normale, erreur ou signal) : arrêt de ATTACH,
+// de Wine, puis démontage (copie et dossier non concernés).
 // Ne doit jamais appeler exitNow ni die : exitNow l'exécute sous sync.Once,
 // un appel imbriqué bloquerait la sortie.
 func cleanup() {
 	_ = os.Chdir("/")
 	stopAttachCommand()
-	stopDualsenseBridge()
 	// --clean interrompu pendant la recherche de doublons : image démontée, dossier retiré.
 	if p := purgeMount.Load(); p != nil {
 		umountRetry(*p)

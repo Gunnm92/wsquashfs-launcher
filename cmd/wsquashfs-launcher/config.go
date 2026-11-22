@@ -95,7 +95,6 @@ type launchState struct {
 	hidrawDisable  string
 	hidrawMsg      string
 	hidrawReason   string
-	dsBridgePID    int
 	opaqueCache    map[string]string
 }
 

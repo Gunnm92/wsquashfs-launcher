@@ -1,18 +1,14 @@
 package main
 
-// Manettes (script bash, section 7) : choix entre hidraw et XInput pour les manettes Sony, pont
-// DualSense Bluetooth → USB (commande interne --dualsense-bridge), correctif GE-Proton, réglage du registre.
+// Manettes (script bash, section 7) : choix entre hidraw et XInput pour les manettes Sony,
+// correctif GE-Proton, réglage du registre. Paramétrage du préfixe seulement : la DualSense
+// elle-même (USB, haptiques) vient de Sunshine (sunshine-ds / ds5-usbip).
 
 import (
-	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
-	"syscall"
-	"time"
 )
 
 // ── 7. Manettes ────────────────────────────────────────────────────────
@@ -50,60 +46,13 @@ func hidrawUsable() bool {
 	return true
 }
 
-// startDualsenseBridge : DualSense Bluetooth présentée en DualSense USB pendant
-// le jeu (HIDRAW=1). Faux s'il n'y a pas de DualSense Bluetooth.
-func startDualsenseBridge() bool {
-	bt, _ := filepath.Glob(hidrawSysfs() + "/*/device/uevent")
-	isBT := false
-	for _, u := range bt {
-		if data, err := os.ReadFile(u); err == nil && strings.Contains("\n"+string(data), "\nHID_ID=0005:0000054C:00000CE6\n") {
-			isBT = true
-		}
-	}
-	if !isBT {
-		return false
-	}
-	ready := fmt.Sprintf("%s/dualsense-usb-bridge.%d", envOr("TMPDIR", "/tmp"), os.Getpid())
-	cmd := exec.Command(conf.selfPath, "--dualsense-bridge", "--hide", "--parent", strconv.Itoa(os.Getpid()), "--ready-file", ready)
-	if err := cmd.Start(); err != nil {
-		return false
-	}
-	launch.dsBridgePID = cmd.Process.Pid
-	exited := make(chan struct{})
-	go func() { _ = cmd.Wait(); close(exited) }()
-	for i := 0; i < 30; i++ {
-		if _, err := os.Stat(ready); err == nil {
-			_ = os.Remove(ready)
-			return true
-		}
-		select {
-		case <-exited:
-			_ = os.Remove(ready)
-			return false
-		case <-time.After(100 * time.Millisecond):
-		}
-	}
-	stopDualsenseBridge()
-	_ = os.Remove(ready)
-	return false
-}
-
-// stopDualsenseBridge : arrête le pont DualSense.
-func stopDualsenseBridge() {
-	if launch.dsBridgePID == 0 {
-		return
-	}
-	_ = syscall.Kill(launch.dsBridgePID, syscall.SIGTERM)
-	launch.dsBridgePID = 0
-}
-
-// chooseHidrawMode : HIDRAW=1 (pont USB si DualSense Bluetooth), HIDRAW=bt
-// (DualSense Bluetooth en direct), sinon XInput.
+// chooseHidrawMode : HIDRAW=1, manettes Sony en direct par hidraw (le jeu gère
+// la DualSense lui-même : gâchettes, haptiques) ; sinon XInput.
 func chooseHidrawMode() {
 	launch.hidrawDisable = "1"
 	launch.hidrawMsg = "XInput, manette Xbox"
 	mode := autorunVar("HIDRAW", "0")
-	if mode != "1" && mode != "bt" {
+	if mode != "1" {
 		return
 	}
 	if !hidrawUsable() {
@@ -112,9 +61,6 @@ func chooseHidrawMode() {
 	}
 	launch.hidrawDisable = "0"
 	launch.hidrawMsg = "DualSense/DualShock en direct (hidraw)"
-	if mode == "1" && startDualsenseBridge() {
-		launch.hidrawMsg = "DualSense USB (dualsense-usb-bridge, depuis la DualSense Bluetooth)"
-	}
 }
 
 // applyGeProtonSonyFix : GE-Proton ignore les manettes Sony en SDL ; hidraw

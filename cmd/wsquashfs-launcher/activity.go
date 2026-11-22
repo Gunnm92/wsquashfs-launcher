@@ -89,7 +89,7 @@ func controllerKind(vendor, product string) string {
 }
 
 // connectedControllers : manettes physiques (gestionnaire js du noyau), sans les manettes virtuelles
-// (Steam Input, pont DualSense : /devices/virtual/), une par manette.
+// (Steam Input, manettes uhid : /devices/virtual/), une par manette.
 func connectedControllers() []agent.Controller {
 	f, err := os.Open(inputDevices())
 	if err != nil {

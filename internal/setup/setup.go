@@ -199,7 +199,7 @@ func installShortNameLink(target string) {
 
 // installLauncher : ce binaire s'installe lui-même (aucun téléchargement :
 // la version installée est celle qui tourne, « --update » la met à jour),
-// puis le nom court (le pont DualSense est intégré au binaire).
+// puis le nom court.
 func installLauncher() bool {
 	dest := filepath.Join(installDir, "wsquashfs-launcher")
 	if err := installSelf(dest); err != nil {

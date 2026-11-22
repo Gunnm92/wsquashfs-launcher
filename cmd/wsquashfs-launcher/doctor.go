@@ -202,7 +202,6 @@ func runDoctorChecks() bool {
 	} else {
 		doctorNote("hidraw : " + launch.hidrawReason + " (HIDRAW=1 retombe en XInput)")
 	}
-	doctorOK("pont DualSense Bluetooth → USB intégré (HIDRAW=1)")
 
 	docSection("Dossiers")
 	for _, d := range []string{conf.savesDir, conf.cacheDir} {

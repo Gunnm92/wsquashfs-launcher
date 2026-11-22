@@ -39,7 +39,7 @@ Tableau, une ligne par image :
 | Version | `GAME_VERSION=` de l'autorun (lu sans monter : `unsquashfs -cat`) |
 | Type | prefix Wine (Batocera), prefix Proton (`config_info` + version), jeu seul |
 | Runner | `WINE=` / `PROTON=` / `RUNNER=`, sinon « défaut » ; « joint » si le runner est dans `runners/` de l'image (comme `--info`) |
-| Manettes | `HIDRAW=1` (DualSense USB par le pont), `HIDRAW=bt` (DualSense Bluetooth en direct) ou XInput |
+| Manettes | `HIDRAW=1` (DualSense en direct par hidraw) ou XInput |
 | Commande | `CMD=` |
 | Extras | `.keys` présent, relais `fakeping`, `DllOverrides` particuliers |
 | Sauvegardes | taille de `saves/<jeu>`, type du prefix qui s'y trouve |
@@ -152,7 +152,6 @@ ajouter, ou un simple avertissement. Règles de départ, issues des cas réels :
 | import `opengl32` seul | rien (DXVK sans effet) | — |
 | import `xinput1_*` | mode XInput (pas de `HIDRAW`) | défaut |
 | import de `libScePad*.dll` (ou chaînes `scePadOpen`) | proposer `HIDRAW=1` (confiance haute), même avec `steam_api` : le jeu gère la DualSense lui-même (cas constaté le 02/10) | jeux à DualSense gérée par le jeu |
-| haptiques en rapports Bluetooth (jeu qui en a avec `HIDRAW=bt`) | proposer `HIDRAW=bt` : en USB, les haptiques partent en audio, non transmis | jeu à haptiques Bluetooth |
 | chaînes Sony/DualSense sans `libScePad` et `steam_api*.dll` présent | ne **pas** proposer `HIDRAW=1` : support DualSense probablement via Steam Input | jeu avec Steam Input |
 | exécutable 32 bits sans « large address aware » | rien de spécial depuis la correction de la pile ; noter la limite de 2 Go | jeu 32 bits |
 | `libavs-win32.dll` (Konami e-amusement) | ajouter le relais `fakeping` (`dinput8.dll` + `DllOverrides`) si l'exécutable importe `DINPUT8` ; sinon avertir | jeux arcade Konami |
