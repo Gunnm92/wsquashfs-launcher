@@ -61,6 +61,7 @@ func readAutorun() {
 	launch.vkreflex = autorunVar("VKREFLEX", "")
 	launch.fsr = autorunVar("FSR", "")
 	launch.fsr4 = autorunVar("FSR4", "")
+	launch.optiscaler = autorunVar("OPTISCALER", "")
 	launch.wineLang = autorunVar("LANG", "")
 	launch.wineEnv = autorunVar("ENV", "")
 	launch.preCmd = autorunVar("PRE", "")
@@ -219,6 +220,7 @@ func configureWine() {
 	resolveNvapi()
 	resolveVkreflex()
 	resolveFsr4()
+	resolveOptiscaler()
 	configureGpuEnv()
 
 	// Outils Wine (regedit, reg) : par umu pour un prefix Proton.
@@ -257,6 +259,10 @@ func configureWine() {
 	}
 	if launch.wineEnv != "" {
 		applyWineEnv(launch.wineEnv)
+	}
+	// Après ENV=, qui remplace WINEDLLOVERRIDES en entier.
+	if launch.optiscalerDll != "" {
+		addDllOverride(launch.optiscalerDll + "=n,b")
 	}
 }
 
@@ -691,6 +697,7 @@ func launchGame() {
 		ui.Verdict(true, "Prefix préparé : "+launch.gameName+" (jeu non lancé)")
 		exitNow(0)
 	}
+	setupOptiscaler()
 	configureControllers()
 	applySavedir(launch.savedirKey, launch.savefilesKey)
 	printSummary()

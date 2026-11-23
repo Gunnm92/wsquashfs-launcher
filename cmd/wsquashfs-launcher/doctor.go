@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"syscall"
 
 	"wsquashfs-launcher/internal/ui"
@@ -194,6 +195,11 @@ func runDoctorChecks() bool {
 		} else {
 			doctorNote("FSR4 : amdxcffx64.dll absente (--setup peut la copier depuis proton-cachyos)")
 		}
+	}
+	if d := findOptiscalerDir(); d != "" {
+		doctorOK(strings.TrimSpace("OptiScaler "+optiscalerVersion()) + " : " + d + " (OPTISCALER=1 pour l'activer, défaut désactivé)")
+	} else {
+		doctorNote("OptiScaler absent : OPTISCALER sans effet (--setup optiscaler)")
 	}
 
 	docSection("Manettes")

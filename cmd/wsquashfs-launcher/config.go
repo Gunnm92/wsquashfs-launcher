@@ -74,6 +74,7 @@ type launchState struct {
 	nvapi, nvapiOn, vkreflex, vkreflexOn                      string
 	hasNvidia, hasAMD                                         string
 	fsr, fsr4, fsr4On                                         string
+	optiscaler, optiscalerDll                                 string
 	preCmd, attachCmd, attachProcess                          string
 	machineLayer, folderLayer                                 string
 	detectLayer                                               string // DIR/CMD trouvés dans le dossier (detect.go)

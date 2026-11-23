@@ -100,6 +100,7 @@ Le reste (réglages par couches, variables WSQUASHFS_*, autres commandes) :
   ✓ VKD3D-Proton (ROOT/vkd3d)
   ✓ d7vk (ROOT/d7vk/x32/ddraw.dll)
   – GPU : aucun fournisseur reconnu dans ROOT/no-drm
+  – OptiScaler absent : OPTISCALER sans effet (--setup optiscaler)
 
 ▍Manettes
   – hidraw : /dev/hidraw99 illisible (HIDRAW=1 retombe en XInput)
@@ -144,6 +145,7 @@ WINE wine-tkg-fake cwd=ROOT args: [--version]
   ✓ GPU : AMD détecté (aucun réglage NVIDIA)
   ✓ RADV (pilote Vulkan Mesa) présent
   ✓ FSR4 : ROOT/fsr4/amdxcffx64.dll (FSR4=1 pour l'activer, défaut désactivé)
+  – OptiScaler absent : OPTISCALER sans effet (--setup optiscaler)
 
 ▍Manettes
   – hidraw : aucune manette Sony (HIDRAW=1 retombe en XInput)
@@ -188,6 +190,7 @@ WINE wine-tkg-fake cwd=ROOT args: [--version]
   ✓ GPU : NVIDIA détecté
   – dxvk-nvapi absent : NVAPI sans effet (DLSS indisponible)
   – couche Reflex absente : VKREFLEX sans effet
+  – OptiScaler absent : OPTISCALER sans effet (--setup optiscaler)
 
 ▍Manettes
   – hidraw : aucune manette Sony (HIDRAW=1 retombe en XInput)
@@ -234,6 +237,7 @@ WINE wine-tkg-fake cwd=ROOT args: [--version]
   – couche Reflex absente : VKREFLEX sans effet
   – RADV absent : vulkan-radeon (Arch) ou mesa-vulkan-drivers (Debian)
   – FSR4 : amdxcffx64.dll absente (--setup peut la copier depuis proton-cachyos)
+  – OptiScaler absent : OPTISCALER sans effet (--setup optiscaler)
 
 ▍Manettes
   – hidraw : aucune manette Sony (HIDRAW=1 retombe en XInput)
@@ -1836,6 +1840,7 @@ WINESERVER -k
 │ VKREFLEX        │ auto                    │ défaut │
 │ FSR             │ 0                       │ défaut │
 │ FSR4            │ 0                       │ défaut │
+│ OPTISCALER      │ 0                       │ défaut │
 │ ESYNC           │ 0                       │ défaut │
 │ FSYNC           │ 0                       │ défaut │
 │ HIDRAW          │ 0                       │ défaut │
@@ -9391,21 +9396,22 @@ l src/Arcade Game.wine/drive_c/windows/system32/dxgi.dll -> /userdata/system/win
   surcharge : ROOT/userdata/roms/layers/Layer Game.wsquashfs.autorun (absent)
 
 ▍Réglages
-╭──────────┬───────────────┬────────╮
-│ Réglage  │ Valeur        │ Couche │
-├──────────┼───────────────┼────────┤
-│ CMD      │ game/game.exe │ image  │
-│ DXVK     │ 1             │ image  │
-│ VKD3D    │ 1             │ défaut │
-│ D7VK     │ 1             │ défaut │
-│ NVAPI    │ auto          │ défaut │
-│ VKREFLEX │ auto          │ défaut │
-│ FSR      │ 0             │ défaut │
-│ FSR4     │ 0             │ défaut │
-│ ESYNC    │ 0             │ défaut │
-│ FSYNC    │ 0             │ défaut │
-│ HIDRAW   │ 0             │ défaut │
-╰──────────┴───────────────┴────────╯
+╭────────────┬───────────────┬────────╮
+│ Réglage    │ Valeur        │ Couche │
+├────────────┼───────────────┼────────┤
+│ CMD        │ game/game.exe │ image  │
+│ DXVK       │ 1             │ image  │
+│ VKD3D      │ 1             │ défaut │
+│ D7VK       │ 1             │ défaut │
+│ NVAPI      │ auto          │ défaut │
+│ VKREFLEX   │ auto          │ défaut │
+│ FSR        │ 0             │ défaut │
+│ FSR4       │ 0             │ défaut │
+│ OPTISCALER │ 0             │ défaut │
+│ ESYNC      │ 0             │ défaut │
+│ FSYNC      │ 0             │ défaut │
+│ HIDRAW     │ 0             │ défaut │
+╰────────────┴───────────────┴────────╯
 
 ▍ENV
 ╭──────────┬────────╮
@@ -9432,21 +9438,22 @@ l src/Arcade Game.wine/drive_c/windows/system32/dxgi.dll -> /userdata/system/win
   --set     : NVAPI=1
 
 ▍Réglages
-╭──────────┬───────────────┬────────╮
-│ Réglage  │ Valeur        │ Couche │
-├──────────┼───────────────┼────────┤
-│ CMD      │ game/game.exe │ image  │
-│ DXVK     │ 1             │ image  │
-│ VKD3D    │ 1             │ défaut │
-│ D7VK     │ 1             │ défaut │
-│ NVAPI    │ 1             │ --set  │
-│ VKREFLEX │ auto          │ défaut │
-│ FSR      │ 0             │ défaut │
-│ FSR4     │ 0             │ défaut │
-│ ESYNC    │ 0             │ défaut │
-│ FSYNC    │ 0             │ défaut │
-│ HIDRAW   │ 0             │ défaut │
-╰──────────┴───────────────┴────────╯
+╭────────────┬───────────────┬────────╮
+│ Réglage    │ Valeur        │ Couche │
+├────────────┼───────────────┼────────┤
+│ CMD        │ game/game.exe │ image  │
+│ DXVK       │ 1             │ image  │
+│ VKD3D      │ 1             │ défaut │
+│ D7VK       │ 1             │ défaut │
+│ NVAPI      │ 1             │ --set  │
+│ VKREFLEX   │ auto          │ défaut │
+│ FSR        │ 0             │ défaut │
+│ FSR4       │ 0             │ défaut │
+│ OPTISCALER │ 0             │ défaut │
+│ ESYNC      │ 0             │ défaut │
+│ FSYNC      │ 0             │ défaut │
+│ HIDRAW     │ 0             │ défaut │
+╰────────────┴───────────────┴────────╯
 
 ▍ENV
 ╭──────────┬───────────╮
@@ -9583,6 +9590,7 @@ WINESERVER -w
 │ VKREFLEX        │ auto          │ défaut                   │
 │ FSR             │ 0             │ défaut                   │
 │ FSR4            │ 0             │ défaut                   │
+│ OPTISCALER      │ 0             │ défaut                   │
 │ ESYNC           │ 0             │ défaut                   │
 │ FSYNC           │ 0             │ défaut                   │
 │ HIDRAW          │ 0             │ défaut                   │
@@ -9798,6 +9806,7 @@ WINESERVER -w
 │ VKREFLEX        │ auto          │ défaut                    │
 │ FSR             │ 0             │ défaut                    │
 │ FSR4            │ 0             │ défaut                    │
+│ OPTISCALER      │ 0             │ défaut                    │
 │ ESYNC           │ 0             │ défaut                    │
 │ FSYNC           │ 0             │ défaut                    │
 │ HIDRAW          │ 0             │ défaut                    │

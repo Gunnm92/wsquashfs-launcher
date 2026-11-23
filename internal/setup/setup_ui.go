@@ -34,7 +34,7 @@ var (
 // affichage. Les étapes NVIDIA et AMD existent seulement si la carte est là,
 // l'agent seulement s'il est demandé ou proposé.
 func setupPlanTotal() int {
-	n := 8 // paquets, Wine, Proton, rendu, lanceur, association, PATH, vérification
+	n := 9 // paquets, Wine, Proton, rendu, OptiScaler, lanceur, association, PATH, vérification
 	if hasGPU("0x10de") {
 		n++
 	}

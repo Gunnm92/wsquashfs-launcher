@@ -18,12 +18,14 @@ import (
 var keyDefault = map[string]string{
 	"DXVK": "1", "VKD3D": "1", "D7VK": "1", "ESYNC": "0", "FSYNC": "0",
 	"NVAPI": "auto", "VKREFLEX": "auto", "HIDRAW": "0", "FSR": "0", "FSR4": "0",
+	"OPTISCALER": "0",
 }
 
 var keyEnvVar = map[string]string{
 	"DXVK": "WSQUASHFS_DXVK", "D7VK": "WSQUASHFS_D7VK", "NVAPI": "WSQUASHFS_NVAPI",
 	"VKREFLEX": "WSQUASHFS_VKREFLEX", "VIRTUAL_DESKTOP": "WSQUASHFS_VIRTUAL_DESKTOP",
 	"HIDRAW": "WSQUASHFS_HIDRAW", "FSR": "WSQUASHFS_FSR", "FSR4": "WSQUASHFS_FSR4",
+	"OPTISCALER": "WSQUASHFS_OPTISCALER",
 }
 
 // layerState : couches de réglages lues (loadLayers) et dernier résultat de layerLookup.

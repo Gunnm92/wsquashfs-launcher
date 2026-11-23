@@ -83,7 +83,11 @@ Puis il propose, quelle que soit la distribution :
   créés par Proton), inutiles pour l'arcade seule ;
 - **DXVK, VKD3D-Proton et d7vk** (dernières versions GitHub) dans
   `~/.local/share/wsquashfs/{dxvk,vkd3d-proton,d7vk}` : rendu Vulkan des jeux
-  lancés par Wine.
+  lancés par Wine ;
+- **OptiScaler** (facultatif, ~300 Mo, dernière release GitHub, empreinte
+  SHA-256 vérifiée, archive .7z : paquet `7zip`) dans
+  `~/.local/share/wsquashfs/optiscaler` : upscaler (DLSS, FSR, XeSS) et
+  génération d'images ajoutés aux jeux, activés jeu par jeu (`OPTISCALER`).
 
 Il termine par `wsquashfs-launcher --doctor`. Options, sans tirets : `dry-run` (montre ce
 qui serait fait sans rien modifier), `yes` (sans questions), `uninstall`,
@@ -91,7 +95,8 @@ qui serait fait sans rien modifier), `yes` (sans questions), `uninstall`,
 le Proton par défaut, même dossier ; à relancer pour la mettre à jour),
 `ge-proton` (installe seulement la dernière version de **GE-Proton**, SHA-512
 vérifiée, dans `~/.local/share/Steam/compatibilitytools.d` ; à relancer pour
-passer à une version plus récente, les précédentes sont gardées). GE-Proton
+passer à une version plus récente, les précédentes sont gardées),
+`optiscaler` (installe ou met à jour seulement **OptiScaler**). GE-Proton
 n'est pas installé par défaut : seulement pour les jeux qui le demandent
 (`PROTON=GE-Proton`).
 Les questions sont posées au terminal, y compris avec `curl … | bash`.
@@ -332,6 +337,8 @@ export WSQUASHFS_FSR=1         # FSR de Wine en plein écran (défaut 0 ; par je
 export WSQUASHFS_FSR4=1        # FSR4 (carte AMD, amdxcffx64.dll copiée par --setup) :
                                # DLL posée dans le prefix, le jeu décide de l'utiliser
                                # (défaut 0 ; par jeu : FSR4=1)
+export WSQUASHFS_OPTISCALER=1  # OptiScaler (--setup optiscaler) relié dans le dossier
+                               # de l'exe (défaut 0 ; par jeu : OPTISCALER=, voir plus bas)
 export WSQUASHFS_DXVK=0        # désactive DXVK (activé par défaut)
 export WSQUASHFS_HIDRAW=1      # manettes Sony par hidraw ("DisableHidraw"=0)
                                # si lisibles ; défaut XInput (Xbox), comme
@@ -401,6 +408,7 @@ fonctionnera pas tel quel.
 | `ARCH` | Architecture Wine (défaut : `win64`) | `win32`, `win64` |
 | `LANG` | Langue (`LC_ALL`) | `fr_FR.UTF-8` |
 | `ENV` | Variables d'environnement additionnelles | `VAR1=val1 VAR2=val2` |
+| `OPTISCALER` | Interrupteur, **jamais dans l'`autorun.cmd` de l'image** (figé au `--pack`) : couche machine, dossier (`_defaults.autorun`), surcharge (`<jeu>.wsquashfs.autorun`) ou `--set`. `1` : OptiScaler (installé par `--setup optiscaler`) chargé comme `dxgi.dll` ; un nom (`winmm`, `version`, `dbghelp`, `d3d12`, `wininet`, `winhttp`) pour un jeu qui a déjà son `dxgi.dll` ou plante avec. Au lancement, ses fichiers sont reliés dans le dossier de l'exécutable (couche de sauvegardes) et `<nom>=n,b` ajouté à `WINEDLLOVERRIDES` après `ENV=` ; un fichier du jeu du même nom (son `libxess.dll`, son `amd_fidelityfx_*.dll`) est gardé, jamais remplacé ; fakenvapi seulement sans carte NVIDIA. `OptiScaler.ini` est copié une fois : réglages du menu (touche Inser) propres au jeu. Clé retirée : liens retirés au lancement suivant. Défaut `0` | `1`, `winmm` |
 | `HIDRAW` | `1` : manettes Sony par hidraw pour ce jeu s'il gère la DualSense **lui-même**, sans Steam Input (repli XInput si illisible) ; défaut XInput. La DualSense elle-même vient de Sunshine : une DualSense USB, avec sa carte son et ses haptiques HD sous SteamBox ([sunshine-ds](https://github.com/Gunnm92/sunshine-ds), [ds5-usbip](https://github.com/Gunnm92/ds5-usbip)) ; le lanceur ne fait que régler le préfixe. Sous GE-Proton, le mode XInput passe aussi par hidraw : GE confie toujours les manettes Sony à hidraw et les convertit en XInput (`PROTON_SONY_HIDRAW_XINPUT=1`, posé par le lanceur) | `1` |
 
 ### Runner joint au jeu
@@ -611,7 +619,7 @@ Chaque clé vient de la couche la plus forte qui la définit (même format
 |---|---|---|---|
 | 1 | défauts du lanceur | — | |
 | 2 | machine | `~/.config/wsquashfs/defaults.autorun` | facultatif |
-| 3 | machine | variables `WSQUASHFS_*` (DXVK, D7VK, NVAPI, VKREFLEX, FSR, FSR4, HIDRAW, VIRTUAL_DESKTOP) | |
+| 3 | machine | variables `WSQUASHFS_*` (DXVK, D7VK, NVAPI, VKREFLEX, FSR, FSR4, OPTISCALER, HIDRAW, VIRTUAL_DESKTOP) | |
 | 4 | dossier | `<dossier du jeu>/_defaults.autorun` : tous les jeux du dossier | facultatif |
 | 5 | image | `autorun.cmd` | |
 | 6 | surcharge | `<jeu>.wsquashfs.autorun`, à côté de l'image | facultatif |

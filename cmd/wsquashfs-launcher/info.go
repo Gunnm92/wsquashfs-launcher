@@ -304,5 +304,5 @@ func cmdShow(args []string) int {
 
 // showKeys : clés affichées par --show, dans cet ordre.
 var showKeys = []string{"CMD", "DIR", "GAME_VERSION", "PROTON", "WINE", "RUNNER", "ARCH", "DXVK", "VKD3D", "D7VK",
-	"NVAPI", "VKREFLEX", "FSR", "FSR4", "ESYNC", "FSYNC", "HIDRAW", "LANG", "VIRTUAL_DESKTOP", "SAVEDIR",
+	"NVAPI", "VKREFLEX", "FSR", "FSR4", "OPTISCALER", "ESYNC", "FSYNC", "HIDRAW", "LANG", "VIRTUAL_DESKTOP", "SAVEDIR",
 	"SAVEFILES", "PRE", "ATTACH", "ATTACH_PROCESS"}

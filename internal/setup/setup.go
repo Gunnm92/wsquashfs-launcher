@@ -45,6 +45,7 @@ var (
 	d7vkDir          string
 	nvapiDir         string
 	fsr4Dir          string
+	optiscalerDir    string
 	protonInstallDir string
 	desktopFile      string
 )
@@ -63,6 +64,7 @@ func setupInit() {
 	d7vkDir = filepath.Join(wsqData, "d7vk")
 	nvapiDir = filepath.Join(wsqData, "dxvk-nvapi")
 	fsr4Dir = filepath.Join(wsqData, "fsr4")
+	optiscalerDir = filepath.Join(wsqData, "optiscaler")
 	protonInstallDir = filepath.Join(home, ".local/share/Steam/compatibilitytools.d")
 	desktopFile = filepath.Join(home, ".local/share/applications/wsquashfs-launcher.desktop")
 }
@@ -533,11 +535,11 @@ func pathExists(p string) bool {
 
 // ── Point d'entrée (section 10) ────────────────────────────────────────
 
-const setupUsage = `Usage : wsquashfs-launcher --setup [yes] [dry-run] [uninstall] [proton-cachyos] [ge-proton] [help]
+const setupUsage = `Usage : wsquashfs-launcher --setup [yes] [dry-run] [uninstall] [proton-cachyos] [ge-proton] [optiscaler] [help]
 
   --setup            installe wsquashfs-launcher et ce dont il a besoin
                      (paquets système, runners Wine et Proton, DXVK, VKD3D,
-                     d7vk, NVAPI, FSR4, entrée de bureau, PATH).
+                     d7vk, NVAPI, FSR4, OptiScaler, entrée de bureau, PATH).
   yes                répond oui à toutes les questions (installation complète)
   dry-run            montre ce qui serait fait, sans rien installer ni modifier
   uninstall          désinstalle le lanceur (sauvegardes et runners gardés)
@@ -548,6 +550,9 @@ const setupUsage = `Usage : wsquashfs-launcher --setup [yes] [dry-run] [uninstal
   ge-proton          installe seulement la dernière version de GE-Proton (somme
                      SHA-512 vérifiée), choisie par PROTON=GE-Proton ; à relancer
                      pour passer à une version plus récente
+  optiscaler         installe ou met à jour seulement OptiScaler (release
+                     GitHub, somme SHA-256 vérifiée), activé jeu par jeu par
+                     OPTISCALER=1 hors de l'image (surcharge, dossier, machine)
   help               cette aide
 
 Distributions prises en charge pour les paquets système :
@@ -589,6 +594,8 @@ func installAll() int {
 		setupStage("AMD : RADV et FSR4")
 		checkAMD()
 	}
+	setupStage("OptiScaler (upscaler et génération d'images)")
+	checkOptiscaler()
 	setupStage("Lanceur")
 	if !installLauncher() {
 		return setupEnd("Installation interrompue : lanceur non installé")
@@ -668,12 +675,12 @@ func Run(args []string, e Env) int {
 			dryRun = true
 		case "uninstall":
 			action = "uninstall"
-		case "ge-proton", "proton-cachyos":
+		case "ge-proton", "proton-cachyos", "optiscaler":
 			action = a
 		case "help":
 			action = "help"
 		default:
-			ui.Error("Option inconnue pour --setup : " + a + " (yes, dry-run, uninstall, proton-cachyos, ge-proton, help)")
+			ui.Error("Option inconnue pour --setup : " + a + " (yes, dry-run, uninstall, proton-cachyos, ge-proton, optiscaler, help)")
 			ui.Help(setupUsage)
 			return 1
 		}
@@ -693,6 +700,14 @@ func Run(args []string, e Env) int {
 		setupStage("GE-Proton")
 		if !downloadGEProton() {
 			return setupEnd("GE-Proton non installé")
+		}
+		return setupEnd("")
+	case "optiscaler":
+		checkRoot()
+		stageTotal = 1
+		setupStage("OptiScaler")
+		if !downloadOptiscaler() {
+			return setupEnd("OptiScaler non installé")
 		}
 		return setupEnd("")
 	case "proton-cachyos":

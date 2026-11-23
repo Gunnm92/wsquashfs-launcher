@@ -152,6 +152,8 @@ func depsDebian() bool {
 	}
 	// getfattr : --clean ; zstd : VKD3D-Proton ; unzip : d7vk
 	_ = aptEnsure("Outils (--clean, archives)", "attr", "zstd", "unzip")
+	// 7zip : archive d'OptiScaler (paquet absent avant Debian 12 et Ubuntu 23.04).
+	_ = aptEnsure("7-Zip (OptiScaler)", "7zip")
 	// Presse-papiers de l'icône (--tray : code d'association copié), Wayland et X11
 	if aptEnsure("Presse-papiers (--tray, facultatif)", "wl-clipboard", "xclip") != nil {
 		setupSkip("wl-clipboard/xclip indisponibles — le code d'association de --tray reste à recopier")
@@ -267,6 +269,7 @@ func depsArch() bool {
 		setupSkip("fuse-overlayfs indisponible — mode copy utilisé (fonctionnel)")
 	}
 	_ = pacmanEnsure("Outils (--clean, archives)", "attr", "zstd", "unzip")
+	_ = pacmanEnsure("7-Zip (OptiScaler)", "7zip")
 	_ = pacmanEnsure("Presse-papiers (--tray, facultatif)", "wl-clipboard", "xclip")
 	if multilibEnabled() {
 		if pacmanEnsure("Bibliothèques 32 bits (wine-tkg, jeux 32 bits)", archLib32Packages()...) != nil {
@@ -311,6 +314,7 @@ func depsSteamOS() bool {
 	check("Images squashfs", true, "fuse3", "squashfs-tools", "xz")
 	check("Mode overlay", false, "fuse-overlayfs")
 	check("Outils (--clean, archives)", false, "attr", "zstd", "unzip")
+	check("7-Zip (OptiScaler)", false, "7zip")
 	check("Bibliothèques 32 bits (wine-tkg, jeux 32 bits)", true,
 		"lib32-glibc", "lib32-gcc-libs", "lib32-libx11", "lib32-wayland", "lib32-freetype2",
 		"lib32-fontconfig", "lib32-gnutls", "lib32-libpulse", "lib32-alsa-lib", "lib32-mesa",
@@ -334,7 +338,7 @@ func depsSteamOS() bool {
 func depsOther() bool {
 	setupFail("Distribution non prise en charge pour les paquets système (" + distroName + ").")
 	ui.Note("Installez à la main : fuse3, squashfs-tools, fuse-overlayfs, attr,",
-		"zstd, unzip, et les bibliothèques 32 bits de Wine (jeux arcade 32 bits) ;",
+		"zstd, unzip, 7zip, et les bibliothèques 32 bits de Wine (jeux arcade 32 bits) ;",
 		"pour --tray : wl-clipboard ou xclip.")
 	return askYesNo("Continuer (runners, DXVK, lanceur) ?", false)
 }

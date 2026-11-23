@@ -451,6 +451,50 @@ func checkNvapi() {
 		"dxvk-nvapi-{tag}.tar.gz", nvapiDir, "x64/nvapi64.dll")
 }
 
+// optiscalerAssetRe : archive d'OptiScaler (nom daté : Optiscaler_0.9.5-final.20261116.7z).
+var optiscalerAssetRe = regexp.MustCompile(`(?i)^optiscaler_.*\.7z$`)
+
+// downloadOptiscaler : dernière version d'OptiScaler (release GitHub, SHA-256
+// publiée par GitHub vérifiée) dans optiscalerDir ; déjà à jour : rien.
+func downloadOptiscaler() bool {
+	repo := "optiscaler/OptiScaler"
+	tag := githubLatestTag(repo, "v0.9.5")
+	if data, err := os.ReadFile(filepath.Join(optiscalerDir, "VERSION")); err == nil &&
+		strings.TrimSpace(string(data)) == tag && isFile(filepath.Join(optiscalerDir, "OptiScaler.dll")) {
+		setupHave("OptiScaler " + tag + " : " + optiscalerDir)
+		return true
+	}
+	if sevenZip() == "" && !cmdOK("bsdtar", "--version") && !dryRun {
+		setupFail("OptiScaler : 7-Zip requis pour l'archive .7z (paquet 7zip)")
+		return false
+	}
+	file := githubAssetMatching(repo, tag, optiscalerAssetRe)
+	if file == "" {
+		setupFail("OptiScaler " + tag + " : archive introuvable dans la version publiée")
+		return false
+	}
+	return installDllPack("OptiScaler", repo, tag, file, optiscalerDir, "OptiScaler.dll")
+}
+
+// checkOptiscaler : OptiScaler (upscaler et génération d'images dans le jeu),
+// installé sur demande, activé jeu par jeu (OPTISCALER=1, jamais par défaut).
+func checkOptiscaler() {
+	if isFile(filepath.Join(optiscalerDir, "OptiScaler.dll")) {
+		v, _ := os.ReadFile(filepath.Join(optiscalerDir, "VERSION"))
+		setupHave(strings.TrimSpace("OptiScaler "+strings.TrimSpace(string(v)))+" : "+optiscalerDir,
+			"mise à jour : --setup optiscaler")
+		return
+	}
+	ui.Note("OptiScaler remplace l'upscaler d'un jeu (DLSS, FSR, XeSS) et ajoute la",
+		"génération d'images ; le lanceur ne l'active que sur demande (OPTISCALER=1).")
+	setupTodo("OptiScaler manquant")
+	if !askYesNo("Installer OptiScaler (~300 Mo) ?", false) {
+		setupSkip("Ignoré : OPTISCALER sans effet")
+		return
+	}
+	downloadOptiscaler()
+}
+
 // findCachyosFSR4 : première amdxcffx64.dll d'un proton-cachyos installé.
 func findCachyosFSR4() string {
 	home := os.Getenv("HOME")

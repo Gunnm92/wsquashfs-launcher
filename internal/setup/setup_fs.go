@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"wsquashfs-launcher/internal/download"
@@ -133,16 +134,54 @@ func cmdOK(name string, args ...string) bool {
 	return execQuiet(name, args...) == nil
 }
 
-// extract : archive (zip, tar, tar.zst, tar.xz...) dans dest.
+// extract : archive (zip, 7z, tar, tar.zst, tar.xz...) dans dest.
 func extract(archive, dest string) error {
 	switch {
 	case strings.HasSuffix(archive, ".zip"):
 		return extractZip(archive, dest)
+	case strings.HasSuffix(archive, ".7z"):
+		if z := sevenZip(); z != "" {
+			return execQuiet(z, "x", "-y", "-o"+dest, archive)
+		}
+		return runCmd("bsdtar", "-xf", archive, "-C", dest)
 	case strings.HasSuffix(archive, ".tar.zst"):
 		return runCmd("tar", "--zstd", "-xf", archive, "-C", dest)
 	default:
 		return runCmd("tar", "-xf", archive, "-C", dest)
 	}
+}
+
+// sevenZip : commande 7-Zip disponible (7z, 7zz, 7za), "" sinon.
+func sevenZip() string {
+	for _, c := range []string{"7z", "7zz", "7za"} {
+		if p, err := exec.LookPath(c); err == nil {
+			return p
+		}
+	}
+	return ""
+}
+
+// githubAssetMatching : nom du fichier d'une version publiée qui correspond
+// à re (nom daté, imprévisible à partir du tag), "" sinon.
+func githubAssetMatching(repo, tag string, re *regexp.Regexp) string {
+	body, err := download.Bytes("https://api.github.com/repos/" + repo + "/releases/tags/" + tag)
+	if err != nil {
+		return ""
+	}
+	var rel struct {
+		Assets []struct {
+			Name string `json:"name"`
+		} `json:"assets"`
+	}
+	if json.Unmarshal(body, &rel) != nil {
+		return ""
+	}
+	for _, a := range rel.Assets {
+		if re.MatchString(a.Name) {
+			return a.Name
+		}
+	}
+	return ""
 }
 
 func extractZip(archive, dest string) error {
