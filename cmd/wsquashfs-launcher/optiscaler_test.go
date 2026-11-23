@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -153,5 +154,59 @@ func TestOptiscalerGameOwnDll(t *testing.T) {
 	installOptiscaler()
 	if data, _ := os.ReadFile(filepath.Join(dir, "dxgi.dll")); string(data) != "ReShade" {
 		t.Errorf("dxgi.dll du jeu touché : %q", data)
+	}
+}
+
+func TestMergeIniOverrides(t *testing.T) {
+	base := "; OptiScaler\n[Dxgi]\nFps=60\n; commentaire gardé\nHook=true\n\n[Graphics]\nMode=auto\n"
+	cas := []struct {
+		nom, base, modele, want string
+	}{
+		{"remplacement", base, "[Dxgi]\nFps = 144\n", "; OptiScaler\n[Dxgi]\nFps=144\n; commentaire gardé\nHook=true\n\n[Graphics]\nMode=auto\n"},
+		{"ajout dans la section", base, "[Dxgi]\nNew=1\n", "; OptiScaler\n[Dxgi]\nFps=60\n; commentaire gardé\nHook=true\nNew=1\n\n[Graphics]\nMode=auto\n"},
+		{"nouvelle section", base, "[Autre]\nA=b\n", base + "\n[Autre]\nA=b\n"},
+		{"CRLF gardé", strings.ReplaceAll(base, "\n", "\r\n"), "[Graphics]\r\nMode=quality\r\n", strings.ReplaceAll("; OptiScaler\n[Dxgi]\nFps=60\n; commentaire gardé\nHook=true\n\n[Graphics]\nMode=quality\n", "\n", "\r\n")},
+		{"commentaires du modèle ignorés", base, "# note\n; autre\n\n[Dxgi]\n# Hook=false\nFps=30\n", "; OptiScaler\n[Dxgi]\nFps=30\n; commentaire gardé\nHook=true\n\n[Graphics]\nMode=auto\n"},
+		{"clé d'une autre section ne touche pas", base, "[Graphics]\nFps=30\n", "; OptiScaler\n[Dxgi]\nFps=60\n; commentaire gardé\nHook=true\n\n[Graphics]\nMode=auto\nFps=30\n"},
+		{"base vide", "", "[A]\nk=v\n", "[A]\nk=v\n"},
+	}
+	for _, c := range cas {
+		if got := mergeIniOverrides(c.base, c.modele); got != c.want {
+			t.Errorf("%s :\n got %q\nwant %q", c.nom, got, c.want)
+		}
+	}
+}
+
+// Modèle machine puis modèle dossier : le dossier l'emporte ; ini déjà présent non touché.
+func TestOptiscalerModelesMachineDossier(t *testing.T) {
+	dir := optiscalerFixture(t)
+	root := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "conf"))
+	saved := launch.wsquashfsFile
+	t.Cleanup(func() { launch.wsquashfsFile = saved })
+	launch.wsquashfsFile = filepath.Join(root, "jeu.wsquashfs")
+	machine := filepath.Join(root, "conf", "wsquashfs", "optiscaler.ini")
+	dossier := filepath.Join(root, "_optiscaler.ini")
+	_ = os.MkdirAll(filepath.Dir(machine), 0o755)
+	_ = os.WriteFile(machine, []byte("[Dxgi]\nFps=30\nHook=false\n"), 0o644)
+	_ = os.WriteFile(dossier, []byte("[Dxgi]\nFps=144\n"), 0o644)
+
+	launch.optiscaler = "1"
+	resolveOptiscaler()
+	installOptiscaler()
+	data, _ := os.ReadFile(filepath.Join(dir, "OptiScaler.ini"))
+	if !strings.Contains(string(data), "Fps=144") || strings.Contains(string(data), "Fps=30") || !strings.Contains(string(data), "Hook=false") {
+		t.Errorf("le dossier doit l'emporter sur la machine : %q", data)
+	}
+	if !slices.Equal(launch.optiscalerModeles, []string{"modèle machine", "modèle dossier"}) {
+		t.Errorf("modèles appliqués = %v", launch.optiscalerModeles)
+	}
+
+	// Ini déjà présent : aucun modèle appliqué, contenu intact.
+	_ = os.WriteFile(filepath.Join(dir, "OptiScaler.ini"), []byte("réglé"), 0o644)
+	launch.optiscalerModeles = nil
+	installOptiscaler()
+	if got, _ := os.ReadFile(filepath.Join(dir, "OptiScaler.ini")); string(got) != "réglé" || launch.optiscalerModeles != nil {
+		t.Errorf("ini existant touché : %q, modèles %v", got, launch.optiscalerModeles)
 	}
 }

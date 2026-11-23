@@ -75,6 +75,7 @@ type launchState struct {
 	hasNvidia, hasAMD                                         string
 	fsr, fsr4, fsr4On                                         string
 	optiscaler, optiscalerDll                                 string
+	optiscalerModeles                                         []string // modèles appliqués à OptiScaler.ini (copie de ce lancement)
 	preCmd, attachCmd, attachProcess                          string
 	machineLayer, folderLayer                                 string
 	detectLayer                                               string // DIR/CMD trouvés dans le dossier (detect.go)

@@ -10,7 +10,8 @@ package main
 // dans la couche de sauvegardes) ; un fichier du jeu n'est jamais remplacé :
 // le remplacer puis le retirer laisserait un masque (whiteout) sur celui de
 // l'image. OptiScaler.ini est copié une fois : les réglages faits dans le
-// menu (Inser) restent propres au jeu.
+// menu (Inser) restent propres au jeu. À cette copie seulement, les modèles
+// partiels (couche machine puis dossier) remplacent ou ajoutent leurs clés.
 
 import (
 	"os"
@@ -156,9 +157,183 @@ func installOptiscaler() (kept []string) {
 	if ini := dir + "/OptiScaler.ini"; !pathExists(ini) {
 		if filetree.CopyFile(src+"/OptiScaler.ini", ini, 0o644) == nil {
 			chownToTarget(ini)
+			launch.optiscalerModeles = appliquerModelesOptiscaler(ini)
 		}
 	}
 	return kept
+}
+
+// appliquerModelesOptiscaler : fusionne les modèles partiels dans l'ini fraîchement
+// copié, machine puis dossier (le dossier l'emporte). Retourne les modèles appliqués.
+func appliquerModelesOptiscaler(ini string) (appliques []string) {
+	modeles := []struct{ label, path string }{
+		{"modèle machine", filepath.Join(configHome(), "wsquashfs/optiscaler.ini")},
+		{"modèle dossier", filepath.Join(filepath.Dir(strings.TrimSuffix(launch.wsquashfsFile, "/")), "_optiscaler.ini")},
+	}
+	data, err := os.ReadFile(ini)
+	if err != nil {
+		return nil
+	}
+	base := string(data)
+	for _, m := range modeles {
+		if !isFile(m.path) {
+			continue
+		}
+		over, err := os.ReadFile(m.path)
+		if err != nil {
+			continue
+		}
+		base = mergeIniOverrides(base, string(over))
+		appliques = append(appliques, m.label)
+	}
+	if len(appliques) == 0 {
+		return nil
+	}
+	if os.WriteFile(ini, []byte(base), 0o644) != nil {
+		return nil
+	}
+	chownToTarget(ini)
+	return appliques
+}
+
+// iniSection : une section d'un modèle partiel, clés dans l'ordre du fichier.
+type iniSection struct {
+	nom  string
+	cles []string
+	vals map[string]string
+}
+
+// parseIniModele : sections et clés d'un modèle partiel. Les lignes vides,
+// commentaires (; ou #) et lignes sans « = » ou hors section sont ignorés ; une
+// clé répétée garde sa dernière valeur.
+func parseIniModele(texte string) []iniSection {
+	var sections []iniSection
+	idx := map[string]int{}
+	cur := -1
+	for _, ligne := range strings.Split(texte, "\n") {
+		t := strings.TrimSpace(ligne)
+		switch {
+		case t == "" || t[0] == ';' || t[0] == '#':
+		case iniEnTete(t) != "":
+			nom := iniEnTete(t)
+			if _, ok := idx[nom]; !ok {
+				idx[nom] = len(sections)
+				sections = append(sections, iniSection{nom: nom, vals: map[string]string{}})
+			}
+			cur = idx[nom]
+		case cur >= 0 && strings.Contains(t, "="):
+			k, v, _ := strings.Cut(t, "=")
+			k = strings.TrimSpace(k)
+			if _, ok := sections[cur].vals[k]; !ok {
+				sections[cur].cles = append(sections[cur].cles, k)
+			}
+			sections[cur].vals[k] = strings.TrimSpace(v)
+		}
+	}
+	return sections
+}
+
+// iniEnTete : nom de la section si la ligne (déjà sans espaces) est « [Nom] », "" sinon.
+func iniEnTete(t string) string {
+	if len(t) >= 2 && t[0] == '[' && t[len(t)-1] == ']' {
+		return strings.TrimSpace(t[1 : len(t)-1])
+	}
+	return ""
+}
+
+// mergeIniOverrides : applique le modèle partiel override à base. Pour chaque clé
+// d'une section du modèle, la ligne « Clé=… » de cette section est remplacée
+// (commentaires et autres lignes gardés) ; une clé absente de la section est
+// ajoutée à la fin de la section, une section absente en fin de fichier. Les
+// fins de ligne de base (CRLF ou LF) sont conservées.
+func mergeIniOverrides(base, override string) string {
+	modele := parseIniModele(override)
+	if len(modele) == 0 {
+		return base
+	}
+	retour := ""
+	if strings.Contains(base, "\r\n") {
+		retour = "\r"
+	}
+	var lignes []string
+	if base != "" {
+		lignes = strings.Split(base, "\n")
+	}
+	trouvees := map[string]bool{}   // sections de base déjà vues
+	appliquees := map[string]bool{} // clés du modèle posées (« section\x00clé »)
+	sectionDe := func(nom string) *iniSection {
+		for i := range modele {
+			if modele[i].nom == nom {
+				return &modele[i]
+			}
+		}
+		return nil
+	}
+	var out []string
+	var cur *iniSection // section du modèle active, nil hors modèle
+	fin := 0            // indice après la dernière ligne utile de la section courante
+	// clore insère les clés du modèle absentes de la section qui se termine.
+	clore := func() {
+		if cur == nil {
+			return
+		}
+		var nouvelles []string
+		for _, k := range cur.cles {
+			if !appliquees[cur.nom+"\x00"+k] {
+				nouvelles = append(nouvelles, k+"="+cur.vals[k]+retour)
+			}
+		}
+		out = slices.Insert(out, fin, nouvelles...)
+		cur = nil
+	}
+	for _, brut := range lignes {
+		corps := strings.TrimSuffix(brut, "\r")
+		retour := ""
+		if corps != brut {
+			retour = "\r"
+		}
+		t := strings.TrimSpace(corps)
+		if nom := iniEnTete(t); nom != "" {
+			clore()
+			trouvees[nom] = true
+			out = append(out, brut)
+			fin = len(out)
+			cur = sectionDe(nom)
+			continue
+		}
+		k, _, cle := strings.Cut(t, "=")
+		cle = cle && cur != nil && t != "" && t[0] != ';' && t[0] != '#'
+		k = strings.TrimSpace(k)
+		if cle {
+			if v, dans := cur.vals[k]; dans && !appliquees[cur.nom+"\x00"+k] {
+				appliquees[cur.nom+"\x00"+k] = true
+				out = append(out, k+"="+v+retour)
+				fin = len(out)
+				continue
+			}
+		}
+		out = append(out, brut)
+		if cle {
+			fin = len(out)
+		}
+	}
+	clore()
+	ajoute := false
+	for i := range modele {
+		s := &modele[i]
+		if trouvees[s.nom] {
+			continue
+		}
+		out = append(out, "["+s.nom+"]"+retour)
+		for _, k := range s.cles {
+			out = append(out, k+"="+s.vals[k]+retour)
+		}
+		ajoute = true
+	}
+	if ajoute {
+		out = append(out, "")
+	}
+	return strings.Join(out, "\n")
 }
 
 // setupOptiscaler : liens posés, ligne du récapitulatif.
@@ -170,6 +345,9 @@ func setupOptiscaler() {
 	msg := strings.TrimSpace("OptiScaler "+optiscalerVersion()) + " : " + launch.optiscalerDll + ".dll (menu : Inser)"
 	if len(kept) > 0 {
 		msg += " ; fichiers du jeu gardés : " + strings.Join(kept, ", ")
+	}
+	if len(launch.optiscalerModeles) > 0 {
+		msg += " ; OptiScaler.ini : " + strings.Join(launch.optiscalerModeles, ", ") + " appliqué"
 	}
 	ui.StatusLine(ui.Info, msg)
 }
