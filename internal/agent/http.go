@@ -4,7 +4,7 @@ package agent
 // lanceur ou une lecture de dossier borné ; aucune commande fournie par le
 // client, aucun chemin hors des dossiers roms/ ou des runners installés.
 // Les routes sont réparties par famille : pair_http.go, actions.go,
-// runner.go, saves.go et games.go.
+// runner.go, saves.go, games.go et config.go (réglages du manager).
 
 import (
 	"context"
@@ -32,6 +32,7 @@ type service struct {
 	trial     sync.Mutex // un essai à la fois
 	updating  sync.Mutex // une mise à jour du lanceur à la fois (POST /v1/update)
 	docMu     sync.Mutex
+	configMu  sync.Mutex // PUT /v1/config/* : lecture de la sha puis écriture, une à la fois
 	docOut    []byte
 	docAt     time.Time
 	pairMu    sync.Mutex // POST /v1/pair : un code consommé à la fois
@@ -54,6 +55,9 @@ func (s *service) httpServer() *http.Server {
 	mux.HandleFunc("POST /v1/pair", s.pairRoute) // hors du contrôle de jeton : le code d'association
 	mux.HandleFunc("GET /v1/info", s.auth(s.info))
 	mux.HandleFunc("GET /v1/doctor", s.auth(s.doctor))
+	mux.HandleFunc("GET /v1/config", s.auth(s.configGet))
+	mux.HandleFunc("PUT /v1/config/defaults", s.auth(s.configDefaultsPut))
+	mux.HandleFunc("PUT /v1/config/optiscaler", s.auth(s.configOptiscalerPut))
 	mux.HandleFunc("POST /v1/trial", s.auth(s.trialRoute))
 	mux.HandleFunc("POST /v1/maintenance", s.auth(s.maintenance))
 	mux.HandleFunc("POST /v1/update", s.auth(s.update))

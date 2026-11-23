@@ -2,7 +2,7 @@ openapi: 3.1.0
 jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
 info:
   title: Contrat de l'agent du lanceur et du manager
-  version: "11"
+  version: "12"
   description: |
     Source de vérité du dialogue entre wsquashfs-manager (Python, FastAPI) et l'agent de
     wsquashfs-launcher (Go, `--agent`). Chaque côté code les formats de son côté : ce fichier est
@@ -10,7 +10,7 @@ info:
     `backend/tests/test_contract.py`). Il décrit ce que fait le serveur réel, pas ce qu'on aimerait
     qu'il fasse. Un écart connu entre les deux côtés est dit dans la description de la route.
 
-    `info.version` est la version de protocole : la valeur de `version` de `GET /v1/info` (11).
+    `info.version` est la version de protocole : la valeur de `version` de `GET /v1/info` (12).
     Elle est montée à chaque évolution du protocole. L'extension `x-since-agent: N` d'une route
     donne la première version de l'agent qui la sert. Un client qui reçoit un 404 en texte brut
     (`404 page not found`, sans `detail`) sait que la route manque : agent plus ancien.
@@ -628,6 +628,94 @@ paths:
         "401": {$ref: "#/components/responses/Unauthorized"}
         "500": {$ref: "#/components/responses/ServerError"}
 
+  /v1/config:
+    get:
+      tags: [agent]
+      operationId: configGet
+      summary: Réglages du manager (modèles, cartes, environnement)
+      description: |
+        Modèle des défauts (`defaults.autorun` de la machine) et modèle partiel d'OptiScaler.ini
+        (`optiscaler.ini` de la machine) avec leur empreinte (`sha`, `null` si le fichier est
+        absent), OptiScaler installé (`template` : son OptiScaler.ini complet, `""` sinon), cartes
+        NVIDIA et AMD, et les variables `WSQUASHFS_*` de l'agent, sauf celles dont le nom contient
+        TOKEN, SECRET, KEY ou PASS. `path` : chemin absolu sur la machine.
+      x-since-agent: 12
+      x-served-by: [agent]
+      parameters:
+        - $ref: "#/components/parameters/Machine"
+      responses:
+        "200":
+          description: Réglages.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ConfigReply"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "500": {$ref: "#/components/responses/ServerError"}
+
+  /v1/config/defaults:
+    put:
+      tags: [agent]
+      operationId: configDefaultsPut
+      summary: Écrit ou supprime le modèle des défauts
+      description: |
+        `base_sha` : empreinte du fichier lu (`null` s'il était absent) ; 409 si le fichier a changé
+        depuis. `text` : `CLÉ=valeur` par ligne, `#` ou `;` pour les commentaires ; 422 sinon, avec
+        le numéro de la ligne fautive. `text` vide (après espaces) supprime le fichier. Écriture
+        atomique. Corps de 512 Kio au plus, texte de 64 Kio au plus.
+      x-since-agent: 12
+      x-served-by: [agent]
+      parameters:
+        - $ref: "#/components/parameters/Machine"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/ConfigWrite"}
+      responses:
+        "200":
+          description: Écrit (ou supprimé, `sha` à `null`).
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ConfigSha"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "409": {$ref: "#/components/responses/Conflict"}
+        "413": {$ref: "#/components/responses/TooLarge"}
+        "422": {$ref: "#/components/responses/UnprocessableConfig"}
+        "500": {$ref: "#/components/responses/ServerError"}
+
+  /v1/config/optiscaler:
+    put:
+      tags: [agent]
+      operationId: configOptiscalerPut
+      summary: Écrit ou supprime le modèle partiel d'OptiScaler.ini
+      description: |
+        Mêmes règles que `PUT /v1/config/defaults`. Les lignes utiles sont `[Section]` ou
+        `Clé=valeur`. Le lanceur fusionne ce modèle dans l'OptiScaler.ini d'un jeu à sa première
+        copie seulement (`optiscaler.go`).
+      x-since-agent: 12
+      x-served-by: [agent]
+      parameters:
+        - $ref: "#/components/parameters/Machine"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/ConfigWrite"}
+      responses:
+        "200":
+          description: Écrit (ou supprimé, `sha` à `null`).
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ConfigSha"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "409": {$ref: "#/components/responses/Conflict"}
+        "413": {$ref: "#/components/responses/TooLarge"}
+        "422": {$ref: "#/components/responses/UnprocessableConfig"}
+        "500": {$ref: "#/components/responses/ServerError"}
+
   /v1/games/list:
     get:
       tags: [agent]
@@ -919,6 +1007,11 @@ components:
       content:
         application/json:
           schema: {$ref: "#/components/schemas/Error"}
+    UnprocessableConfig:
+      description: Texte refusé (taille, octet NUL, ligne de forme inconnue ; `detail` cite le numéro de ligne).
+      content:
+        application/json:
+          schema: {$ref: "#/components/schemas/Error"}
     Unprocessable:
       description: Empreinte incorrecte, envoi à refaire.
       content:
@@ -1204,6 +1297,54 @@ components:
       properties:
         fingerprint: {type: string}
 
+    ConfigFile:
+      type: object
+      additionalProperties: false
+      required: [path, text, sha]
+      properties:
+        path: {type: string, description: "Chemin absolu du fichier sur la machine."}
+        text: {type: string, description: "Contenu, `\"\"` si absent."}
+        sha: {description: "SHA-256 hexadécimal du contenu, `null` si absent.", oneOf: [{type: string, pattern: "^[0-9a-f]{64}$"}, {type: "null"}]}
+    ConfigReply:
+      type: object
+      additionalProperties: false
+      required: [gpu, defaults, optiscaler, env]
+      properties:
+        gpu:
+          type: object
+          additionalProperties: false
+          required: [nvidia, amd]
+          properties:
+            nvidia: {type: boolean}
+            amd: {type: boolean}
+        defaults: {$ref: "#/components/schemas/ConfigFile"}
+        optiscaler:
+          type: object
+          additionalProperties: false
+          required: [installed, version, template, overrides]
+          properties:
+            installed: {type: boolean}
+            version: {type: string, description: "Fichier VERSION d'OptiScaler, `\"\"` si inconnu."}
+            template: {type: string, description: "OptiScaler.ini complet installé, `\"\"` si non installé."}
+            overrides: {$ref: "#/components/schemas/ConfigFile"}
+        env:
+          type: object
+          description: "Variables WSQUASHFS_* de l'agent (sans TOKEN, SECRET, KEY ni PASS dans le nom)."
+          propertyNames: {pattern: "^WSQUASHFS_"}
+          additionalProperties: {type: string}
+    ConfigWrite:
+      type: object
+      description: Les champs inconnus sont ignorés par l'agent.
+      required: [text, base_sha]
+      properties:
+        text: {type: string, maxLength: 65536}
+        base_sha: {description: "Empreinte lue, `null` si le fichier était absent.", oneOf: [{type: string, pattern: "^[0-9a-f]{64}$"}, {type: "null"}]}
+    ConfigSha:
+      type: object
+      additionalProperties: false
+      required: [sha]
+      properties:
+        sha: {description: "Empreinte du fichier écrit, `null` s'il a été supprimé.", oneOf: [{type: string, pattern: "^[0-9a-f]{64}$"}, {type: "null"}]}
     DirDeclaration:
       type: object
       description: Les champs inconnus sont ignorés par l'agent.

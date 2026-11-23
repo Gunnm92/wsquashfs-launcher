@@ -311,3 +311,27 @@ func TestContractPair(t *testing.T) {
 	r.want(r.call(true, "GET", "/v1/info", map[string]string{"Authorization": "Bearer " + v.Token, "X-Wsq-Machine": "aaaa-machine-01"}, nil), 200)
 	r.want(pair(false, secret, "aaaa-machine-01", jsonBody(map[string]string{"name": "x"})), 401) // code consommé
 }
+
+// Réglages du manager : GET /v1/config, PUT /v1/config/{defaults,optiscaler} (config.go).
+func TestContractConfig(t *testing.T) {
+	r, _ := newContractRig(t)
+	t.Setenv("WSQUASHFS_DRM_SYSFS", t.TempDir())
+	r.want(r.call(true, "GET", "/v1/config", nil, nil), 200)
+	// Un texte valide pour chaque modèle (defaults : CLÉ=valeur ; OptiScaler : [Section] ou Clé=valeur).
+	textes := map[string]string{"/v1/config/defaults": "FSR=1\n", "/v1/config/optiscaler": "[Dxgi]\nFps=60\n"}
+	for _, route := range []string{"/v1/config/defaults", "/v1/config/optiscaler"} {
+		rec := r.call(true, "PUT", route, nil, jsonBody(map[string]any{"text": textes[route], "base_sha": nil}))
+		r.want(rec, 200)
+		var v struct {
+			Sha string `json:"sha"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &v); err != nil || len(v.Sha) != 64 {
+			t.Fatalf("%s : sha absente : %s", route, rec.Body.String())
+		}
+		r.want(r.call(true, "PUT", route, nil, jsonBody(map[string]any{"text": textes[route], "base_sha": "0000000000000000000000000000000000000000000000000000000000000000"})), 409)
+		r.want(r.call(true, "PUT", route, nil, jsonBody(map[string]any{"text": "pas une ligne\n", "base_sha": v.Sha})), 422)
+		r.want(r.call(true, "PUT", route, nil, jsonBody(map[string]any{"text": "", "base_sha": v.Sha})), 200)
+		r.want(r.call(false, "PUT", route, nil, []byte("pas du json")), 400)
+		r.want(r.call(false, "PUT", route, nil, jsonBody(map[string]any{"text": strings.Repeat("x", 600<<10), "base_sha": nil})), 413)
+	}
+}

@@ -33,7 +33,7 @@ func TestInfoReportsActivity(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &v); err != nil {
 		t.Fatal(err)
 	}
-	if v.Version != "11" || v.Build != "abc123def456" || len(v.Playing) != 1 || v.Playing[0].Game != "Crazy Taxi 3" ||
+	if v.Version != agentVersion || v.Build != "abc123def456" || len(v.Playing) != 1 || v.Playing[0].Game != "Crazy Taxi 3" ||
 		len(v.Controllers) != 1 || v.Controllers[0].Kind != "dualsense" {
 		t.Fatalf("info : %s", rec.Body.String())
 	}
