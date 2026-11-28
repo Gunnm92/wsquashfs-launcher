@@ -712,7 +712,7 @@ func Run(args []string, e Env) int {
 		// (un prefix qui les utilisait passe à la plus récente, findProtonRunner).
 		if !dryRun && env.PruneOldProtons != nil {
 			if removed := env.PruneOldProtons("GE-Proton"); len(removed) > 0 {
-				setupDone("Anciennes versions retirées : " + strings.Join(removed, ", "))
+				ui.Item(ui.OK, "Anciennes versions retirées : "+strings.Join(removed, ", "))
 			}
 		}
 		return setupEnd("")
@@ -730,7 +730,7 @@ func Run(args []string, e Env) int {
 		}
 		if !dryRun && env.PruneOldProtons != nil {
 			if removed := env.PruneOldProtons("UMU-Proton"); len(removed) > 0 {
-				setupDone("Anciennes versions retirées : " + strings.Join(removed, ", "))
+				ui.Item(ui.OK, "Anciennes versions retirées : "+strings.Join(removed, ", "))
 			}
 		}
 		return setupEnd("")
@@ -752,7 +752,7 @@ func Run(args []string, e Env) int {
 		// Comme GE-Proton : les précédentes versions ne servent plus.
 		if !dryRun && env.PruneOldProtons != nil {
 			if removed := env.PruneOldProtons("proton-cachyos"); len(removed) > 0 {
-				setupDone("Anciennes versions retirées : " + strings.Join(removed, ", "))
+				ui.Item(ui.OK, "Anciennes versions retirées : "+strings.Join(removed, ", "))
 			}
 		}
 		return setupEnd("")
