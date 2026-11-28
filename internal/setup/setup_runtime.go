@@ -161,6 +161,10 @@ func downloadUmu() bool {
 		return false
 	}
 	tag := githubLatestTag("Open-Wine-Components/umu-launcher", "1.4.4")
+	if isExecutable(filepath.Join(umuInstallDir, "umu-run")) && umuInstalledTag() == tag {
+		setupHave("umu-run " + tag + " : " + filepath.Join(umuInstallDir, "umu-run"))
+		return true
+	}
 	file := "umu-launcher-" + tag + "-zipapp.tar"
 	url := "https://github.com/Open-Wine-Components/umu-launcher/releases/download/" + tag + "/" + file
 	tmp, err := mkTempDir()
@@ -181,6 +185,7 @@ func downloadUmu() bool {
 		if os.MkdirAll(umuInstallDir, 0o755) == nil && os.MkdirAll(installDir, 0o755) == nil &&
 			filetree.CopyFile(filepath.Join(tmp, "umu/umu-run"), target, 0o755) == nil {
 			os.Remove(link)
+			_ = os.WriteFile(filepath.Join(umuInstallDir, "version"), []byte(tag+"\n"), 0o644)
 			if os.Symlink(target, link) == nil {
 				setupDone("umu-run " + tag + " installé : " + link)
 				return true
@@ -197,6 +202,26 @@ func installUmu() {
 		return
 	}
 	downloadUmu()
+}
+
+// umuInstalledTag : version de umu-run installée par downloadUmu ("" si inconnue).
+func umuInstalledTag() string {
+	data, err := os.ReadFile(filepath.Join(umuInstallDir, "version"))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
+}
+
+// updateUmu : --setup umu (umu n'était jamais mis à jour, seulement installé). Paquet pacman
+// installé sur Arch : mis à jour par pacman -Syu. Sinon umu-run en zipapp, à la
+// dernière version (rien n'est retéléchargé si elle est déjà là).
+func updateUmu() bool {
+	if distro == "arch" && pacmanSynced() && pacmanInstalled("umu-launcher") {
+		setupHave("umu-launcher : paquet pacman, mis à jour par pacman -Syu")
+		return true
+	}
+	return downloadUmu()
 }
 
 // downloadUmuProton : UMU-Proton (SHA-512 vérifiée), dans protonInstallDir.

@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -276,12 +277,14 @@ func cleanCache() (freed int64) {
 // UMU-Proton et proton-cachyos (20/11, dossiers proton-cachyos-* seulement :
 // pas les Proton dérivés comme DenuvOwO-cachyos) installées par --setup
 // (~/.local/share/Steam/compatibilitytools.d),
-// la plus récente de chaque famille gardée. Un Proton en cours d'utilisation
+// la plus récente de chaque famille gardée. fams : familles à traiter seulement
+// (--setup ge-proton retire les anciens GE-Proton après une installation) ;
+// aucune : toutes. Un Proton en cours d'utilisation
 // (chemin dans la ligne de commande ou l'environnement d'un processus) est
 // gardé. Les prefixes créés par une version retirée passent à la plus récente
 // de la famille (findProtonRunner). Proton du système, de Steam ou de Heroic :
 // jamais touchés.
-func pruneOldProtons() (removed []string, freed int64) {
+func pruneOldProtons(fams ...string) (removed []string, freed int64) {
 	dir := filepath.Join(os.Getenv("HOME"), ".local/share/Steam/compatibilitytools.d")
 	entries, _ := filepath.Glob(dir + "/*")
 	newest := map[string]string{}
@@ -295,6 +298,9 @@ func pruneOldProtons() (removed []string, freed int64) {
 			continue
 		}
 		if fam != "GE-Proton" && fam != "UMU-Proton" && fam != "proton-cachyos" {
+			continue
+		}
+		if len(fams) > 0 && !slices.Contains(fams, fam) {
 			continue
 		}
 		candidates = append(candidates, d)

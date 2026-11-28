@@ -57,6 +57,10 @@ func run(args []string) int {
 			CoverPath:        imageCoverPath,
 			CompletionScript: completionScript,
 			RemoveAgentUnits: agentSrv().RemoveUnits,
+			PruneOldProtons: func(fam string) []string {
+				removed, _ := pruneOldProtons(fam)
+				return removed
+			},
 		})
 	}
 	applyOptions(opts)

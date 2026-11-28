@@ -527,3 +527,33 @@ func TestPruneOldProtons(t *testing.T) {
 		t.Fatalf("prefix GE-Proton11-5 → %q", got)
 	}
 }
+
+// TestPruneOldProtonsOneFamily : --setup ge-proton ne retire que les anciens
+// GE-Proton ; UMU-Proton et proton-cachyos anciens restent (--clean s'en charge).
+func TestPruneOldProtonsOneFamily(t *testing.T) {
+	isolateState(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	mk := func(rel string) {
+		d := filepath.Join(home, rel)
+		writeTree(t, d, map[string]string{"proton": "#!/bin/sh\n", "files/bin/wine": "#!/bin/sh\n"})
+		for _, f := range []string{"proton", "files/bin/wine"} {
+			if err := os.Chmod(filepath.Join(d, f), 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	c := ".local/share/Steam/compatibilitytools.d/"
+	mk(c + "GE-Proton11-5")
+	mk(c + "GE-Proton11-12-x86_64")
+	mk(c + "UMU-Proton-9.0-3")
+	mk(c + "UMU-Proton-11.0-2e-x86_64")
+
+	removed, _ := pruneOldProtons("GE-Proton")
+	if strings.Join(removed, ",") != "GE-Proton11-5" {
+		t.Fatalf("retirés = %v", removed)
+	}
+	if _, err := os.Stat(filepath.Join(home, c+"UMU-Proton-9.0-3")); err != nil {
+		t.Fatal("UMU-Proton ancien retiré alors que la famille n'était pas demandée")
+	}
+}

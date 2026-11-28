@@ -92,10 +92,14 @@ Puis il propose, quelle que soit la distribution :
 Il termine par `wsquashfs-launcher --doctor`. Options, sans tirets : `dry-run` (montre ce
 qui serait fait sans rien modifier), `yes` (sans questions), `uninstall`,
 `proton-cachyos` (installe seulement la dernière version de **proton-cachyos**,
-le Proton par défaut, même dossier ; à relancer pour la mettre à jour),
+le Proton par défaut, même dossier ; à relancer pour la mettre à jour, les
+précédentes sont retirées),
 `ge-proton` (installe seulement la dernière version de **GE-Proton**, SHA-512
 vérifiée, dans `~/.local/share/Steam/compatibilitytools.d` ; à relancer pour
-passer à une version plus récente, les précédentes sont gardées),
+passer à une version plus récente, les précédentes sont retirées),
+`umu` (installe ou met à jour seulement **umu-run** : dernière version de la
+zipapp GitHub, ou paquet pacman sur Arch, mis à jour par `pacman -Syu` ; et
+**UMU-Proton**, dont les précédentes versions sont retirées),
 `optiscaler` (installe ou met à jour seulement **OptiScaler**). GE-Proton
 n'est pas installé par défaut : seulement pour les jeux qui le demandent
 (`PROTON=GE-Proton`).

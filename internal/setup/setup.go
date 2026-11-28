@@ -22,11 +22,12 @@ import (
 
 // Env : ce que l'installeur reçoit du lanceur.
 type Env struct {
-	AgentDir         string      // dossier de configuration de l'agent (conservé à la désinstallation)
-	TrayAutostart    string      // fichier de lancement automatique de l'icône de notification
-	CoverPath        string      // illustration dans l'image, lue par le fichier de miniatures
-	CompletionScript string      // script de complétion bash
-	RemoveAgentUnits func() bool // retire le démarrage systemd des anciennes versions de l'agent
+	AgentDir         string                       // dossier de configuration de l'agent (conservé à la désinstallation)
+	TrayAutostart    string                       // fichier de lancement automatique de l'icône de notification
+	CoverPath        string                       // illustration dans l'image, lue par le fichier de miniatures
+	CompletionScript string                       // script de complétion bash
+	RemoveAgentUnits func() bool                  // retire le démarrage systemd des anciennes versions de l'agent
+	PruneOldProtons  func(family string) []string // retire les anciennes versions d'une famille de Proton, renvoie leurs noms
 }
 
 // ShortName : nom court du lanceur (« ws --update »), lien vers le binaire installé.
@@ -535,7 +536,7 @@ func pathExists(p string) bool {
 
 // ── Point d'entrée (section 10) ────────────────────────────────────────
 
-const setupUsage = `Usage : wsquashfs-launcher --setup [yes] [dry-run] [uninstall] [proton-cachyos] [ge-proton] [optiscaler] [help]
+const setupUsage = `Usage : wsquashfs-launcher --setup [yes] [dry-run] [uninstall] [proton-cachyos] [ge-proton] [umu] [optiscaler] [help]
 
   --setup            installe wsquashfs-launcher et ce dont il a besoin
                      (paquets système, runners Wine et Proton, DXVK, VKD3D,
@@ -546,10 +547,16 @@ const setupUsage = `Usage : wsquashfs-launcher --setup [yes] [dry-run] [uninstal
   proton-cachyos     installe seulement la dernière version de proton-cachyos,
                      le Proton par défaut (release GitHub de CachyOS, somme
                      SHA-512 vérifiée, x86-64-v3 si le processeur le permet) ;
-                     à relancer pour passer à une version plus récente
+                     à relancer pour passer à une version plus récente, les
+                     précédentes sont retirées
   ge-proton          installe seulement la dernière version de GE-Proton (somme
                      SHA-512 vérifiée), choisie par PROTON=GE-Proton ; à relancer
-                     pour passer à une version plus récente
+                     pour passer à une version plus récente, les précédentes sont
+                     retirées
+  umu                installe ou met à jour seulement umu-run (zipapp GitHub,
+                     version la plus récente ; paquet pacman sur Arch, mis à jour
+                     par pacman -Syu) et UMU-Proton, dont les précédentes
+                     versions sont retirées
   optiscaler         installe ou met à jour seulement OptiScaler (release
                      GitHub, somme SHA-256 vérifiée), activé jeu par jeu par
                      OPTISCALER=1 hors de l'image (surcharge, dossier, machine)
@@ -675,12 +682,12 @@ func Run(args []string, e Env) int {
 			dryRun = true
 		case "uninstall":
 			action = "uninstall"
-		case "ge-proton", "proton-cachyos", "optiscaler":
+		case "ge-proton", "proton-cachyos", "optiscaler", "umu":
 			action = a
 		case "help":
 			action = "help"
 		default:
-			ui.Error("Option inconnue pour --setup : " + a + " (yes, dry-run, uninstall, proton-cachyos, ge-proton, optiscaler, help)")
+			ui.Error("Option inconnue pour --setup : " + a + " (yes, dry-run, uninstall, proton-cachyos, ge-proton, umu, optiscaler, help)")
 			ui.Help(setupUsage)
 			return 1
 		}
@@ -701,6 +708,31 @@ func Run(args []string, e Env) int {
 		if !downloadGEProton() {
 			return setupEnd("GE-Proton non installé")
 		}
+		// Une seule version de GE-Proton à la fois : les précédentes ne servent plus
+		// (un prefix qui les utilisait passe à la plus récente, findProtonRunner).
+		if !dryRun && env.PruneOldProtons != nil {
+			if removed := env.PruneOldProtons("GE-Proton"); len(removed) > 0 {
+				setupDone("Anciennes versions retirées : " + strings.Join(removed, ", "))
+			}
+		}
+		return setupEnd("")
+	case "umu":
+		checkRoot()
+		detectDistro()
+		stageTotal = 1
+		setupStage("umu-run")
+		if !updateUmu() {
+			return setupEnd("umu-run non installé")
+		}
+		// UMU-Proton (Proton de repli de umu) : dernière version, anciennes retirées.
+		if !downloadUmuProton() {
+			return setupEnd("UMU-Proton non installé")
+		}
+		if !dryRun && env.PruneOldProtons != nil {
+			if removed := env.PruneOldProtons("UMU-Proton"); len(removed) > 0 {
+				setupDone("Anciennes versions retirées : " + strings.Join(removed, ", "))
+			}
+		}
 		return setupEnd("")
 	case "optiscaler":
 		checkRoot()
@@ -716,6 +748,12 @@ func Run(args []string, e Env) int {
 		setupStage("proton-cachyos")
 		if !downloadProtonCachyos() {
 			return setupEnd("proton-cachyos non installé")
+		}
+		// Comme GE-Proton : les précédentes versions ne servent plus.
+		if !dryRun && env.PruneOldProtons != nil {
+			if removed := env.PruneOldProtons("proton-cachyos"); len(removed) > 0 {
+				setupDone("Anciennes versions retirées : " + strings.Join(removed, ", "))
+			}
 		}
 		return setupEnd("")
 	}
